@@ -1,0 +1,14 @@
+# Your job search is private. Keep this folder out of any public repository.
+.ohmyjob/
+.claude/settings.local.json
+.DS_Store
+~$*
+.~lock.*
+# Personal data: remove a line only if you really want it under version control.
+Profile.md
+Job_Tracker.xlsx
+Default_Resume_Files/
+Applications/
+Pending-Review/
+Needs-Attention/
+Submitted/
