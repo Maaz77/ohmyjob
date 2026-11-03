@@ -126,7 +126,13 @@ def test_every_setting_has_a_check():
 
 
 def test_every_default_passes_its_own_check():
-    assert W.validate_config(W.DEFAULTS) == W.DEFAULTS
+    with_country = {"search": {"country": "germany"}}
+    expected = {**W.DEFAULTS, "search": {**W.DEFAULTS["search"], "country": "germany"}}
+    assert W.validate_config(with_country) == expected
+    assert W.validate_config(expected) == expected
+    # the one default that is not valid alone: indeed (a default source) needs a country
+    with pytest.raises(W.ConfigError, match='"search.country" is empty'):
+        W.validate_config(W.DEFAULTS)
 
 
 def test_the_fixture_config_loads(workspace):
@@ -138,7 +144,7 @@ def test_the_fixture_config_loads(workspace):
 
 
 def test_missing_keys_take_their_defaults_and_defaults_are_not_shared(tmp_path):
-    config = write_config(tmp_path, {"search": {"location": " Berlin "}})
+    config = write_config(tmp_path, {"search": {"location": " Berlin ", "country": "germany"}})
     assert config["search"]["location"] == "Berlin"
     assert config["search"]["sources"] == ["linkedin", "indeed"]
     assert config["pipeline"] == W.DEFAULTS["pipeline"]
@@ -147,8 +153,10 @@ def test_missing_keys_take_their_defaults_and_defaults_are_not_shared(tmp_path):
 
 
 def test_an_empty_object_and_ignored_schema_keys_are_fine(tmp_path):
-    assert write_config(tmp_path, {}) == W.DEFAULTS
-    assert write_config(tmp_path, {"$schema": "x", "_note": "y"}) == W.DEFAULTS
+    only_linkedin = {"search": {"sources": ["linkedin"]}}
+    expected = {**W.DEFAULTS, "search": {**W.DEFAULTS["search"], "sources": ["linkedin"]}}
+    assert write_config(tmp_path, only_linkedin) == expected
+    assert write_config(tmp_path, {**only_linkedin, "$schema": "x", "_note": "y"}) == expected
 
 
 def test_a_missing_or_broken_file_is_a_config_error(tmp_path):
@@ -170,7 +178,7 @@ def test_a_bare_string_search_query_is_refused_not_split_into_letters(tmp_path):
 
 
 def test_sources_are_normalised_and_an_unknown_board_lists_the_valid_ones(tmp_path):
-    config = write_config(tmp_path, {"search": {"sources": ["Indeed", " linkedin", "indeed", "FREEHIRE"]}})
+    config = write_config(tmp_path, {"search": {"sources": ["Indeed", " linkedin", "indeed", "FREEHIRE"], "country": "uk"}})
     assert config["search"]["sources"] == ["indeed", "linkedin", "freehire"]
     with pytest.raises(W.ConfigError) as exc:
         write_config(tmp_path, {"search": {"sources": ["linkedin", "monster"]}})
@@ -185,18 +193,33 @@ def test_country_is_normalised_and_an_unknown_one_lists_the_valid_ones(tmp_path)
     assert write_config(tmp_path, {"search": {"country": " Germany "}})["search"]["country"] == "germany"
     assert write_config(tmp_path, {"search": {"country": "United States"}})["search"]["country"] == "usa"
     assert write_config(tmp_path, {"search": {"country": "Czechia"}})["search"]["country"] == "czech republic"
-    assert write_config(tmp_path, {"search": {"country": ""}})["search"]["country"] == ""
+    assert write_config(tmp_path, {"search": {"country": "", "sources": ["linkedin", "freehire"]}})["search"]["country"] == ""
     with pytest.raises(W.ConfigError) as exc:
         write_config(tmp_path, {"search": {"country": "Atlantis"}})
     assert '"search.country" has "Atlantis"' in str(exc.value)
     assert "germany" in str(exc.value) and "türkiye" in str(exc.value)
 
 
+@pytest.mark.parametrize("board", ["indeed", "glassdoor"])
+@pytest.mark.parametrize("country", ["", "  "])
+def test_a_country_is_required_when_a_board_searches_the_usa_without_one(tmp_path, board, country):
+    with pytest.raises(W.ConfigError, match=f'"search.country" is empty.*{board}'):
+        write_config(tmp_path, {"search": {"sources": ["linkedin", board], "country": country}})
+    assert write_config(tmp_path, {"search": {"sources": ["linkedin", board], "country": "usa"}})["search"]["country"] == "usa"
+    assert write_config(tmp_path, {"search": {"sources": ["linkedin", "google"]}})["search"]["country"] == ""
+
+
+@pytest.mark.parametrize("code", ["ja", "zh", "xx", "ko", "en-US", "english"])
+def test_a_language_that_the_text_matching_cannot_handle_is_refused_at_load(tmp_path, code):
+    with pytest.raises(W.ConfigError, match=f'"search.languages" has "{code.lower()}"'):
+        write_config(tmp_path, {"search": {"country": "germany", "languages": ["en", code]}})
+
+
 def test_employment_types_are_checked_and_may_be_empty(tmp_path):
-    assert write_config(tmp_path, {"search": {"employment_types": ["FullTime"]}})["search"]["employment_types"] == ["fulltime"]
-    assert write_config(tmp_path, {"search": {"employment_types": []}})["search"]["employment_types"] == []
+    assert write_config(tmp_path, {"search": {"country": "usa", "employment_types": ["FullTime"]}})["search"]["employment_types"] == ["fulltime"]
+    assert write_config(tmp_path, {"search": {"country": "usa", "employment_types": []}})["search"]["employment_types"] == []
     with pytest.raises(W.ConfigError, match="full-time"):
-        write_config(tmp_path, {"search": {"employment_types": ["full-time"]}})
+        write_config(tmp_path, {"search": {"country": "usa", "employment_types": ["full-time"]}})
 
 
 @pytest.mark.parametrize("key, bad", [
@@ -225,7 +248,7 @@ def test_bad_pipeline_values_are_refused_with_their_key(tmp_path, key, bad):
 
 def test_good_edge_values_are_kept(tmp_path):
     config = write_config(tmp_path, {
-        "search": {"recency_days": 0, "title_filter": "OFF", "languages": ["DE", "fr"],
+        "search": {"country": "usa", "recency_days": 0, "title_filter": "OFF", "languages": ["DE", "fr"],
                    "title_aliases": {"rn": ["registered nurse", "nurse"]}},
         "pipeline": {"resume_max_pages": 0, "resume_paper": "Letter"},
     })
@@ -254,13 +277,19 @@ def test_the_valid_values_match_the_pinned_jobspy():
     assert sorted(W.EMPLOYMENT_TYPES) == sorted(j.value for j in JobType)
 
 
+def test_the_languages_match_the_pinned_simplemma():
+    from simplemma.strategies.dictionaries.dictionary_factory import SUPPORTED_LANGUAGES
+
+    assert sorted(W.LANGUAGES) == sorted(SUPPORTED_LANGUAGES)
+
+
 # --------------------------------------------------------------------------- slots
 
 
 def test_slots_is_the_worker_limit_below_the_subagent_cap_by_one(workspace, monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", raising=False)
     assert W.slots() == 3  # the fixture asks for 3 workers
-    config = W.validate_config({"pipeline": {"max_parallel_workers": 50}})
+    config = W.validate_config({"search": {"country": "usa"}, "pipeline": {"max_parallel_workers": 50}})
     assert W.slots(config) == 19  # default cap 20
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "60")
     assert W.slots(config) == 50

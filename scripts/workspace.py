@@ -153,6 +153,14 @@ COUNTRY_ALIASES = {
     "czechia": "czech republic", "turkey": "türkiye", "uae": "united arab emirates",
     "united kingdom": "uk", "us": "usa", "united states": "usa",
 }
+# The languages simplemma 2.0 can lemmatize (tests/test_workspace.py checks the tuple against the installed package;
+# workspace.py itself stays standard-library only). Any other code fails in the middle of a scrape.
+LANGUAGES = (
+    "ar", "ast", "bg", "ca", "cs", "cy", "da", "de", "el", "en", "enm", "eo", "es", "et", "fa", "fi", "fr", "ga", "gd",
+    "gl", "grc", "gv", "hbs", "he", "hi", "hu", "hy", "id", "is", "it", "ka", "la", "lb", "lt", "lv", "mk", "ml", "ms",
+    "nb", "nl", "nn", "pl", "pt", "ro", "ru", "se", "sk", "sl", "sq", "sv", "sw", "tl", "tr", "uk",
+)
+COUNTRY_BOARDS = ("indeed", "glassdoor")  # JobSpy searches the USA on these when no country is given
 MAX_RECENCY_DAYS = 3650  # a typo must not stop the run
 
 DEFAULTS: dict[str, dict[str, Any]] = {
@@ -247,8 +255,8 @@ def _country(key: str, value: Any) -> str:
 def _languages(key: str, value: Any) -> list:
     codes = _strings(lower=True, nonempty=True)(key, value)
     for code in codes:
-        if not re.fullmatch(r"[a-z]{2,3}", code):
-            _fail(key, f'has "{code}", which is not a language code like "en" or "de"')
+        if code not in LANGUAGES:
+            _fail(key, f'has "{code}", which the text matching does not support. Supported: {", ".join(LANGUAGES)}')
     return codes
 
 
@@ -305,6 +313,10 @@ def validate_config(raw: Any) -> dict:
             if key not in known:
                 _fail(f"{section}.{key}", f"is not a known setting. Known settings: {', '.join(known)}")
             config[section][key] = CHECKS[f"{section}.{key}"](f"{section}.{key}", value)
+    search = config["search"]
+    if not search["country"] and any(board in COUNTRY_BOARDS for board in search["sources"]):
+        _fail("search.country", f"is empty, but {' and '.join(COUNTRY_BOARDS)} search the USA without a country. "
+                                f"Set a country, or leave {' and '.join(COUNTRY_BOARDS)} out of search.sources")
     return config
 
 

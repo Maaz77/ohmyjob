@@ -224,3 +224,70 @@ def test_save_refuses_while_excel_or_libreoffice_has_the_file_open(path, tr, loc
     lock.unlink()
     tr.save()  # the rows added while it was locked are still in memory
     assert len(Tracker(path).rows()) == 2
+
+
+# --------------------------------------------------------------------------- cell text
+
+
+@pytest.mark.parametrize("text", ["=1+1", "=HYPERLINK(\"http://x\",\"y\")", "+SUM(A1)", "@x"])
+def test_text_that_looks_like_a_formula_is_stored_as_text(path, tr, text):
+    index = tr.add_row({"Job URL": LINKEDIN, "Job Title": text})
+    tr.set_cell(index, "Company", text)
+    tr.set_status(index, "Found", text)
+    tr.save()
+    cells = {c.column_letter: c for c in load_workbook(path)["Jobs"][2]}
+    for letter in ("C", "D", "I"):
+        assert cells[letter].data_type == "s", letter
+        assert cells[letter].value == text
+    assert Tracker(path).rows()[0]["Job Title"] == text
+
+
+def test_control_characters_are_dropped_and_long_text_is_clipped(path, tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Job Title": "Ops\x1b[31m Analyst\x00\x08", "Location": "x" * 40000})
+    tr.set_status(index, "Found", "note\x1b")
+    tr.save()  # an IllegalCharacterError here would not be a TrackerError
+    row = Tracker(path).rows()[0]
+    assert row["Job Title"] == "Ops[31m Analyst"
+    assert len(row["Location"]) == T.MAX_CELL_CHARS
+    assert row["Notes"] == "note"
+
+
+def test_the_notes_keep_their_newest_lines_when_they_outgrow_a_cell(path, tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Notes": "o" * T.MAX_CELL_CHARS})
+    tr.set_status(index, "Found", "newest line")
+    assert tr.rows()[0]["Notes"].endswith("\nnewest line")
+    assert len(tr.rows()[0]["Notes"]) == T.MAX_CELL_CHARS
+
+
+# --------------------------------------------------------------------------- stale workbook
+
+
+def test_a_save_refuses_when_the_file_changed_after_the_load(path, tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Status": "Found"})
+    tr.save()
+    stale = Tracker(path)  # a scrape that loaded the tracker before /prep-jobs saved it
+    fresh = Tracker(path)
+    fresh.set_status(index, "Matched", None)
+    fresh.save()
+    stale.add_row({"Job URL": INDEED})
+    before = path.read_bytes()
+    with pytest.raises(TrackerError, match="changed on disk since this run loaded it") as exc:
+        stale.save()
+    assert "Nothing was saved" in str(exc.value)
+    assert path.read_bytes() == before
+    assert Tracker(path).rows()[0]["Status"] == "Matched"
+
+
+def test_a_tracker_can_be_saved_again_after_its_own_save(path, tr):
+    tr.add_row({"Job URL": LINKEDIN})
+    tr.save()
+    tr.add_row({"Job URL": INDEED})
+    tr.save()
+    assert len(Tracker(path).rows()) == 2
+
+
+def test_a_save_refuses_when_the_file_was_deleted(path, tr):
+    tr.add_row({"Job URL": LINKEDIN})
+    path.unlink()
+    with pytest.raises(TrackerError, match="changed on disk"):
+        tr.save()

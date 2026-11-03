@@ -52,7 +52,7 @@ def call(hook, event, payload, project, data=None, **env_extra):
     if data is not None:
         env["CLAUDE_PLUGIN_DATA"] = str(data)
     stdin = payload if isinstance(payload, str) else json.dumps(payload)
-    return subprocess.run(["bash", str(hook), event], input=stdin, capture_output=True, text=True, env=env)
+    return subprocess.run(["bash", str(hook), event], input=stdin, capture_output=True, text=True, env=env, timeout=60)
 
 
 def hook_input(agent=None, tool="Bash", **tool_input):
@@ -80,12 +80,33 @@ def test_without_the_marker_it_does_nothing(plugin, data, tmp_path, event):
         assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
 
 
-@pytest.mark.parametrize("agent", ["general-purpose", "Explore", "other-plugin:worker", "ohmyjob", "ohmyjob:setup-helper"])
-@pytest.mark.parametrize("event", ["guard", "handback", "capture", "snapshot"])
-def test_an_agent_that_is_not_an_ohmyjob_agent_is_left_alone(plugin, workspace, tmp_path, agent, event):
+OTHER_AGENTS = ["general-purpose", "Explore", "other-plugin:worker", "ohmyjob", "ohmyjob:setup-helper"]
+
+
+@pytest.mark.parametrize("agent", OTHER_AGENTS)
+@pytest.mark.parametrize("event", ["handback", "capture", "snapshot"])
+def test_an_agent_that_is_not_an_ohmyjob_agent_is_left_alone_for_the_other_events(plugin, workspace, tmp_path, agent, event):
     for data_dir in (None, tmp_path / "no-venv"):  # with or without a venv: no message either way
         proc = call(plugin, event, hook_input(agent, tool=CHROME), workspace, data_dir)
         assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize("agent", OTHER_AGENTS)
+@pytest.mark.parametrize("tool", ["Read", "Edit", "Write", "Bash", "Agent", "Skill"])
+def test_an_agent_that_is_not_an_ohmyjob_agent_is_left_alone_except_for_chrome_tools(plugin, workspace, tmp_path, agent, tool):
+    for data_dir in (None, tmp_path / "no-venv"):
+        proc = call(plugin, "guard", hook_input(agent, tool=tool), workspace, data_dir)
+        assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize("agent", OTHER_AGENTS + [None, "ohmyjob:prep-master", "ohmyjob:screen-worker"])
+@pytest.mark.parametrize("tool", [CHROME, "mcp__claude-in-chrome__javascript_tool", "mcp__claude-in-chrome__browser_batch"])
+def test_every_chrome_guard_call_goes_to_hooks_py_whoever_calls(plugin, workspace, data, agent, tool):
+    """Explore and every other agent have Chrome too, so the never-submit rule cannot depend on agent_type. (A prep
+    agent goes to pj_hooks.py, which denies Chrome itself.)"""
+    report = routed(call(plugin, "guard", hook_input(agent, tool=tool), workspace, data))
+    prep = agent in ("ohmyjob:prep-master", "ohmyjob:screen-worker")
+    assert report["script"] == ("pj_hooks.py" if prep else "hooks.py")
 
 
 @pytest.mark.parametrize("tool", ["Read", "Edit", "Write", "Bash", "Agent", "Skill"])
@@ -191,10 +212,52 @@ def test_formatting_of_the_json_does_not_matter(plugin, workspace, data):
 
 
 def test_agent_type_or_tool_name_inside_a_string_value_cannot_steer_the_routing(plugin, workspace, data):
-    forged = hook_input(None, tool="Read", file_path="x", note='"agent_type":"ohmyjob:prep-master"')
-    assert routed(call(plugin, "guard", forged, workspace, data)) is None
-    forged = hook_input(None, tool="Bash", command=f'echo "tool_name":"{CHROME}"')
-    assert routed(call(plugin, "guard", forged, workspace, data)) is None
+    """The real keys come LAST here, so a pattern that took the first match would be fooled."""
+    for tool_input in ({"file_path": "x", "note": '"agent_type":"ohmyjob:prep-master"'},
+                       {"command": f'echo "tool_name":"{CHROME}"'}):
+        forged = {"session_id": "s1", "cwd": "/w", "tool_input": tool_input, "tool_name": "Bash", "hook_event_name": "PreToolUse"}
+        assert routed(call(plugin, "guard", forged, workspace, data)) is None
+
+
+def test_a_spoofed_key_in_a_nested_object_never_switches_a_guard_off(plugin, workspace, data):
+    """browser_batch-like tools take extra keys, so an object in tool_input can hold a real-looking agent_type or
+    tool_name. Spoofing is checked for both directions and both key orders."""
+    def raw(top, nested, nested_first):
+        pieces = [f'"tool_input":{json.dumps(nested)}', ",".join(f'"{k}":"{v}"' for k, v in top.items())]
+        return "{" + ",".join(pieces if nested_first else pieces[::-1]) + "}"
+
+    for nested_first in (True, False):
+        # main session Chrome call, spoofed "other agent": still guarded
+        top = {"tool_name": "mcp__claude-in-chrome__browser_batch", "cwd": "/w"}
+        for agent in ("x", "Explore", "ohmyjob:resume-worker"):
+            report = routed(call(plugin, "guard", raw(top, {"agent_type": agent}, nested_first), workspace, data))
+            assert report is not None
+        # an ohmyjob worker's call, spoofed "main session" or another worker: the real agent still gets its script
+        top = {"agent_type": "ohmyjob:prep-master", "tool_name": "Bash", "cwd": "/w"}
+        nested = {"agent_type": "", "tool_name": "Read"}
+        assert routed(call(plugin, "guard", raw(top, nested, nested_first), workspace, data))["script"] == "pj_hooks.py"
+        top = {"agent_type": "ohmyjob:application-worker", "tool_name": "Bash", "cwd": "/w"}
+        nested = {"agent_type": "x"}
+        assert routed(call(plugin, "guard", raw(top, nested, nested_first), workspace, data))["script"] == "hooks.py"
+        # a spoofed Chrome tool name costs one Python start and nothing else
+        top = {"tool_name": "Read", "cwd": "/w"}
+        nested = {"tool_name": CHROME}
+        assert routed(call(plugin, "guard", raw(top, nested, nested_first), workspace, data))["script"] == "hooks.py"
+
+
+def test_claude_started_outside_the_workspace_is_found_by_the_stdin_cwd(plugin, workspace, data, tmp_path):
+    """CLAUDE_PROJECT_DIR is the folder Claude started in; the pipeline may run after a cd into the workspace."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    inner = workspace / "Applications"
+    payload = hook_input("ohmyjob:application-worker", tool=CHROME)
+    for project in (elsewhere, None):
+        payload["cwd"] = str(inner)
+        report = routed(call(plugin, "guard", payload, project, data))
+        assert (report["script"], report["workspace"]) == ("hooks.py", str(workspace))
+    payload["cwd"] = str(elsewhere)  # and a cwd outside any workspace still ends quietly
+    proc = call(plugin, "guard", payload, elsewhere, data)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
 
 
 def test_a_big_page_snapshot_arrives_whole(plugin, workspace, data):
@@ -219,6 +282,22 @@ def test_without_a_venv_an_ohmyjob_agent_is_denied(plugin, workspace, tmp_path, 
         assert proc.returncode == 2
         assert proc.stderr.strip() == NOT_SET_UP
         assert proc.stdout == ""
+
+
+@pytest.mark.parametrize("agent", ["Explore", "general-purpose"])
+def test_without_a_venv_any_agent_is_denied_its_chrome_calls_but_not_its_other_calls(plugin, workspace, agent):
+    proc = call(plugin, "guard", hook_input(agent, tool=CHROME), workspace, None)
+    assert (proc.returncode, proc.stderr.strip(), proc.stdout) == (2, NOT_SET_UP, "")
+    assert call(plugin, "guard", hook_input(agent, tool="Bash"), workspace, None).returncode == 0
+
+
+def test_an_unset_or_empty_plugin_data_is_no_venv(plugin, workspace):
+    """An unset CLAUDE_PLUGIN_DATA must not turn the venv into /venv/bin/python."""
+    for kwargs in ({}, {"CLAUDE_PLUGIN_DATA": ""}):
+        env = {"PATH": "/usr/bin:/bin", "CLAUDE_PROJECT_DIR": str(workspace), **kwargs}
+        proc = subprocess.run(["bash", str(plugin), "guard"], input=json.dumps(hook_input("ohmyjob:prep-master")),
+                              capture_output=True, text=True, env=env, timeout=60)
+        assert (proc.returncode, proc.stderr.strip()) == (2, NOT_SET_UP)
 
 
 def test_without_a_venv_the_main_session_gets_a_message_for_chrome_calls_and_is_not_blocked(plugin, workspace):

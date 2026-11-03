@@ -24,9 +24,11 @@ VOLATILE_PARAMS = frozenset({
     "gclid", "gclsrc", "gbraid", "wbraid", "dclid",  # Google Ads
     "fbclid", "igshid", "msclkid", "yclid", "twclid", "ttclid", "li_fat_id",  # other ad networks
     "mc_cid", "mc_eid", "_hsenc", "_hsmi", "mkt_tok", "_ga", "_gl",  # mail and analytics links
-    "trk", "trkinfo", "trackingid", "refid", "lipi", "midtoken", "midsig", "trkemail",  # LinkedIn
     "gh_src", "lever-source", "lever-origin",  # Greenhouse and Lever source tags
 })
+# Tracking names that only LinkedIn means as tracking (another site may use refId or trk as the id of a posting), so
+# strip_tracking drops them on LinkedIn hosts only: "per board".
+LINKEDIN_PARAMS = frozenset({"trk", "trkinfo", "trackingid", "refid", "lipi", "midtoken", "midsig", "trkemail"})
 
 
 def _host(url) -> str:
@@ -42,7 +44,8 @@ def is_linkedin_url(url) -> bool:
 
 
 def strip_tracking(url: str) -> str:
-    """The address without its utm_* parameters and the other VOLATILE_PARAMS (freehire appends utm_source=freehire.me).
+    """The address without its utm_* parameters and the other VOLATILE_PARAMS (freehire appends utm_source=freehire.me),
+    plus LINKEDIN_PARAMS on a LinkedIn host.
 
     The rest of the query is kept as it is written, so the employer's link still works. An address with nothing
     to remove comes back untouched.
@@ -52,15 +55,16 @@ def strip_tracking(url: str) -> str:
     except ValueError:
         return url
     pieces = parts.query.split("&")
-    kept = [piece for piece in pieces if not _is_tracking(piece)]
+    linkedin = is_linkedin_url(url)
+    kept = [piece for piece in pieces if not _is_tracking(piece, linkedin)]
     if len(kept) == len(pieces):
         return url
     return parts._replace(query="&".join(kept)).geturl()
 
 
-def _is_tracking(piece: str) -> bool:
+def _is_tracking(piece: str, linkedin: bool = False) -> bool:
     name = piece.split("=", 1)[0].lower()
-    return name.startswith("utm_") or name in VOLATILE_PARAMS
+    return name.startswith("utm_") or name in VOLATILE_PARAMS or (linkedin and name in LINKEDIN_PARAMS)
 
 
 def job_key(url) -> str:

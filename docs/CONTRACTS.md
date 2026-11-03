@@ -11,6 +11,10 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   `$CLAUDE_PROJECT_DIR`, else at or above the cwd; raises `WorkspaceError`.
 - `load_config(root=None)`, `validate_config(raw)`: defaults filled in, `ConfigError` names the bad key. Unknown keys are
   errors: a new setting needs `DEFAULTS`, `CHECKS` and `templates/ohmyjob.json` (equal to `DEFAULTS` by test).
+  Validation also rejects what the tools would fail on later: `languages` must be in `W.LANGUAGES` (simplemma's
+  tuple, pinned by test; `ja`, `zh`, `xx` are refused), and `country` is required while `indeed` or `glassdoor` is in
+  `sources` (JobSpy would search the USA). So the shipped template and `DEFAULTS` alone are NOT valid: setup must write a
+  country (or drop those boards) before any script calls `load_config`.
 - `slots(config=None) -> int`: `min(max_parallel_workers, subagent cap - 1)`; call it late, not at import.
   `file_prefix(root=None) -> str`: ASCII slug of `name.first` in `base.yaml`, else `Resume`; tailored files are
   `<prefix>_<Company>.pdf/.yaml`.
@@ -28,16 +32,28 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - A row dict has the nine headers plus `_index` (header row = 0, sheet row = `_index + 1`) and `_key` (`job_key` of its Job
   URL). `save()` is atomic (temp file + `os.replace`) and raises while `~$Job_Tracker.xlsx` or `.~lock.Job_Tracker.xlsx#`
   exists.
+- Stale workbook: a `Tracker` remembers the file's `st_mtime_ns` from its load (and from its own last save). `save()` raises
+  `TrackerError` ("... changed on disk since this run loaded it ... Nothing was saved; run the command again.") when the
+  file changed meanwhile, so a long run cannot revert statuses another command wrote. Callers load, change and save in one
+  short step, and treat that error as a stop (print `FATAL ...`), never as a reason to overwrite.
+- Cell text: every string written (`set_cell`, `set_status` notes, `add_row`) is stored as text (a scraped `=...` is never a
+  formula), loses control characters xlsx cannot hold, and is clipped to 32767 characters (`Notes` keeps its newest lines).
 
 ## job_key.py
 - `job_key(url)`: a LinkedIn `/jobs/view/<id>` keeps its id; any other http(s) address gives `9` + 14 hash digits (utm_*
   ignored). A key in use never changes. `strip_tracking(url)` drops utm_* and `VOLATILE_PARAMS` before an address is stored
-  (add a parameter there when a board's scrape shows it changing between runs). Also `is_linkedin_url`, `LINKEDIN_ID_RE`.
+  (add a parameter there when a board's scrape shows it changing between runs); `LINKEDIN_PARAMS` (`trk`, `refid`, ...)
+  are dropped on LinkedIn hosts only. Also `is_linkedin_url`, `LINKEDIN_ID_RE`.
 
 ## bin/ohmyjob
 - `ohmyjob prep|apply|scrape|reconcile|resume <args>` runs `scripts/pj.py|aa.py|scrape.py|reconcile.py|resume_build.py` with
   `$OHMYJOB_PY`, finds the workspace like `find_root()` and exports `OHMYJOB_WORKSPACE OHMYJOB_PY OHMYJOB_UV OHMYJOB_DATA
-  OHMYJOB_LUALATEX`. `.ohmyjob/env.sh` (plain `NAME='/abs/path'` lines; setup rewrites it on every run) sets the last four.
+  OHMYJOB_LUALATEX`. `.ohmyjob/env.sh` (setup rewrites it on every run) sets the last four.
+- `env.sh` is parsed, never sourced (agents can write it and `Bash(ohmyjob *)` is pre-allowed). Allowed lines: blank, `#`
+  comments, and `NAME='value'` or `NAME=value` for `OHMYJOB_PY OHMYJOB_UV OHMYJOB_DATA OHMYJOB_LUALATEX`. A quoted value
+  is taken literally (spaces and `$` are fine, no single quote inside); an unquoted one holds no quote, `$`, backtick,
+  backslash or whitespace. Any other line, name or value is an `ohmyjob: ...` error (exit 3) naming env.sh. Setup writes
+  single-quoted values, and an empty `OHMYJOB_LUALATEX=''` is fine.
 - Errors are one stdout line starting `ohmyjob: `, exit 3; no `env.sh` or no executable Python gives exactly `ohmyjob:
   environment missing or stale, run /ohmyjob:setup`. The scripts print their own `FATAL: ...` lines.
 - Only `prep start` and `apply start` re-sync, when sha256(`uv.lock`) differs from `$OHMYJOB_DATA/venv/uv.lock.sha256`:
@@ -47,13 +63,30 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 ## Hooks: `hooks/hooks.json` -> `scripts/hook.sh <event>` -> `pj_hooks.py` or `hooks.py <event>`
 - Events: `guard` (PreToolUse), `handback` (PreToolUse of `SubagentHandback`), `snapshot` (PostToolUse of Chrome tools),
   `capture` (SubagentStop), `report` (Stop).
-- hook.sh stays in bash, without Python, unless: `ohmyjob:prep-master|screen-worker|resume-worker` -> `pj_hooks.py`;
-  `ohmyjob:application-*` -> `hooks.py`; main session -> `hooks.py guard` for Chrome tools only; `snapshot` only for
-  `application-worker`; `report` only if `.ohmyjob/last_report.txt` exists. `handback` and `capture` route like `guard`.
-  Other callers: exit 0, no output. Without `$CLAUDE_PLUGIN_DATA/venv/bin/python`, `guard` and `handback` of an `ohmyjob:*`
-  agent are denied (the message above); the rest prints `{"systemMessage": ...}` and exits 0.
+- hook.sh stays in bash, without Python, unless: any `ohmyjob:prep-master|screen-worker|resume-worker` agent_type ->
+  `pj_hooks.py`; `ohmyjob:application-*` -> `hooks.py`; `guard` of ANY Chrome tool (`mcp__claude-in-chrome__*`), whoever
+  calls (main session, Explore, any agent) -> `hooks.py`; `snapshot` only for `application-worker`; `report` only if
+  `.ohmyjob/last_report.txt` exists. `handback` and `capture` route like `guard`, for ohmyjob agents only. Everything else
+  (the main session's non-Chrome calls, other agents' non-Chrome calls, every call outside a workspace): exit 0, no output,
+  no Python. Without `$CLAUDE_PLUGIN_DATA/venv/bin/python` (an unset or empty `CLAUDE_PLUGIN_DATA` counts as missing),
+  `guard` and `handback` of an `ohmyjob:*` agent, and `guard` of a Chrome call by any agent, are denied (the message above);
+  the main session's Chrome call and the other events print `{"systemMessage": ...}` and exit 0.
+- Why Chrome is routed whatever the agent: the never-submit rule cannot hang on `agent_type`. Explore and other agents have
+  every tool, Chrome included, and the settings template carries no `Agent(...)` deny rules (they would block the owner's
+  own agents). **`hooks.py guard` applies the main-session Chrome rules (deny `javascript_tool`, deny final-button clicks)
+  to every caller that is not an `ohmyjob:*` agent**, including non-ohmyjob subagents.
+- Spoofing rule (WS-B, WS-C): the model controls `tool_input`, so it can put any text there, even an object holding
+  `"agent_type"`, `"tool_name"` or `"cwd"` keys. hook.sh's text matches are a PREFILTER: it takes every match, not the
+  first, and a false match may start Python once but never changes a decision. So **`pj_hooks.py` and `hooks.py` must
+  parse the JSON and decide only from the top-level `agent_type`, `tool_name` and `cwd`**, never from `tool_input` text.
+  The choice between the two scripts rests on a text test, so each re-checks the parsed `agent_type`: `pj_hooks.py` reached
+  with a parsed `agent_type` that is not a prep agent, or `hooks.py` reached with a prep agent, runs the other script's
+  rules on the same input (import and call its `main`). The workspace hook.sh exports is a candidate too: Python takes the
+  nearest `ohmyjob.json` at or above the parsed top-level `cwd` (else `$CLAUDE_PROJECT_DIR`), and exits 0 with no output
+  when there is none.
 - Python gets the hook JSON on stdin, the event as `argv[1]`, and `OHMYJOB_WORKSPACE`: the workspace hook.sh found by walking
-  up from `$CLAUDE_PROJECT_DIR` (Claude may start in a subfolder). `find_root()` returns it as given.
+  up from `$CLAUDE_PROJECT_DIR` (Claude may start in a subfolder), else from the stdin `cwd` (Claude may start outside the
+  workspace and `cd` in; `CLAUDE_PROJECT_DIR` is unset for some callers). `find_root()` returns it as given.
 - stdin: `session_id transcript_path cwd hook_event_name tool_name tool_input`; PostToolUse adds `tool_response`; a
   subagent's calls add `agent_id`, `agent_type` (scoped, e.g. `ohmyjob:resume-worker`; both absent in the main session);
   SubagentStop and Stop add `last_assistant_message` (may be null). `tool_name` is `Agent` for a spawn.

@@ -54,7 +54,7 @@ def uv(tmp_path):
 
 def run(plugin, *args, cwd, **env_extra):
     env = {"PATH": "/usr/bin:/bin", "OHMYJOB_PY": sys.executable, **env_extra}
-    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True)
+    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=60)
 
 
 def report(proc):
@@ -141,22 +141,36 @@ def test_env_sh_gives_the_python_and_its_variables_reach_the_script(plugin, work
     (workspace / ".ohmyjob" / "env.sh").write_text(
         f"OHMYJOB_PY='{sys.executable}'\nOHMYJOB_DATA=/data/ohmyjob\nOHMYJOB_UV=/bin/uv\nOHMYJOB_LUALATEX=/tex/lualatex\n")
     proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env={"PATH": "/usr/bin:/bin"},
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, timeout=60)
     out = report(proc)
     assert (out["OHMYJOB_DATA"], out["OHMYJOB_UV"], out["OHMYJOB_LUALATEX"]) == ("/data/ohmyjob", "/bin/uv", "/tex/lualatex")
 
 
-def test_a_broken_env_sh_ends_in_one_line_not_in_silence(plugin, workspace):
-    (workspace / ".ohmyjob").mkdir()
-    env_sh = workspace / ".ohmyjob" / "env.sh"
-    env_sh.write_text(f"OHMYJOB_PY='{sys.executable}'\nOHMYJOB_DATA=$NEVER_SET/data\nOHMYJOB_UV=/bin/uv\n")
-    clean = {"PATH": "/usr/bin:/bin"}  # a line that reads an unset variable is not an error
-    proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env=clean, capture_output=True, text=True)
-    assert report(proc)["OHMYJOB_DATA"] == "/data"
-    env_sh.write_text(f"OHMYJOB_PY='{sys.executable}'\nfalse\n")
-    proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env=clean, capture_output=True, text=True)
-    assert proc.returncode == 3
-    assert proc.stdout.startswith("ohmyjob: ") and "env.sh failed" in proc.stdout
+def _run_env_sh(plugin, workspace, text):
+    (workspace / ".ohmyjob").mkdir(exist_ok=True)
+    (workspace / ".ohmyjob" / "env.sh").write_text(text)
+    return subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env={"PATH": "/usr/bin:/bin"},
+                          capture_output=True, text=True, timeout=60)
+
+
+def test_env_sh_is_parsed_not_sourced(plugin, workspace, tmp_path):
+    """The agents can write env.sh and Bash(ohmyjob *) is pre-allowed: nothing in the file may run or expand."""
+    marker = tmp_path / "ran"
+    py = f"OHMYJOB_PY='{sys.executable}'\n"
+    for bad in (f"touch {marker}\n", f"OHMYJOB_DATA=$(touch {marker})\n", f"OHMYJOB_DATA=`touch {marker}`\n",
+                "OHMYJOB_DATA=$NEVER_SET/data\n", "OHMYJOB_DATA=a b\n", "OHMYJOB_DATA='it''s'\n", "false\n",
+                "OTHER='x'\n", "OHMYJOB_DATA=\"x\"\n", f"OHMYJOB_DATA=x; touch {marker}\n"):
+        proc = _run_env_sh(plugin, workspace, py + bad)
+        assert proc.returncode == 3, bad
+        assert proc.stdout.startswith("ohmyjob: ") and "env.sh" in proc.stdout and proc.stdout.count("\n") == 1, bad
+        assert not marker.exists(), bad
+
+
+def test_env_sh_takes_quoted_values_literally_and_allows_comments_and_spaces(plugin, workspace):
+    text = (f"# written by setup\n\nOHMYJOB_PY='{sys.executable}'\nOHMYJOB_DATA='/Users/a b/$HOME/data'\n"
+            "OHMYJOB_UV=/bin/uv\nOHMYJOB_LUALATEX=''\n")
+    out = report(_run_env_sh(plugin, workspace, text))
+    assert (out["OHMYJOB_DATA"], out["OHMYJOB_UV"]) == ("/Users/a b/$HOME/data", "/bin/uv")
 
 
 STALE = "ohmyjob: environment missing or stale, run /ohmyjob:setup\n"
@@ -165,7 +179,7 @@ STALE = "ohmyjob: environment missing or stale, run /ohmyjob:setup\n"
 def run_clean(plugin, *args, cwd, **env_extra):
     """Like run(), but with no OHMYJOB_PY from the caller: only .ohmyjob/env.sh can say where Python is."""
     env = {"PATH": "/usr/bin:/bin", **env_extra}
-    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True)
+    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=60)
 
 
 def test_without_env_sh_it_prints_the_one_line_and_exits_3(plugin, workspace):
