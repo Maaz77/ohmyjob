@@ -132,6 +132,7 @@ def test_the_main_session_is_left_alone_except_for_chrome_tools(plugin, workspac
     ("capture", "ohmyjob:resume-worker", "", "pj_hooks.py"),
     ("capture", "ohmyjob:application-worker", "", "hooks.py"),
     ("snapshot", "ohmyjob:application-worker", CHROME, "hooks.py"),
+    ("snapshot", "ohmyjob:application-master", CHROME, "hooks.py"),  # preflight reads the master's own tabs
 ])
 def test_a_call_is_routed_by_agent_type(plugin, workspace, data, event, agent, tool, script):
     payload = hook_input(agent, tool=tool)
@@ -146,7 +147,6 @@ def test_a_call_is_routed_by_agent_type(plugin, workspace, data, event, agent, t
     ("capture", None, ""),
     ("snapshot", None, CHROME),
     ("snapshot", "ohmyjob:screen-worker", CHROME),
-    ("snapshot", "ohmyjob:application-master", CHROME),
     ("bogus", "ohmyjob:application-worker", CHROME),
     ("", "ohmyjob:application-worker", CHROME),
 ])

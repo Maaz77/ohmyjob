@@ -49,13 +49,12 @@ if [ -z "$root" ]; then
 fi
 [ -n "$root" ] || exit 0
 
-prep=0 app=0 ohmyjob_agent=0 any_agent=0 chrome=0 app_worker=0
+prep=0 app=0 ohmyjob_agent=0 any_agent=0 chrome=0
 find_all agent_type
 for agent in ${found[@]+"${found[@]}"}; do
   [ -n "$agent" ] && any_agent=1
   case "$agent" in
     ohmyjob:prep-master|ohmyjob:screen-worker|ohmyjob:resume-worker) prep=1 ohmyjob_agent=1 ;;
-    ohmyjob:application-worker) app=1 app_worker=1 ohmyjob_agent=1 ;;
     ohmyjob:application-*) app=1 ohmyjob_agent=1 ;;
   esac
 done
@@ -77,7 +76,7 @@ case "$event" in
     elif [ "$prep" = 1 ]; then script="pj_hooks.py"
     elif [ "$app" = 1 ]; then script="hooks.py"
     fi ;;
-  snapshot) [ "$app_worker" = 1 ] && script="hooks.py" ;;
+  snapshot) [ "$app" = 1 ] && script="hooks.py" ;;  # worker pages and the master's own tab reads (preflight)
   report) [ -f "$root/.ohmyjob/last_report.txt" ] && script="hooks.py" ;;
 esac
 [ -n "$script" ] || exit 0
