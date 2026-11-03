@@ -29,6 +29,25 @@ class ConfigError(WorkspaceError):
     """ohmyjob.json is missing or holds a value the pipeline cannot use."""
 
 
+class FileReadError(WorkspaceError, OSError):
+    """A workspace file (Profile.md, a resume yaml) exists but cannot be read: no permission, not UTF-8 text.
+
+    The message names the file, so a caller that catches WorkspaceError prints one FATAL line. It is an OSError too, so
+    code that already handles an unreadable file the OSError way keeps working.
+    """
+
+
+def _unreadable(path: str | os.PathLike, exc: Exception) -> str:
+    """One line that names the file and says what to do."""
+    if isinstance(exc, UnicodeDecodeError):
+        return f"{path} is not UTF-8 text (byte {exc.start}). Save it as UTF-8, then run the command again."
+    reason = (exc.strerror if isinstance(exc, OSError) else None) or str(exc) or type(exc).__name__
+    return f"{path} cannot be read ({reason}). Make it a readable file, then run the command again."
+
+
+_MISSING = (FileNotFoundError, NotADirectoryError, IsADirectoryError)  # no such file (a folder is none either)
+
+
 # --------------------------------------------------------------------------- where things live
 
 
@@ -150,17 +169,19 @@ _NAME_LINE_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*)?name(?:\s*:\s*\*\*|\*\*\s*:|\s
 
 
 def has_template_marker(path: str | os.PathLike) -> bool:
-    """True when the file holds TEMPLATE_MARKER anywhere (a raw text search, nothing is parsed); False when there is no
-    such file. A file that exists but cannot be read raises OSError."""
+    """True when the file holds TEMPLATE_MARKER anywhere (a raw text search of its bytes, nothing is parsed or decoded);
+    False when there is no such file. A file that exists but cannot be read raises FileReadError (which names it)."""
     try:
         return TEMPLATE_MARKER.encode("ascii") in Path(path).read_bytes()
-    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+    except _MISSING:
         return False
+    except OSError as exc:
+        raise FileReadError(_unreadable(path, exc)) from None
 
 
 def template_files(root: Optional[Path] = None) -> list[Path]:
     """The files of ohmyjob.json and Profile.md (in this order) of the workspace (`root`, else find_root()) that still
-    hold the template marker: an empty list when the user has edited both."""
+    hold the template marker: an empty list when the user has edited both. An unreadable one raises FileReadError."""
     root = root or find_root()
     return [path for path in (root / CONFIG_NAME, root / "Profile.md") if has_template_marker(path)]
 
@@ -169,13 +190,16 @@ def file_prefix(root: Optional[Path] = None) -> str:
     """The ASCII slug of the first name in Profile.md, else "Resume": tailored files are <prefix>_<Company>.pdf/.yaml.
 
     The name is the line `- Name: <First> <Last>` (also `- **Name:** ...`) under the level-1 heading `# Candidate`; the
-    first word of it is the first name.
+    first word of it is the first name. No Profile.md: "Resume". A Profile.md that cannot be read or is not UTF-8 text
+    raises FileReadError (which names it): a silent "Resume" would name the files of one run differently.
     """
     path = (root or find_root()) / "Profile.md"
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        text = path.read_text(encoding="utf-8")
+    except _MISSING:
         return "Resume"
+    except (OSError, UnicodeDecodeError) as exc:
+        raise FileReadError(_unreadable(path, exc)) from None
     section = None
     for line in text.splitlines():
         heading = _LEVEL1_HEADING_RE.match(line)
@@ -396,6 +420,8 @@ def load_config(root: Optional[Path] = None) -> dict:
         raise ConfigError(f"{path} not found. Run /ohmyjob:setup.") from None
     except json.JSONDecodeError as exc:
         raise ConfigError(f"{path} is not valid JSON: {exc}") from None
+    except (OSError, UnicodeDecodeError) as exc:  # no permission, a folder, not UTF-8: one line that names the file
+        raise ConfigError(_unreadable(path, exc)) from None
     return validate_config(raw)
 
 

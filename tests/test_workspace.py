@@ -480,6 +480,94 @@ def test_template_files_names_the_files_that_still_hold_the_marker(workspace):
     assert W.load_config(workspace)["search"]["search_query"] == ["Operations Analyst"]
 
 
+# --------------------------------------------------------------------------- unreadable files
+
+
+def symlink_loop(path):
+    """Replace `path` by a symlink to itself: reading it fails (ELOOP) even as root, who reads a chmod 000 file."""
+    path.unlink(missing_ok=True)
+    path.symlink_to(path.name)
+    return path
+
+
+def deny_reads(monkeypatch, *names):
+    """Reading a file with one of these names raises PermissionError, as without read permission (the tests may run as
+    root, who reads a chmod 000 file)."""
+    def denied(real):
+        def read(self, *args, **kwargs):
+            if self.name in names:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real(self, *args, **kwargs)
+        return read
+
+    monkeypatch.setattr(Path, "read_bytes", denied(Path.read_bytes))
+    monkeypatch.setattr(Path, "read_text", denied(Path.read_text))
+
+
+def test_file_read_error_is_a_workspace_error_and_an_os_error():
+    # callers print one FATAL line for every WorkspaceError; code that skips an unreadable file on OSError keeps working
+    assert issubclass(W.FileReadError, W.WorkspaceError) and issubclass(W.FileReadError, OSError)
+    assert str(W.FileReadError("x")) == "x"
+
+
+@pytest.mark.parametrize("make_unreadable", ["permission", "loop"])
+def test_an_unreadable_profile_or_resume_is_one_error_that_names_the_file(workspace, monkeypatch, make_unreadable):
+    profile = workspace / "Profile.md"
+    resume = workspace / "Default_Resume_Files" / "Operations-Analyst.yaml"
+    if make_unreadable == "permission":
+        deny_reads(monkeypatch, "Profile.md", resume.name)
+        reason = "Permission denied"
+    else:
+        symlink_loop(profile)
+        symlink_loop(resume)
+        reason = "Too many levels of symbolic links"
+    for call in (lambda: W.has_template_marker(profile), lambda: W.template_files(workspace), W.file_prefix):
+        with pytest.raises(W.FileReadError) as exc:
+            call()
+        assert str(exc.value) == f"{profile} cannot be read ({reason}). Make it a readable file, then run the command again."
+    with pytest.raises(W.FileReadError, match=f"^{re.escape(str(resume))} cannot be read"):
+        W.has_template_marker(resume)
+
+
+@pytest.mark.parametrize("make_unreadable", ["permission", "loop"])
+def test_an_unreadable_config_is_one_error_that_names_the_file(workspace, monkeypatch, make_unreadable):
+    config = workspace / "ohmyjob.json"
+    if make_unreadable == "permission":
+        deny_reads(monkeypatch, "ohmyjob.json")
+    else:
+        symlink_loop(config)
+    with pytest.raises(W.ConfigError, match=f"^{re.escape(str(config))} cannot be read \\(.+\\)\\. Make it a readable file"):
+        W.load_config(workspace)
+    with pytest.raises(W.FileReadError, match=f"^{re.escape(str(config))} cannot be read"):
+        W.template_files(workspace)
+
+
+def test_text_that_is_not_utf8_is_one_error_that_names_the_file(workspace):
+    profile = workspace / "Profile.md"
+    profile.write_bytes(b"# Candidate\n\n- Name: Jos\xe9 Example\n")  # Latin-1, not UTF-8
+    with pytest.raises(W.FileReadError) as exc:
+        W.file_prefix()
+    assert str(exc.value) == f"{profile} is not UTF-8 text (byte 24). Save it as UTF-8, then run the command again."
+    assert W.has_template_marker(profile) is False  # the marker check reads bytes: nothing to decode
+    profile.write_bytes(b"<!-- OHMYJOB-TEMPLATE -->\n- Name: Jos\xe9\n")
+    assert W.has_template_marker(profile) is True
+    config = workspace / "ohmyjob.json"
+    config.write_bytes(b'{"search": {"location": "Z\xfcrich"}}')
+    with pytest.raises(W.ConfigError, match=f"^{re.escape(str(config))} is not UTF-8 text \\(byte 26\\)"):
+        W.load_config()
+
+
+def test_a_folder_in_place_of_a_file_counts_as_missing_for_the_profile_and_is_an_error_for_the_config(workspace):
+    (workspace / "Profile.md").unlink()
+    (workspace / "Profile.md").mkdir()
+    assert W.file_prefix() == "Resume"
+    assert W.has_template_marker(workspace / "Profile.md") is False
+    (workspace / "ohmyjob.json").unlink()
+    (workspace / "ohmyjob.json").mkdir()
+    with pytest.raises(W.ConfigError, match="ohmyjob.json cannot be read"):
+        W.load_config()
+
+
 # --------------------------------------------------------------------------- names and guard patterns
 
 

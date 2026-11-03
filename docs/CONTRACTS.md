@@ -30,12 +30,17 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   valid JSON), then `DEFAULTS` with the mock search values `sources ["linkedin", "indeed"]`, `search_query ["Operations
   Analyst"]`, `location "Berlin, Germany"`, `country "germany"`. It loads as it is.
 - Template marker: `TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"`. `has_template_marker(path) -> bool`: a raw text search of the
-  whole file, nothing parsed; False when the file is missing (an unreadable file raises `OSError`).
+  whole file, nothing parsed or decoded; False when the file is missing.
   `template_files(root=None) -> list[Path]`: those of `ohmyjob.json` and `Profile.md` (in that order) that still hold it.
 - `slots(config=None) -> int`: `min(max_parallel_workers, subagent cap - 1)`; call it late, not at import.
   `file_prefix(root=None) -> str`: ASCII slug of the first word of the `- Name: <First> <Last>` line (also
   `- **Name:** ...`) under the level-1 heading `# Candidate` of `Profile.md`, else `Resume`; tailored files are
-  `<prefix>_<Company>.pdf/.yaml`. No resume yaml is read.
+  `<prefix>_<Company>.pdf/.yaml`. No resume yaml is read; a missing `Profile.md` gives `Resume`.
+- Unreadable files: `has_template_marker`, `template_files` and `file_prefix` raise `W.FileReadError` (a `WorkspaceError`
+  and an `OSError`) for a file that exists but cannot be read (no permission, a symlink loop) or, where text is
+  decoded, is not UTF-8; `load_config` raises `ConfigError` for the same. The message names the file and says what to
+  do, so a caller that catches `WorkspaceError` prints it as one `FATAL: ...` line. A folder in place of a file counts as
+  missing, except for `ohmyjob.json`.
 - Agents (`ohmyjob:<name>`): `PREP_MASTER SCREEN_WORKER RESUME_WORKER APPLICATION_MASTER APPLICATION_WORKER`; sets
   `PREP_AGENTS PREP_WORKERS APPLICATION_AGENTS`.
 - `MASTER_WORKERS`: the subagent types each master may start. `tools: Agent(...)` restricts nothing for plugin agents, so
