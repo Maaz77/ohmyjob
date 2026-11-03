@@ -222,6 +222,12 @@ class Ctx:
             entry["focus_ref"] = ref
             self.dirty = True
 
+    def set_flag(self, tab: Any, name: str, value: Any) -> None:
+        entry = self.entry(tab)
+        if entry is not None and entry.get(name) != value:
+            entry[name] = value
+            self.dirty = True
+
     def set_last_click(self, tab: Any, ref: str) -> None:
         """The last button or link clicked in this tab; read_page clears it (snapshot)."""
         entry = self.entry(tab)
@@ -523,6 +529,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if action in ("double_click", "triple_click") and role not in L.TYPE_ROLES:
                 raise Deny("Use left_click: a double or triple click presses a button more than once.")
             pressable = role not in L.CHOICE_ROLES and role not in L.TYPE_ROLES
+            if pressable and (ctx.entry(tab) or {}).get("choice_dirty"):
+                # an answer can rename a button (Next becomes Submit); the check knows only the old name
+                raise Deny("You clicked a checkbox, radio button or option since the last read_page. Call read_page first, "
+                           "for the whole page (without ref_id): an answer can rename a button (Next can become Submit).")
             if pressable and (ctx.entry(tab) or {}).get("last_click") == ti["ref"]:
                 # the same element can change its name after a click (Next becomes Submit); the check knows only the old name
                 raise Deny("You clicked this control already and read no page since. Call read_page first, for the whole "
@@ -542,6 +552,8 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             ctx.set_focus(tab, role, ti["ref"])
             if pressable:
                 ctx.set_last_click(tab, ti["ref"])
+            elif role in L.CHOICE_ROLES:
+                ctx.set_flag(tab, "choice_dirty", True)
             # only the checked fields go through: a coordinate or a modifier next to the ref would move the click
             clean = {k: ti[k] for k in ("tabId", "action", "ref", "action_summary") if k in ti}
             return clean if clean != ti else None
@@ -630,12 +642,17 @@ class ForeignCall:
         if short == "javascript_tool":
             raise Deny("JavaScript is not allowed in this workspace.")
         if short == "navigate":
-            url = re.sub(r"[\x00-\x20\x7f]", "", str(ti.get("url") or "")).lower()
-            if url.startswith(("javascript:", "vbscript:")):
-                raise Deny("JavaScript is not allowed in this workspace.")
+            url = str(ti.get("url") or "").strip()
+            if url not in ("back", "forward"):
+                if re.sub(r"[\x00-\x20\x7f]", "", url).lower().startswith(("javascript:", "vbscript:")):
+                    raise Deny("JavaScript is not allowed in this workspace.")
+                problem = L.url_problem(url)  # http or https only (a data: page can run script)
+                if problem:
+                    raise Deny(problem)
             if ti.get("tabId") is not None:
                 key = self.tab(ti)
                 self.state[key]["focus"] = None
+                self.state[key]["url"] = url if "://" in url else "https://" + url
                 self.moved(key)
         elif short == "browser_batch":
             if in_batch:
@@ -647,8 +664,48 @@ class ForeignCall:
                     raise Deny(f"Do not put {name or 'this'} inside browser_batch. Call it alone.")
                 inner = action.get("input")
                 self.check(name, inner if isinstance(inner, dict) else {}, in_batch=True)
+        elif short in ("form_input", "file_upload"):
+            self.field_tool(short, ti)
         elif short == "computer":
             self.computer(ti)
+
+    def field_tool(self, short: str, ti: dict) -> None:
+        """form_input and file_upload by a caller that is not an ohmyjob agent: fields only, like a worker. They also take the
+        focus away: a typed text after them would go to whatever they touched."""
+        key = self.tab(ti)
+        items = L.known_items(self.run_dir, ti.get("tabId"), str(ti.get("ref") or ""))
+        if not ti.get("ref") or not items:
+            raise Deny(f"Unknown ref {ti.get('ref')} for this tab. Read the page with read_page (or find) first, then use "
+                       "the ref of the field.")
+        for item in items:
+            role, attrs = item.get("role") or "", item.get("attrs") or {}
+            if short == "form_input" and role in L.CLICKABLE_ROLES and role not in L.TICK_ROLES:
+                raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
+            if short == "file_upload" and (attrs.get("type") or "").lower() != "file":
+                raise Deny("file_upload is for a file input (type=file) only.")
+        self.state[key]["focus"] = None
+
+    def page_problem(self, key: Any, ti: dict, items: list) -> Optional[str]:
+        """The worker's rules for a pressable click that need the page: a nameless submit button, an Apply after an
+        application form, and an Apply on a job board's listing (it can send the application in one click)."""
+        refs = L.known_refs(self.run_dir, ti.get("tabId"))
+        url = self.state[key].get("url")
+        if not url and self.run_dir is not None:
+            url = (L.load_state(self.run_dir).get("tab_urls") or {}).get(key)
+        board = bool(BOARD_LABELS & set((L.host_of(url) or "").split(".")))
+        for item in items:
+            role, name, attrs = item.get("role") or "", item.get("name") or "", item.get("attrs") or {}
+            if role in L.CHOICE_ROLES or role in L.TYPE_ROLES:
+                continue
+            if role == "button" and not name.strip() and attrs.get("type") == "submit":
+                return "This submit button has no name, so it cannot be checked. The candidate submits applications personally."
+            if X.APPLY.find(name):
+                if L.looks_like_form(refs):
+                    return f"'{name}' can send the application: this page shows an application form. The candidate submits it personally."
+                if board and (role == "button" or (role == "link" and not L.navigable_href(attrs.get("href")))):
+                    return (f"'{name}' on a job board can send the application in one click. The candidate applies "
+                            "personally.")
+        return None
 
     def computer(self, ti: dict) -> None:
         action = ti.get("action")
@@ -671,14 +728,19 @@ class ForeignCall:
             if problem:
                 raise Deny(problem)
             items = L.known_items(self.run_dir, ti.get("tabId"), str(ti.get("ref")))
-            if L.click_is_pressable(items):
+            if any(i.get("role") in L.TYPE_ROLES for i in items):
+                st["focus"] = "text"  # a text field takes typed text afterwards; focusing it changes no ref
+            else:
+                # a button, a link, and also a box or an option: an answer can rename a button (Next becomes Submit)
                 if st.get("used"):
                     raise Deny("One click per read of the page: read the page again (read_page), then click by ref.")
+                if L.click_is_pressable(items):
+                    problem = self.page_problem(key, ti, items)
+                    if problem:
+                        raise Deny(problem)
                 st["used"] = True
                 st["focus"] = None
                 self.moved(key)
-            else:  # ticking a box or focusing a field moves nothing; a text field takes typed text afterwards
-                st["focus"] = "text" if any(i.get("role") in L.TYPE_ROLES for i in items) else None
         elif action == "key":
             text = ti.get("text")
             if not L.keys_allowed(text):
@@ -950,10 +1012,13 @@ def record_foreign(short: str, ti: dict, text: str) -> None:
         partial = short == "find" or bool(ti.get("ref_id"))
         if refs:
             L.save_foreign_refs(tab, refs, partial=partial)
+        state = L.foreign_state(tab)
+        url = L.page_url(text, tab)
+        new = {**state, **({"url": url} if url else {})}
         if not partial:
-            state = L.foreign_state(tab)
-            if state.get("used"):
-                L.set_foreign_state(tab, {**state, "used": False})
+            new["used"] = False
+        if new != state:
+            L.set_foreign_state(tab, new)
     elif short == "navigate":
         L.clear_foreign_refs(tab)
 
@@ -1015,8 +1080,9 @@ def snapshot(inp: dict) -> None:
                 entry["filled"] = True
                 entry["filled_host"] = L.host_of(state["tab_urls"].get(L.tab_key(ti["tabId"])))
                 changed = True
-            if not ti.get("ref_id") and entry.get("last_click"):
+            if not ti.get("ref_id") and (entry.get("last_click") or entry.get("choice_dirty")):
                 entry["last_click"] = None  # the worker saw the page after its click (a part read may miss that control)
+                entry["choice_dirty"] = False
                 changed = True
         if changed:
             L.save_state(run_dir, state)

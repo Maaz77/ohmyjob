@@ -207,6 +207,19 @@ def clear_foreign_refs(tab: Any) -> None:
     foreign_refs_path(tab).unlink(missing_ok=True)
 
 
+def known_refs(run_dir: Optional[Path], tab: Any) -> dict:
+    """All refs of the tab's snapshots (caller-read and, in a run, the worker's) as one dict: for page-shape checks."""
+    merged: dict = {}
+    try:
+        for path in ([foreign_refs_path(tab)] + ([refs_path(run_dir, tab)] if run_dir is not None else [])):
+            refs = read_json(path, {})
+            if isinstance(refs, dict):
+                merged.update({k: v for k, v in refs.items() if isinstance(v, dict)})
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return merged
+
+
 def known_items(run_dir: Optional[Path], tab: Any, ref: str) -> list[dict]:
     """Every entry for `ref` in the tab's snapshots: the caller-read refs and, in a run, the worker snapshot."""
     items = []

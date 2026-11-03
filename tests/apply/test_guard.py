@@ -578,6 +578,8 @@ class TestForeignCallersEveryRunState(T.Base):
             self.assertDenied(self.foreign_click("ref_9", agent=agent), "unknown ref")
             self.assertDenied(self.foreign_click("ref_2", tab=302, agent=agent), "unknown ref")  # another tab's page
             self.assertNoDecision(self.foreign_click("ref_3", agent=agent))  # a checkbox "I confirm" sends nothing
+            self.assertDenied(self.foreign_click("ref_1", agent=agent), "unknown ref")  # but it voided the refs
+            self.read(self.PAGE, agent=agent)
             self.assertNoDecision(self.foreign_click("ref_1", agent=agent))
             # a click may change the page: after its result the refs are forgotten until the next read
             self.hook("snapshot", {"tool_name": C + "computer", "tool_response": "Clicked",
@@ -676,7 +678,9 @@ class TestForeignOneClickPerRead(T.Base):
             self.assertDenied(self.batch(("read_page", {}), agent=agent), "inside browser_batch")
             self.assertDenied(self.batch(("javascript_tool", {"text": "1"}), agent=agent), "javascript")
             # a denied call changes nothing: the page can still be clicked once
-            self.assertNoDecision(self.batch(("computer", self.click("ref_3")), ("computer", self.click("ref_1")), agent=agent))
+            self.assertDenied(self.batch(("computer", self.click("ref_3")), ("computer", self.click("ref_1")), agent=agent),
+                              "read the page again")  # a box click voids the refs too
+            self.assertNoDecision(self.batch(("computer", self.click("ref_1")), agent=agent))
             # that batch voided the refs, so a click after it needs a new read
             self.assertDenied(self.computer(agent, **self.click("ref_4")), "read the page")
             self.read(agent=agent)
@@ -739,6 +743,118 @@ class TestForeignOneClickPerRead(T.Base):
         self.read()
         self.assertNoDecision(self.computer(None, **self.click("ref_6")))
         self.assertDenied(self.computer(None, **self.click("ref_1")), "read the page")
+
+
+class TestForeignPageRules(T.Base):
+    """The worker's page rules hold for the main session and other agents too: a nameless submit button, an Apply under a
+    form, an Apply on a job board; form_input and file_upload on fields only; every non-text click voids the refs."""
+
+    def page(self, body, host="careers.example.com", tab=301):
+        text = (body + f'\n\nTab Context:\n- Executed on tabId: {tab}\n- Available tabs:\n'
+                f'  \u2022 tabId {tab}: "Page" ("https://{host}/job")\n')
+        proc = self.hook("snapshot", {"tool_name": C + "read_page", "tool_input": {"tabId": tab},
+                                      "tool_response": [{"type": "text", "text": text}]})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def act(self, agent=None, tab=301, **ti):
+        return self.guard(C + "computer", {"tabId": tab, **ti}, agent, "X1" if agent else None)
+
+    def test_nameless_submit_apply_after_form_and_board_listing(self):
+        for agent in (None, "Explore"):
+            self.page('button [ref_1] type="submit"')
+            self.assertDenied(self.act(agent, action="left_click", ref="ref_1"), "no name")
+            form = ('textbox "First name" [ref_1]\ntextbox "Last name" [ref_2]\ntextbox "Email" [ref_3]\n'
+                    'button "Apply" [ref_4] type="button"\nbutton "Next" [ref_5] type="button"')
+            self.page(form)
+            self.assertDenied(self.act(agent, action="left_click", ref="ref_4"), "application form")
+            self.assertNoDecision(self.act(agent, action="left_click", ref="ref_5"))
+            listing = ('button "Apply" [ref_1] type="button"\nlink "Apply" [ref_2] href="#"\n'
+                       'link "Apply on company site" [ref_3] href="https://example.org/x"\nbutton "Save" [ref_4] type="button"')
+            for host in ("www.naukri.com", "www.ziprecruiter.com", "de.indeed.com"):
+                self.page(listing, host=host)
+                self.assertDenied(self.act(agent, action="left_click", ref="ref_1"), "job board")
+                self.page(listing, host=host)
+                self.assertDenied(self.act(agent, action="left_click", ref="ref_2"), "job board")
+                self.page(listing, host=host)
+                self.assertNoDecision(self.act(agent, action="left_click", ref="ref_3"))  # a link with an address
+                self.page(listing, host=host)
+                self.assertNoDecision(self.act(agent, action="left_click", ref="ref_4"))
+            # the employer's own page: an Apply that opens the form is fine
+            self.page(listing, host="careers.example.com")
+            self.assertNoDecision(self.act(agent, action="left_click", ref="ref_1"))
+
+    def test_form_input_and_file_upload_are_for_fields_and_take_the_focus(self):
+        body = ('textbox "Name" [ref_5]\nbutton "Submit" [ref_6] type="submit"\nbutton "Next" [ref_7] type="button"\n'
+                'textbox [ref_8] type="file"\nbutton "Upload" [ref_9] type="button"\ncheckbox "Agree" [ref_10]')
+        for agent in (None, "Explore"):
+            who = {"agent_type": agent, "agent_id": "X1"} if agent else {}
+            self.page(body)
+            self.assertNoDecision(self.act(agent, action="left_click", ref="ref_5"))
+            self.assertNoDecision(self.act(agent, action="type", text="abc"))
+            self.page(body)  # typed text voids the refs
+            proc = self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "form_input",
+                                       "tool_input": {"tabId": 301, "ref": "ref_6", "value": "x"}, **who})
+            self.assertDenied(proc, "fields")
+            proc = self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "form_input",
+                                       "tool_input": {"tabId": 301, "ref": "ref_99", "value": "x"}, **who})
+            self.assertDenied(proc, "unknown ref")
+            for ref, ok in (("ref_9", False), ("ref_5", False), ("ref_8", True)):
+                proc = self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "file_upload",
+                                           "tool_input": {"tabId": 301, "ref": ref, "paths": ["/tmp/x.pdf"]}, **who})
+                (self.assertNoDecision if ok else self.assertDenied)(proc)
+            # click a field, form_input the Submit control (refused), but a form_input on a field takes the focus away
+            self.page(body)
+            self.assertNoDecision(self.act(agent, action="left_click", ref="ref_5"))
+            proc = self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "form_input",
+                                       "tool_input": {"tabId": 301, "ref": "ref_10", "value": True}, **who})
+            self.assertNoDecision(proc)
+            self.assertDenied(self.act(agent, action="type", text=" "), "text field")
+            # in a batch as well
+            self.page(body)
+            batch = {"tabId": 301, "actions": [{"name": "computer", "input": {"tabId": 301, "action": "left_click", "ref": "ref_5"}},
+                                               {"name": "form_input", "input": {"tabId": 301, "ref": "ref_6", "value": "x"}}]}
+            self.assertDenied(self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "browser_batch",
+                                                  "tool_input": batch, **who}), "fields")
+
+    def test_a_box_or_option_click_voids_the_refs_like_any_other_click(self):
+        for agent in (None, "Explore"):
+            self.page('button "Next" [ref_1] type="button"\nradio "Yes" [ref_2]\ncheckbox "Agree" [ref_3]')
+            self.assertNoDecision(self.act(agent, action="left_click", ref="ref_2"))
+            self.assertDenied(self.act(agent, action="left_click", ref="ref_1"), "read the page")
+            self.page('button "Next" [ref_1] type="button"\nradio "Yes" [ref_2]\ncheckbox "Agree" [ref_3]')
+            self.assertDenied(self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "browser_batch", "tool_input": {
+                "actions": [{"name": "computer", "input": {"tabId": 301, "action": "left_click", "ref": "ref_2"}},
+                            {"name": "computer", "input": {"tabId": 301, "action": "left_click", "ref": "ref_1"}}]},
+                **({"agent_type": agent, "agent_id": "X1"} if agent else {})}), "read the page")
+
+    def test_navigate_is_http_or_https_only(self):
+        for agent in (None, "Explore"):
+            for url in ["data:text/html,<script>alert(1)</script>", "file:///etc/passwd", "chrome://settings", "about:blank",
+                        "javascript:alert(1)", "blob:https://x/1", "ftp://example.com/x", "https://example.com/\x00"]:
+                self.assertDenied(self.guard(C + "navigate", {"tabId": 301, "url": url}, agent, "X1" if agent else None),
+                                  "javascript" if url.startswith("javascript") else "http")
+            for url in ["https://example.com/", "http://example.com", "example.com/jobs", "back", "forward"]:
+                self.assertNoDecision(self.guard(C + "navigate", {"tabId": 301, "url": url}, agent, "X1" if agent else None))
+        batch = {"actions": [{"name": "navigate", "input": {"tabId": 301, "url": "data:text/html,x"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch), "http")
+
+
+class TestWorkerChoiceClick(T.Base):
+    def test_a_button_after_a_box_or_option_needs_a_new_read(self):
+        self.aa_json("start")
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://www.linkedin.com/jobs/view/1"}, W, "A1"))
+        self.page(101, "constructed_form_page.txt")
+        self.assertAllowed(self.click(101, "ref_43", "A1", "Ticks the privacy notice box"))  # a checkbox
+        self.assertDenied(self.click(101, "ref_66", "A1", "Goes to the next step"), "since the last read_page")
+        self.assertAllowed(self.click(101, "ref_52", "A1", "Chooses No"))  # another option is fine
+        self.page(101, "constructed_form_page.txt")
+        self.assertAllowed(self.click(101, "ref_66", "A1", "Goes to the next step"))
+        # a part read does not count as a new look at the page
+        self.page(101, "constructed_form_page.txt")
+        self.assertAllowed(self.click(101, "ref_51", "A1", "Chooses Yes"))
+        self.post("read_page", {"tabId": 101, "ref_id": "ref_40"}, 'radio "Yes" [ref_51]', W, "A1")
+        self.assertDenied(self.click(101, "ref_66", "A1", "Goes to the next step"), "since the last read_page")
 
 
 class TestJudgeCacheIsPerHost(T.Base):

@@ -38,6 +38,7 @@ A hook enforces these rules, in every language. When it blocks a call, the block
 - Put your own tab id in every browser call. Never use another tab, except your sign-in tab (see "Sign in with Google"). Never close a tab.
 - Click only by `ref` from read_page. Never click by coordinates. Never press Enter or Space. Never double-click a button.
 - After a click on a button or link, call read_page before you click it again: its name can change (Next can become Submit).
+- After a click on a checkbox, radio button or option, call read_page before you click a button or link: the answer can rename it (Next can become Submit).
 - On every click, write `action_summary`: a few English words that say what the click does (for example "Goes to the next step").
 - Fill text with `form_input`. Use the `type` action only right after you click that text field by its ref.
 - Never click a button or link named Submit, Send, Confirm, Done or Finish (in any language). A checkbox or an option with such a word (for example "I confirm I have read the above") is a declaration: tick or select it.

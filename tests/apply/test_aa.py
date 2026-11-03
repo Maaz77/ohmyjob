@@ -278,6 +278,7 @@ class TestFlow(Base):
         self.assertAllowed(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_61", "value": True}, W, "A1"))
         self.assertAllowed(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_64", "value": "I agree"}, W, "A1"))
         # consent buttons: a privacy dialog yes; a cookie banner only its private choice; never a sign-in permission
+        self.page(101, "constructed_form_page.txt")  # after a click on a box the page is read again
         self.assertAllowed(self.click(101, "ref_69", "A1", "Accepts the data privacy agreement"))
         self.assertDenied(self.click(101, "ref_46", "A1"), "cookie")
         self.assertAllowed(self.click(101, "ref_47", "A1", "Rejects all cookies"))
@@ -920,6 +921,10 @@ class TestApplyGate(Base):
         self.assertAllowed(self.click(501, "ref_4", "G1", "Ticks the declaration box"))
         self.assertAllowed(self.click(501, "ref_4", "G1", "Ticks the declaration box"))
         self.assertAllowed(self.click(501, "ref_5", "G1", "Selects Acknowledge/Confirm"))
+        self.read(501, 'textbox "First name" [ref_1]\ntextbox "Email" [ref_2] type="email"\ntextbox "Phone" [ref_3]\n'
+                       'checkbox "I confirm I have read the above." [ref_4] type="checkbox"\n'
+                       'option "Acknowledge/Confirm" [ref_5]\nbutton "Next" [ref_6] type="button"\n'
+                       'button "Apply" [ref_7] type="submit"', "G1")
         # a double click presses a button twice
         self.assertDenied(self.guard(C + "computer", {"tabId": 501, "action": "double_click", "ref": "ref_6",
                                                       "action_summary": "Goes to the next step"}, W, "G1"), "left_click")
