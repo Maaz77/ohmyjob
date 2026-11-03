@@ -17,3 +17,16 @@ ragged2e
 setspace
 parskip
 accsupp
+luatexbase
+luaotfload
+fontspec
+lualibs
+lua-uni-algos
+lualatex-math
+etoolbox
+geometry
+xcolor
+hyperref
+bookmark
+iftex
+l3packages

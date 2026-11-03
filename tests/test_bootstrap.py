@@ -193,6 +193,7 @@ def real(tmp_path_factory):
     e = Env(tmp)
     e.env = {**os.environ, "FAKE_LOG": str(e.log)}  # real PATH: real uv, real claude, real lualatex
     result = e.run()
+    ok(result)  # the output of bootstrap is in the failure message of every test that uses `real`
     return e, result
 
 
