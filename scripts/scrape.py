@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import math
 import re
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -69,14 +70,22 @@ def normalize(record: dict, board: str) -> dict:
     }
 
 
-MAX_SCRAPE_WORKERS = 10  # terms of one board run at once: a scrape is almost all network wait (LinkedIn pauses between pages)
+# Terms of one board that run at once. A scrape is almost all network wait (LinkedIn pauses between pages), so LinkedIn
+# takes 10 at a time; the other boards block several searches from one address at once, so they take 2.
+BOARD_WORKERS = {"linkedin": 10}
+DEFAULT_BOARD_WORKERS = 2
+
+
+def workers_for(board: str) -> int:
+    return BOARD_WORKERS.get(board, DEFAULT_BOARD_WORKERS)
 
 
 class Scraped(NamedTuple):
     rows: list
     error: Optional[str]
     warnings: list
-    unusable: int = 0  # results the source returned but cannot track (freehire)
+    unusable: int = 0  # freehire results that cannot be tracked or read
+    repeated: int = 0  # freehire jobs met again under another term
 
 
 def scrape_board(board: str, search: dict) -> Scraped:
@@ -86,7 +95,7 @@ def scrape_board(board: str, search: dict) -> Scraped:
             search["search_query"], search["location"], search["country"],
             search["recency_days"], search["uk_sponsor_only"],
         )
-        return Scraped(found.rows, found.error, found.warnings, found.fetched - len(found.rows))
+        return Scraped(found.rows, found.error, found.warnings, found.unusable, found.repeated)
     import jobspy  # looked up at call time: the tests replace jobspy.scrape_jobs
 
     def one_term(term: str):
@@ -105,7 +114,7 @@ def scrape_board(board: str, search: dict) -> Scraped:
             return term, None, str(exc)
 
     terms = search["search_query"]
-    with ThreadPoolExecutor(max_workers=max(1, min(len(terms), MAX_SCRAPE_WORKERS))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(len(terms), workers_for(board)))) as pool:
         results = list(pool.map(one_term, terms))  # map keeps the order of the terms: the first copy of a job wins
     rows: list[dict] = []
     errors: list[str] = []
@@ -137,11 +146,15 @@ def snapshot(root: Path) -> None:
     if not (root / ".git").exists():
         say("WARNING git_snapshot: the workspace is not a git repo; skipped")
         return
-    paths = [n for n in ("Job_Tracker.xlsx", "Applications") if (root / n).exists()]
+    names = [n for n in ("Job_Tracker.xlsx", "Applications") if (root / n).exists()]
+    # .gitignore is respected: the workspace template ignores the personal files, and the user removes a line to version them
+    paths = [n for n in names if subprocess.run(["git", "-C", str(root), "check-ignore", "-q", n]).returncode != 0]
     if not paths:
+        if names:
+            say("WARNING git_snapshot: the tracker and Applications/ are ignored by .gitignore; nothing to snapshot")
         return
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    steps = (("add", ["add", "-f", "--", *paths]),  # the pathspec keeps the user's other staged changes out of the commit
+    steps = (("add", ["add", "--", *paths]),  # the pathspec of the commit keeps the user's other staged changes out
              ("commit", ["-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", f"ohmyjob snapshot {stamp}", "--", *paths]))
     for name, cmd in steps:
         done = subprocess.run(["git", "-C", str(root), *cmd], capture_output=True, text=True)
@@ -179,14 +192,14 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
     failed = 0
     totals = {"scraped": 0, "new": 0, "excluded": 0}
     run_ids: set[str] = set()  # keys met earlier in this run (another term or board)
-    run_titles: set[tuple[str, str]] = set()  # (title, company) as written, of the jobs kept so far
+    run_titles: set[tuple[str, str, str]] = set()  # (title, company as written, city) of the jobs kept so far
     for board in boards:
-        got, error, warnings, unusable = scraped[board]
+        got, error, warnings, unusable, repeated = scraped[board]
         for text in warnings:
             say(f"WARNING {board}: {text}")
         if error:
             failed += 1
-        count = {"bad": unusable, "known": 0, "dup id": 0, "failed": 0, "type": 0, "level": 0, "term": 0, "title": 0,
+        count = {"bad": unusable, "known": 0, "dup id": repeated, "failed": 0, "type": 0, "level": 0, "term": 0, "title": 0,
                  "duplicate": 0, "twin": 0}
         kept: list[dict] = []
         known: list[dict] = []
@@ -208,13 +221,13 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
                 count[why] += 1
             elif not matcher.matches(job["title"]):
                 count["title"] += 1
-            elif (job["title"], job["company"]) in run_titles:
-                count["duplicate"] += 1  # the same title and company under another id: the first one stays
+            elif (job["title"], job["company"], C.twin_city(job["location"])) in run_titles:
+                count["duplicate"] += 1  # the same title, company and city under another id: the first one stays
             elif twins.find(job["company"], job["title"], job["location"]):
                 count["twin"] += 1
             else:
                 run_ids.add(key)
-                run_titles.add((job["title"], job["company"]))
+                run_titles.add((job["title"], job["company"], C.twin_city(job["location"])))
                 job.update(key=key, found=found, employment=C.employment_label(job["job_type"]),
                            excluded=filters.excluded_company(job["company"]))
                 kept.append(job)
@@ -222,11 +235,11 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
             twins.add(job["company"], job["title"], job["location"])
         new_jobs += kept
         excluded = sum(1 for job in kept if job["excluded"] is not None)
-        totals["scraped"] += len(got) + unusable
+        totals["scraped"] += len(got) + unusable + repeated
         totals["new"] += len(kept) - excluded
         totals["excluded"] += excluded
         dropped = ", ".join(f"{n} {why}" for why, n in count.items() if n)
-        say(f"{board}: {len(got) + unusable} scraped, {len(kept) - excluded} new"
+        say(f"{board}: {len(got) + unusable + repeated} scraped, {len(kept) - excluded} new"
             + (f", {excluded} auto-excluded" if excluded else "")
             + (f" ({dropped} dropped)" if dropped else "") + (f" ERROR {error}" if error else ""))
 
@@ -252,7 +265,11 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
         except FileExistsError:
             say(f"WARNING {folder.name}: folder exists; skipped")
             continue
-        (folder / "job.md").write_text(C.job_md(job), encoding="utf-8")
+        try:
+            (folder / "job.md").write_text(C.job_md(job), encoding="utf-8")
+        except BaseException:
+            shutil.rmtree(folder, ignore_errors=True)  # an empty folder would make known_keys call the job known for good
+            raise
         tracker.add_row({**row, "Status": "Found", "Notes": job["note"]})
         written += 1
     if written or excluded_rows:

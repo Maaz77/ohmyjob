@@ -151,8 +151,8 @@ def company_key(name: Any) -> str:
 
 
 def company_matches_excluded(company: Any, excluded: Any) -> bool:
-    """True if `company` is the excluded company: legal forms, a trailing country or division word ("Accenture" matches
-    "Accenture Italia") and small spelling differences are tolerated, but the excluded name must be the START of the
+    """True if `company` is the excluded company: legal forms, a trailing country or division word ("Acme" matches
+    "Acme Deutschland") and small spelling differences are tolerated, but the excluded name must be the START of the
     company name ("Apple" is not "Big Apple Recruiting"; a plain fuzzy score gets this wrong)."""
     if not isinstance(company, str) or not company or not isinstance(excluded, str) or not excluded:
         return False

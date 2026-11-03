@@ -12,16 +12,14 @@ import scrape_core as C
 
 PRESET = json.loads((Path(__file__).parents[2] / "templates" / "presets" / "software.json").read_text(encoding="utf-8"))
 
-TERMS = ["AI Engineer", "Machine Learning Engineer", "Backend Engineer", "Computer Vision Engineer", "Data Scientist",
+TERMS = ["Robotics Engineer", "Graphics Engineer", "Platform Engineer", "Quality Assurance Engineer", "Backend Engineer",
          "Software Engineer"]
-LEVELS = ["staff", "principal", "manager", "lead", "intern", "internship", "apprenticeship"]
+LEVELS = ["director", "manager", "head", "chief", "lead", "trainee", "traineeship", "cadet"]
 DENY = [
-    ".net", "dotnet", "dot net", "c#", "csharp", "c sharp", "java", "spring boot", "springboot", "golang", "go lang",
-    "rust", "go", "php", "laravel", "aws", "amazon web services", "gcp", "google cloud", "azure", "devops", "dev ops",
-    "site reliability", "sre", "kafka", "kubernetes", "k8s", "databricks", "salesforce", "sfcc", "business intelligence",
-    "bi", "performance", "localisation", "localization", "professional services", "network", "networking", "compiler",
-    "data engineer", "product analytics", "product analyst", "product design", "product designer", "product owner",
-    "product manager", "product management", "mobile", "android", "ios",
+    ".vb", "f#", "fsharp", "f sharp", "perl", "ruby", "ruby on rails", "rails", "scala", "haskell", "erlang", "elm", "qt",
+    "sap", "oracle", "tableau", "mainframe", "cobol", "fortran", "wordpress", "drupal", "embedded", "firmware", "game",
+    "unity", "unreal", "network", "networking", "technical writer", "technical writing", "product marketing",
+    "support engineer",
 ]
 SEARCH = {"exclude_seniority_level": LEVELS, "filter_title_terms": DENY, **PRESET}
 
@@ -38,51 +36,42 @@ def reason(title, terms=TERMS, search=SEARCH):
 
 KEPT = [
     "Backend Engineer", "Engineer, Backend", "Senior Backend Engineer II", "Backend Developer", "BACKEND ENGINEER",
-    "Senior Data Scientists", "ML Engineer", "Machine Learning Engineer", "Software Engineer",
-    "Machine Learning Researcher", "Senior Applied Scientist, Search - NLP/GenAI",
-    "Senior Machine Learning Scientist (Personalisation)", "Computer Science Expert (Remote)",
-    "Senior Machine Learning Expert", "Research Scientist, Computer Vision MGenAI", "Python Developer",
-    "Algorithms Engineer - Imaging Systems", "Foundation Model Engineer", "Forward Deployed Engineer",
-    "Web Developer", "Artificial Intelligence (AI) Engineering Senior Consultant", "AI Enablement Builder (AI)",
-    "AI Architect", "Back-End Developer", "Full Stack Developer", "Senior Full Stack Engineer",
-    "Senior Fullstack Engineer", "Computer Engineering", "AI Solution Designer", "Senior AI Prototyping Officer",
+    "Senior Robotics Engineers", "QA Engineer", "Quality Assurance Engineer", "Software Engineer",
+    "Robotics Researcher", "Senior Applied Scientist, Perception - Graphics", "Senior Robotics Scientist (Motion Planning)",
+    "Computer Science Expert (Remote)", "Senior Robotics Expert", "Research Scientist, Graphics Rendering",
+    "Python Developer", "Algorithms Engineer - Imaging Systems", "Foundation Model Engineer", "Forward Deployed Engineer",
+    "Web Developer", "Platform Engineering Senior Consultant", "Platform Enablement Builder", "Platform Architect",
+    "Back-End Developer", "Full Stack Developer", "Senior Full Stack Engineer", "Senior Fullstack Engineer",
+    "Computer Engineering", "Platform Solution Designer", "Senior Platform Prototyping Officer",
     "LLM Engineer", "Engineer, LLMs", "Agentic Systems Engineer", "Neural Rendering Engineer",
     "Deep Learning Engineer", "Inference Engineer", "Senior MLOps Engineer - Edge", "Vision Systems Engineer",
     "Backend Engineer - Leadership Track",  # "Leadership" is not "lead"
-    "Backend Engineer at Google",  # "Google" is not "go"
-    "Software Engineer - JavaScript",  # "JavaScript" is not "java"
-    "Backend Engineer Stage", "Frontend Engineer",  # "frontend" is a software word, as in the first scraper
+    "Platform Engineer, Headquarters",  # "Headquarters" is not "head"
+    "Backend Engineer at Elmwood",  # "Elmwood" is not "elm"
+    "Software Engineer - Scalability",  # "Scalability" is not "scala"
+    "Frontend Engineer",  # "frontend" is a software word, as in the first scraper
 ]
 DROPPED = [
-    ("Staff Backend Engineer", "level"), ("principal backend engineer", "level"),
-    ("Backend Engineering Manager", "level"), ("Backend Engineer Intern", "level"),
-    ("Backend Engineer Internship", "level"), ("Backend Engineer Apprenticeship", "level"),
-    ("Lead AI Engineer", "level"), ("Senior Lead Software Engineer - Java", "level"),
-    ("Lead Software Engineer", "level"), ("Senior / Lead Data Scientist", "level"),
-    ("Group Product Manager, Machine Learning", "level"),
-    ("Software Engineer (Java)", "term"), ("Senior Software Engineer C# .Net", "term"),
-    ("Backend Engineer (Rust)", "term"), ("Backend Engineer - Golang", "term"), ("Backend Engineer - Go", "term"),
-    ("Software Engineer - Spring Boot", "term"), ("PHP Laravel Developer", "term"), ("Cloud Engineer (AWS)", "term"),
-    ("AWS Professional Services", "term"), ("Senior Localisation Engineer", "term"),
-    ("Senior DevOps Engineer – AWS", "term"), ("Kubernetes & AI Automation", "term"), ("Data Engineer", "term"),
-    ("Kafka Senior Developer - Contract - Melbourne", "term"), ("Performance Engineer", "term"),
-    ("Salesforce Commerce Cloud (SFCC) Architect", "term"), ("Senior BI Engineer", "term"),
-    ("Professional Services Engineer", "term"), ("Senior Software Engineer (compiler focused)", "term"),
-    ("System Development Engineer, Core Networking (Relocation support available)", "term"),
-    ("Senior Data Engineer – Databricks", "term"), ("GCP Data Engineer", "term"),
-    ("Senior Software Engineer - Azure", "term"), ("Site Reliability Engineer", "term"),
-    ("Localization Engineer", "term"), ("Business Intelligence Engineer", "term"), ("Product Analytics Engineer", "term"),
-    ("Senior Product Designer", "term"), ("Product Owner - AI Platform", "term"),
-    ("Software Engineer, Product Management", "term"), ("Mobile Developer", "term"), ("Android Developer", "term"),
-    ("Senior Mobile Software Engineer", "term"), ("iOS Engineer", "term"),
-    ("Senior Software Engineer (PHP with Laravel Framework)", "term"),
-    ("Backend Analyst", "title"), ("Penetration Tester", "title"),
-    ("Senior Analytics Engineer", "title"), ("Actuarial Expert", "title"),
-    ("Anaplan Hyperion Forecasting Data Consultant", "title"), ("Marketing Solutions Engineer", "title"),
+    ("Director Backend Engineer", "level"), ("head backend engineer", "level"), ("Backend Engineering Manager", "level"),
+    ("Backend Engineer Trainee", "level"), ("Backend Engineer Traineeship", "level"), ("Backend Engineer Cadet", "level"),
+    ("Lead Robotics Engineer", "level"), ("Senior Lead Software Engineer - Perl", "level"),
+    ("Lead Software Engineer", "level"), ("Senior / Lead Quality Assurance Engineer", "level"),
+    ("Chief Platform Engineer", "level"), ("Group Platform Manager, Robotics", "level"),
+    ("Software Engineer (Perl)", "term"), ("Senior Software Engineer F# .VB", "term"), ("Backend Engineer (Haskell)", "term"),
+    ("Backend Engineer - Erlang", "term"), ("Backend Engineer - Elm", "term"), ("Software Engineer - Ruby on Rails", "term"),
+    ("Rails Developer", "term"), ("Mainframe Platform Engineer", "term"), ("SAP Integration Platform Engineer", "term"),
+    ("Oracle Database Platform Engineer", "term"), ("Tableau Platform Engineer", "term"), ("Qt Developer", "term"),
+    ("Senior Software Engineer (Fortran)", "term"), ("Game Software Engineer", "term"), ("Unity Developer", "term"),
+    ("Embedded Software Engineer", "term"), ("Senior Firmware Platform Engineer", "term"),
+    ("Network Platform Engineer", "term"), ("System Platform Engineer, Core Networking (Hybrid)", "term"),
+    ("Technical Writer, Platform", "term"), ("Product Marketing Engineer", "term"), ("WordPress Developer", "term"),
+    ("Drupal Software Engineer", "term"), ("Platform Support Engineer", "term"), ("Software Engineer, Technical Writing", "term"),
+    ("Backend Analyst", "title"), ("Penetration Tester", "title"), ("Senior Analytics Engineer", "title"),
+    ("Rocketry Expert", "title"), ("Forecasting Data Consultant", "title"), ("Marketing Solutions Engineer", "title"),
     ("Defect/Integration Engineer", "title"), ("Senior Scientist", "title"), ("Senior Production Engineer", "title"),
     ("Sr. Cloud Operations Engineer", "title"), ("Senior Engineer", "title"),
-    ("Agent Support Engineer", "title"),  # "agent" alone is no software word: it also names sales and support roles
-    ("Transformer Design Engineer", "title"),  # electrical power far more often than ML
+    ("Agent Relations Engineer", "title"),  # "agent" alone is no software word: it also names sales and support roles
+    ("Transformer Design Engineer", "title"),  # electrical power far more often than software
     ("Data Quality Engineer", "title"),
 ]
 
@@ -97,8 +86,8 @@ def test_dropped(title, why):
     assert reason(title) == why, title
 
 
-def test_staffing_is_not_staff_and_a_reordered_term_matches():
-    assert reason("Staffing Engineer", ["Staffing Engineer"]) is None
+def test_exclusions_are_whole_words_and_a_reordered_term_matches():
+    assert reason("Headless CMS Engineer", ["Headless CMS Engineer"]) is None
     assert reason("Engineer, Backend", ["Backend Engineer"], NONE) is None
 
 
@@ -106,6 +95,6 @@ NONE = {"title_aliases": {}, "title_only_aliases": {}}
 
 
 def test_the_lists_are_empty_by_default_so_nothing_is_dropped_by_level_or_term():
-    for title in ("Staff Nurse", "Lead Software Engineer", "Software Engineer (Java)"):
+    for title in ("Head Nurse", "Lead Software Engineer", "Software Engineer (Perl)"):
         assert reason(title, ["Nurse", "Software Engineer"], {**PRESET}) in (None, "title")
-    assert reason("Staff Nurse", ["Nurse"], NONE) is None
+    assert reason("Head Nurse", ["Nurse"], NONE) is None

@@ -514,7 +514,7 @@ def test_terms_run_at_once_but_never_more_than_the_cap(setup, monkeypatch):
         return frame()
 
     boards["linkedin"] = slow
-    monkeypatch.setattr(scrape, "MAX_SCRAPE_WORKERS", 3)
+    monkeypatch.setitem(scrape.BOARD_WORKERS, "linkedin", 3)
     scrape.run(root, configure(sources=["linkedin"], search_query=[f"term {n}" for n in range(8)], title_filter="off"))
     assert 2 <= peak[0] <= 3 and len(calls) == 8
 
@@ -557,3 +557,75 @@ def test_a_job_the_board_gave_no_details_for_gets_neutral_placeholders(setup):
     ov = L.job_overview(text)
     assert (ov["Date Posted"], ov["Location"], ov["Employment type"]) == ("Not available", "Not specified", "Not specified")
     assert "No description available." in text
+
+
+def test_each_board_has_its_own_term_parallelism(setup, monkeypatch):
+    import threading
+    import time
+
+    assert scrape.workers_for("linkedin") == 10
+    assert all(scrape.workers_for(b) == 2 for b in ("indeed", "glassdoor", "zip_recruiter", "google", "bayt", "naukri"))
+    root, boards, calls, configure = setup
+    live, peak, lock = [0], [0], threading.Lock()
+
+    def slow(kwargs):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.05)
+        with lock:
+            live[0] -= 1
+        return frame()
+
+    boards["indeed"] = slow
+    scrape.run(root, configure(sources=["indeed"], search_query=[f"term {n}" for n in range(8)], title_filter="off"))
+    assert peak[0] == 2 and len(calls) == 8
+
+
+def test_one_role_in_two_cities_is_two_jobs(setup, capsys):
+    root, boards, calls, configure = setup
+    paris = {"city": "Paris", "country": "france"}
+    boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/1", location=paris),
+                               post(url="https://www.linkedin.com/jobs/view/2", location={"city": "Lyon", "country": "france"}),
+                               post(url="https://www.linkedin.com/jobs/view/3", location=paris))
+    scrape.run(root, configure(sources=["linkedin"]))
+    assert "1 duplicate dropped" in capsys.readouterr().out
+    assert sorted(r["_key"] for r in rows(root)) == ["1", "2"]
+
+
+def test_freehire_unusable_and_repeated_results_are_counted_one_by_one(setup, freehire, capsys):
+    root, boards, calls, configure = setup
+    freehire.items = [fh_item(1), fh_item(2, company=""), fh_item(3, enrichment={"employment_type": "internship"})]
+    scrape.run(root, configure(sources=["freehire"], search_query=["Operations Analyst", "Project Coordinator"]))
+    out = capsys.readouterr().out
+    # per term: 3 read, 2 unusable; the second term meets job 1 again
+    assert "freehire: 6 scraped, 1 new (4 bad, 1 dup id dropped)" in out
+
+
+def test_a_failed_job_md_write_leaves_no_folder(setup, monkeypatch):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post())
+
+    def broken(self, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(scrape.Path, "write_text", broken)
+    with pytest.raises(OSError):
+        scrape.run(root, configure(sources=["linkedin"]))
+    assert not list((root / "Applications").glob("111_*")) and scrape.known_keys(root).isdisjoint({"111"})
+
+
+def test_git_snapshot_respects_gitignore(setup, capsys, monkeypatch):
+    root, boards, calls, configure = setup
+    for name, value in (("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@e.x"), ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@e.x")):
+        monkeypatch.setenv(name, value)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / ".gitignore").write_text("Job_Tracker.xlsx\nApplications/\n", encoding="utf-8")
+    scrape.run(root, configure(git_snapshot=True))
+    assert "ignored by .gitignore; nothing to snapshot" in capsys.readouterr().out
+    log = subprocess.run(["git", "-C", str(root), "log", "--format=%s"], capture_output=True, text=True).stdout
+    assert log == ""
+    (root / ".gitignore").write_text("Applications/\n", encoding="utf-8")  # one of the two is versioned now
+    scrape.run(root, configure(git_snapshot=True))
+    shown = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format=%s"], capture_output=True, text=True).stdout
+    assert "ohmyjob snapshot" in shown and "Job_Tracker.xlsx" in shown and "Applications" not in shown

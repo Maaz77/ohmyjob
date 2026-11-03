@@ -17,7 +17,7 @@ ohmyjob is a personal automation tool. Read this before you use it.
 
 ## Keep your workspace private
 
-The workspace holds personal data (name, contact details, work history, application answers). **Never commit it to a public repository.** Setup writes a `.gitignore` for the workspace; check it before you put the folder under version control, and keep the repository private. The `git_snapshot` setting force-adds the tracker and `Applications/` to git even though they are ignored: never use it in a repository that has a public remote.
+The workspace holds personal data (name, contact details, work history, application answers). **Never commit it to a public repository.** Setup writes a `.gitignore` for the workspace; check it before you put the folder under version control, and keep the repository private. The `git_snapshot` setting commits only what that `.gitignore` allows; if you remove the personal files from it, never use the repository with a public remote.
 
 ## No warranty
 

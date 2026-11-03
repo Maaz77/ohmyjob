@@ -74,10 +74,10 @@ Created by setup and filled in by the profile interview. Unknown keys and bad va
 | `filter_title_terms` | `[]` | Words that drop a posting when they appear in its title (empty by default). |
 | `title_filter` | `"strict"` | `strict` keeps a posting only if its title matches a search term (accents and word forms ignored); `off` keeps every title. |
 | `title_aliases` | `{}` | Extra words that count as a match, applied to both the term and the title, for example `{"ops": "operations"}`. |
-| `title_only_aliases` | `{}` | Aliases applied to the posting title only. |
+| `title_only_aliases` | `{}` | Aliases applied to the posting title only. `templates/presets/software.json` holds a broad set of software abbreviations and bridges (for example "ml", "web" or "designer" lead to "software" or "engineer"); the profile skill can merge it for tech roles. It favors recall over precision: trim the entries that give you unwanted matches. |
 | `languages` | `["en"]` | Languages of the postings, for word-form matching. |
 | `uk_sponsor_only` | `false` | `freehire` only: keep only jobs from UK sponsor-licensed employers (see below). |
-| `git_snapshot` | `false` | Commit the tracker and `Applications/` before a scrape; skipped if the folder is not a git repository. **It force-adds them even though the workspace `.gitignore` lists them**: keep such a repository private and never push it to a public remote. |
+| `git_snapshot` | `false` | Commit the tracker and `Applications/` before a scrape; skipped if the folder is not a git repository. It respects the workspace `.gitignore`, which lists these files: remove their lines there only for a repository that stays private and never has a public remote. |
 
 `pipeline`:
 

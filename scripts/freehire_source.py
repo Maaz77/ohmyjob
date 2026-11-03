@@ -293,6 +293,8 @@ def _row(item: dict, country: str = "") -> dict | None:
 class Result(NamedTuple):
     rows: list
     fetched: int  # results read, usable or not
+    unusable: int  # results that cannot be tracked or read
+    repeated: int  # jobs already met under another term
     error: str | None  # terms that failed (the rows read before the failure are kept)
     warnings: list
 
@@ -313,11 +315,11 @@ def search_freehire_jobs(
     country = freehire_country(location, country_name)
     if country is None:
         warn(f"no country found in location {location!r} or country {country_name!r}; freehire skipped")
-        return Result([], 0, None, warnings)
+        return Result([], 0, 0, 0, None, warnings)
     rows, seen, reported = [], set(), set()
 
     def fetch_term(term):
-        fetched = item_errors = 0
+        fetched = item_errors = unusable = 0
         failed = None
         term_rows = []
         term_metas = []
@@ -333,26 +335,31 @@ def search_freehire_jobs(
                         item_errors += 1
                         warn(f"term={term!r}: a result ({item.get('public_slug') if isinstance(item, dict) else None}) "
                              f"could not be read: {type(error).__name__}: {error}")
-                    if row is not None:
+                    if row is None:
+                        unusable += 1
+                    else:
                         term_rows.append(row)
         except Exception as error:  # noqa: BLE001 - whatever goes wrong here must leave the other sources intact
             failed = f"term={term!r}: freehire failed after {fetched} results: {type(error).__name__}: {error}"
-        return term, fetched, failed, term_rows, term_metas
+        return term, fetched, unusable, failed, term_rows, term_metas
 
     # Terms are independent; pagination for each term remains sequential so the
     # per-page delay and retry behavior continue to apply.
     with ThreadPoolExecutor(max_workers=max(1, min(len(search_terms), MAX_FREEHIRE_WORKERS))) as pool:
         term_results = list(pool.map(fetch_term, search_terms)) if search_terms else []
 
-    errors, total_fetched = [], 0
+    errors, total_fetched, total_unusable, repeated = [], 0, 0, 0
     probing = True  # False once freehire has failed on us: no probes after that
-    for term, fetched, failed, term_rows, term_metas in term_results:
+    for term, fetched, unusable, failed, term_rows, term_metas in term_results:
         total_fetched += fetched
+        total_unusable += unusable
         for meta in term_metas:
             _report_ignored(meta, reported, warn)
         for row in term_rows:
             key = job_key(row["url"])
-            if key not in seen:
+            if key in seen:
+                repeated += 1
+            else:
                 seen.add(key)
                 rows.append(row)
         if failed:
@@ -361,4 +368,4 @@ def search_freehire_jobs(
         if not fetched and not failed and probing:
             line, probing = _explain_zero(term, country, open_within_days, uk_sponsor_only)
             warn(f"term={term!r}: nothing found | {line}")
-    return Result(rows, total_fetched, "; ".join(errors) or None, warnings)
+    return Result(rows, total_fetched, total_unusable, repeated, "; ".join(errors) or None, warnings)
