@@ -66,12 +66,14 @@ It creates this skeleton in the project folder, each item only when missing, and
     Job_Tracker.xlsx
     CLAUDE.md                    short guide and the standing never-submit rule
     .gitignore                   keeps the personal files out of git
-    Default_Resume_Files/        Template.yaml and Template.pdf
+    Default_Resume_Files/        Template.yaml/.pdf (resume), Template-CV.yaml/.pdf (CV)
     Applications/  Pending-Review/  Needs-Attention/  Submitted/
     .ohmyjob/                    working files (environment, run state, builds); do not edit
 ```
 
-`ohmyjob.json`, `Profile.md` and `Template.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of `Template.yaml`; the `"_template"` key of `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` is the sample build of `Template.yaml`.
+`ohmyjob.json`, `Profile.md`, `Template.yaml` and `Template-CV.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of both templates; the `"_template"` key of `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` and `Template-CV.pdf` are the sample builds.
+
+Both templates follow the examples of [Awesome-CV](https://github.com/posquit0/Awesome-CV) exactly (red accent, its geometry, header and footer). `Template.yaml` is the resume (`document: resume`: Summary, Work Experience, Honors & Awards, Certificates, Education); `Template-CV.yaml` is the CV (`document: cv`: Education, Skills, Experience, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees). A section without entries is left out, and a key the chosen document does not show prints a `WARNING` line instead of failing.
 
 The workspace is found from the project folder, from inside `ohmyjob/`, or from any folder below either.
 
@@ -92,9 +94,9 @@ Work in `ohmyjob/`:
    - `# Follow Up Questions`: answers the application workers reuse. One line per item, `- Question? Answer.`, under the exact heading. Replace the mock answers; `/ohmyjob:apply-jobs` asks you any question it meets that is missing and saves the answer here.
 2. **`ohmyjob.json`**: set your boards, search terms, location and country, page limit and paper size (every key is below), then delete the `"_template"` line.
 3. **Resumes** in `Default_Resume_Files/`:
-   - Copy `Template.yaml` once per role you apply for and **name each copy by field**, for example `Data-Analyst.yaml`. Replace the mock data and delete the marker line in each. One yaml is one complete resume; there is no shared base file.
+   - Copy `Template.yaml` (or `Template-CV.yaml` for a CV) once per role you apply for and **name each copy by field**, for example `Data-Analyst.yaml`. Replace the mock data and delete the marker line in each. One yaml is one complete resume; there is no shared base file.
    - Optionally add ready-made PDF resumes named by field (for example `Nurse-ICU.pdf`), with no yaml. They are used exactly as they are and never edited.
-4. **`/ohmyjob:build-resumes`** builds a PDF next to every yaml, with the same name (`Template.yaml` too). It prints one line per file, `<file>: OK`, `<file>: OVERFLOW <N> pages` (longer than `resume_max_pages`: shorten the yaml or raise the limit, then run it again) or `<file>: FAIL <reason>`, a `WARNING <file>: still has the template marker` line for a file you have not finished editing, and a last `SUMMARY <n> OK, <n> OVERFLOW, <n> FAIL` line. The exit code is 0 only when every file is OK. It never edits your files.
+4. **`/ohmyjob:build-resumes`** builds a PDF next to every yaml, with the same name (`Template.yaml` and `Template-CV.yaml` too). It prints one line per file, `<file>: OK`, `<file>: OVERFLOW <N> pages` (longer than `resume_max_pages`: shorten the yaml or raise the limit, then run it again) or `<file>: FAIL <reason>`, a `WARNING <file>: still has the template marker` line for a file you have not finished editing, and a last `SUMMARY <n> OK, <n> OVERFLOW, <n> FAIL` line. The exit code is 0 only when every file is OK. It never edits your files.
 5. Run the daily loop above.
 
 During screening, the usable resumes are every `<name>.yaml` with a built `<name>.pdf` (tailored per job) and every `<name>.pdf` without a yaml (used as is). `Template.*` and any file that still holds the marker are never used. A job that matches a ready-made PDF gets a copy of it in its folder, named `<First>_<Company>_<Title>.pdf`, and goes straight to `Resume Built`; a job that matches a yaml gets a tailored copy (`.yaml` and `.pdf`) from a worker.
@@ -139,7 +141,7 @@ Created by setup with mock values; you edit it (see above). Unknown keys and bad
 | Key | Default | Meaning |
 |---|---|---|
 | `max_parallel_workers` | `5` | Workers running at once (capped below Claude Code's subagent limit by one for the master). |
-| `resume_max_pages` | `1` | Page limit for a tailored resume. `0` = no limit. |
+| `resume_max_pages` | `1` | Page limit for a tailored resume (`document: resume`; a CV has no page limit). `0` = no limit. |
 | `resume_paper` | `"a4"` | `a4` or `letter`. |
 
 Per-board notes:

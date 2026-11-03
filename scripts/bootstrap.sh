@@ -117,23 +117,30 @@ if [ ! -e "$WORKSPACE/ohmyjob.json" ]; then
 fi
 
 # --- 4. LaTeX ---------------------------------------------------------------------------------------------------------
-# warmup <lualatex path or empty>: builds the plugin's templates/Template.yaml in a throwaway workspace. The build also
-# fills the luaotfload font cache (under $DATA/texmf-var), so parallel builds start warm. On success the PDF is kept
-# as .ohmyjob/Template.warm.pdf; it becomes Default_Resume_Files/Template.pdf when that is missing.
+# warmup <lualatex path or empty>: builds the plugin's templates/Template.yaml and Template-CV.yaml in a throwaway
+# workspace. The builds also fill the luaotfload font cache (under $DATA/texmf-var), so parallel builds start warm. On
+# success the PDFs are kept as .ohmyjob/Template.warm.pdf and .ohmyjob/Template-CV.warm.pdf; each becomes
+# Default_Resume_Files/Template.pdf / Template-CV.pdf when that is missing.
 WARM_PDF="$WORKSPACE/.ohmyjob/Template.warm.pdf"
+WARM_CV_PDF="$WORKSPACE/.ohmyjob/Template-CV.warm.pdf"
 warmup() {
-  local lua="$1" tmp out rc
+  local lua="$1" tmp out rc name
   tmp="$(mktemp -d "$WORKSPACE/.ohmyjob/w.XXXXXX")" || return 1
   mkdir -p "$tmp/Default_Resume_Files"
   cp "$TEMPLATES/ohmyjob.json" "$tmp/ohmyjob.json"
-  cp "$TEMPLATES/Template.yaml" "$tmp/Default_Resume_Files/Template.yaml"
-  rc=0
-  out="$(OHMYJOB_WORKSPACE="$tmp" OHMYJOB_DATA="$DATA" OHMYJOB_LUALATEX="$lua" "$PY" "$SCRIPTS/resume_build.py" build \
-         "$tmp/Default_Resume_Files/Template.yaml" --out "$tmp/Template.pdf" 2>&1)" || rc=$?
-  case "$out" in "OK "*) mv "$tmp/Template.pdf" "$WARM_PDF"; rm -rf "$tmp"; return 0 ;; esac
-  rm -rf "$tmp"
-  say "warm-up build with ${lua:-lualatex}: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ')"
-  return 1
+  for name in Template Template-CV; do
+    cp "$TEMPLATES/$name.yaml" "$tmp/Default_Resume_Files/$name.yaml"
+    rc=0
+    out="$(OHMYJOB_WORKSPACE="$tmp" OHMYJOB_DATA="$DATA" OHMYJOB_LUALATEX="$lua" "$PY" "$SCRIPTS/resume_build.py" build \
+           "$tmp/Default_Resume_Files/$name.yaml" --out "$tmp/$name.pdf" 2>&1)" || rc=$?
+    case "$out" in
+      "OK "*) ;;
+      *) rm -rf "$tmp"; say "warm-up build of $name with ${lua:-lualatex}: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ')"
+         return 1 ;;
+    esac
+  done
+  mv "$tmp/Template.pdf" "$WARM_PDF"; mv "$tmp/Template-CV.pdf" "$WARM_CV_PDF"; rm -rf "$tmp"
+  return 0
 }
 
 # the lualatex inside <data>/tinytex (macOS: TinyTeX/, Linux: .TinyTeX/), if installed
@@ -287,15 +294,21 @@ if [ ! -e "$WORKSPACE/Profile.md" ]; then
   cp "$TEMPLATES/Profile.md" "$WORKSPACE/Profile.md"
   say "created Profile.md (mock data)"
 fi
-if [ ! -e "$WORKSPACE/Default_Resume_Files/Template.yaml" ]; then
-  cp "$TEMPLATES/Template.yaml" "$WORKSPACE/Default_Resume_Files/Template.yaml"
-  say "created Default_Resume_Files/Template.yaml (mock data)"
-fi
+for name in Template Template-CV; do
+  if [ ! -e "$WORKSPACE/Default_Resume_Files/$name.yaml" ]; then
+    cp "$TEMPLATES/$name.yaml" "$WORKSPACE/Default_Resume_Files/$name.yaml"
+    say "created Default_Resume_Files/$name.yaml (mock data)"
+  fi
+done
 if [ ! -e "$WORKSPACE/Default_Resume_Files/Template.pdf" ]; then
   cp "$WARM_PDF" "$WORKSPACE/Default_Resume_Files/Template.pdf"
   say "built Default_Resume_Files/Template.pdf"
 fi
-rm -f "$WARM_PDF"
+if [ ! -e "$WORKSPACE/Default_Resume_Files/Template-CV.pdf" ]; then
+  cp "$WARM_CV_PDF" "$WORKSPACE/Default_Resume_Files/Template-CV.pdf"
+  say "built Default_Resume_Files/Template-CV.pdf"
+fi
+rm -f "$WARM_PDF" "$WARM_CV_PDF"
 if [ ! -e "$WORKSPACE/.gitignore" ]; then
   cp "$TEMPLATES/gitignore" "$WORKSPACE/.gitignore"
   say "created .gitignore"

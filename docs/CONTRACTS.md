@@ -63,18 +63,32 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 ## Resume yaml (one full file per resume)
 - Each resume is ONE complete yaml, never merged with another file: `Default_Resume_Files/Template.yaml`, the user's
   `<Field>.yaml` (named by field, e.g. `Data-Analyst.yaml`), and the tailored `<prefix>_<Company>.yaml` in a job folder.
-- Keys (`?` = optional): `name{first, last}`, `address`, `phone`, `email`, `homepage?`, `github?`, `linkedin?`, `extra?`,
-  `photo?`, `date_of_birth?`, `accent_color?`, `sections?{summary, experience, projects, education, skills}` (heading
-  overrides), `title`, `introduction`, `experience[]` (plain `{role, company, location, dates, bullets[]}` or grouped
-  `{employer, location, dates, roles[]{role, dates, bullets[]}}`), `projects[]{title, repo?, bullets[]}` (may be `[]`),
-  `education[]{degree, school, location, dates, details[]}`, `education_details: yes|no` (print the details),
-  `skills[]{label, items}`, `interests?` (text) and `show_interests: yes|no` (print it; the old role flag
-  `interests: yes|no` is renamed).
+- Two layouts, exactly Awesome-CV's upstream examples (pinned commit dfe8635): `document: resume` (default; `examples/resume.tex`,
+  `\makecvheader[C]`, footer "<Name> · Résumé", at most `resume_max_pages` pages) and `document: cv` (`examples/cv.tex`,
+  `\makecvheader`, footer "<Name> · Curriculum Vitae", no page limit). Preamble: `\documentclass[11pt, a4paper|letterpaper]`,
+  `\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}`, `awesome-red`, section highlight on.
+- Sections (an empty one is left out), order and headings fixed: resume = Summary (`introduction`, cvparagraph), Work
+  Experience (`experience`), Honors & Awards (`honors`), Certificates (`certificates`), Education (`education`); cv =
+  Education, Skills (`skills`, cvskills), Experience, Extracurricular Activity (`extracurricular`), Honors & Awards,
+  Certificates, Presentation (`presentation`), Writing (`writing`), Program Committees (`committees`).
+- Keys (`?` = optional): `document?` (`resume`|`cv`), `name{first, last}`, `title` (the position line), `address`, `phone`,
+  `email`, `homepage?`, `github?`, `linkedin?`, `quote?`, `extra?`, `photo?`, `date_of_birth?`, `accent_color?` (only
+  upstream's names: emerald, skyblue, red, pink, orange, nephritis, concrete, darknight; default red; anything else
+  prints a WARNING and uses red), `sections?` (heading overrides by section key: summary, experience, honors,
+  certificates, education, skills, extracurricular, presentation, writing, committees), `introduction`, `experience[]`
+  (plain `{role, company, location, dates, bullets[]}` or grouped `{employer, location, dates, roles[]{role, dates,
+  bullets[]}}`), `education[]{degree, school, location, dates, details[]}` + `education_details: yes|no`,
+  `skills[]{label, items}` (cv only), cvhonor lists `honors[]`, `certificates[]` (event = issuer, location = credential id),
+  `committees[]` (cv only), each `{award, event, location, date}`, and cventry lists `extracurricular[]`, `presentation[]`,
+  `writing[]` (cv only), each `{role, title, location, date, items[]}`. `projects[]`, `interests` and `show_interests`
+  are still accepted (old files build) but printed by neither layout.
+- A key the chosen document does not print (skills or projects in a resume, introduction in a cv ...) is not an error: the
+  build prints `WARNING <file>: <key> is not shown in a <document>` (build-all on stdout, `resume build` on stderr).
 - Text is plain text plus `**bold**` (see resume_build.py). The resume-worker tailors the content keys only: the
   header/contact keys, `sections`, `accent_color` and `education` are frozen (WS-B).
 - `ohmyjob resume build-all` (WS-A; `/ohmyjob:build-resumes`): builds every `*.yaml` in `Default_Resume_Files/`
   (`Template.yaml` too) into a PDF with the same name next to it; one line per file (`OK`, `OVERFLOW <N> pages` or
-  `FAIL <reason>`), and a warning for a file that still holds the marker.
+  `FAIL <reason>`), and a warning for a file that still holds the marker. `Template-CV.yaml` is the cv sample.
 - Screening catalog (WS-B): the usable resumes are every `<name>.yaml` with a `<name>.pdf` next to it (tailorable) and
   every `<name>.pdf` without a yaml (ready-made, used as is) in `Default_Resume_Files/`; never `Template.*`, never a
   file that holds the marker. `prep start` writes their text to `W.CATALOG_DIR` (yaml: title, introduction, skills; PDF:
@@ -106,15 +120,17 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 
 ## resume_build.py
 - `build(role_yaml, out_pdf, *, max_pages=None, paper=None) -> (status, pages, detail)`, status `OK`, `OVERFLOW` or `FAIL`.
-  `None` reads `pipeline.resume_max_pages` / `resume_paper` from the config; `max_pages=0` means no page limit. It reads
+  `None` reads `pipeline.resume_max_pages` / `resume_paper` from the config; `max_pages=0` means no page limit (a `document: cv` is always built without one). It reads
   ONE full resume yaml (see "Resume yaml"; nothing is merged in), builds in its own dir under `W.BUILD_DIR` (class
   copied in, dir removed after), runs `$OHMYJOB_LUALATEX`, else `lualatex` on PATH, with `-interaction=nonstopmode
   -halt-on-error` and a timeout, and counts pages from the log. It deletes `out_pdf` first, so OVERFLOW and FAIL leave
   no PDF.
 - CLI `ohmyjob resume build <yaml> [--out <pdf>]` prints exactly one line: `OK <pdf>`, `OVERFLOW <N> pages` or
   `FAIL <reason>`.
-- `BULLET_BUDGET`: rendered characters of ONE bullet line. `SKILLS_BUDGET`: rendered characters of the items of ONE skills
-  row (the label is not counted). Both are checked before compiling, with `rendered_len(text)` (text as printed);
+- `BULLET_BUDGET` (124): rendered characters of ONE bullet line. `SKILLS_BUDGET` (109): rendered characters of the items of
+  ONE skills row (the label is not counted). Measured for the upstream geometry (1.4 cm side margins; cvitems line 507 pt, cvskill
+  items column 436 pt on A4) with `\settowidth` over 13 bullets and 6 skill rows: 3.67 and 3.59 pt per character at 9 pt
+  Source Sans 3 Light, minus a 10% margin; re-measure when the class, the fonts or the geometry change. Both are checked before compiling, with `rendered_len(text)` (text as printed);
   `render(role_yaml, *, paper=None, photo="")` returns the LaTeX source.
 - Markup: yaml text is plain text plus `**bold**`. Everything else, backslashes included, prints literally. Links accept
   http(s) only; a bare address gets `https://`.

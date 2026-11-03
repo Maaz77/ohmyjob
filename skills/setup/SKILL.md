@@ -24,7 +24,7 @@ Tell the user, in short lines, what setup will do, and ask with AskUserQuestion 
 - Python packages and uv's own Python go into the plugin's data folder `${CLAUDE_PLUGIN_DATA}` (venv, python, uv-cache), downloaded with uv. Nothing goes to your PATH, shell profile or home folder.
 - If `uv` is missing, it is installed from the official script into `${CLAUDE_PLUGIN_DATA}/bin` (asked separately below).
 - LaTeX: the template resume is built with the LaTeX on this computer. Only when that fails is TinyTeX offered (asked separately below), into `${CLAUDE_PLUGIN_DATA}/tinytex`. No system folder is touched.
-- This folder gets `ohmyjob/` with `ohmyjob.json`, `Profile.md`, `CLAUDE.md`, `.gitignore`, `Job_Tracker.xlsx`, the job folders and `Default_Resume_Files/Template.yaml` + `Template.pdf` (each only when missing; mock data), and `.claude/settings.json` (merged: your own keys stay).
+- This folder gets `ohmyjob/` with `ohmyjob.json`, `Profile.md`, `CLAUDE.md`, `.gitignore`, `Job_Tracker.xlsx`, the job folders and `Default_Resume_Files/Template.yaml` + `Template.pdf` and `Template-CV.yaml` + `Template-CV.pdf` (each only when missing; mock data), and `.claude/settings.json` (merged: your own keys stay).
 Stop here if the answer is no.
 
 ## 4. Run bootstrap
@@ -48,7 +48,7 @@ Print for the user, with the real path from the `extension:` line (only needed f
 Tell the user, with the real `workspace:` path:
 1. Open `ohmyjob/Profile.md` and replace the mock data with yours: `# Candidate`, `# Fit Preferences`, `# Resume` (everything true about you; tailored resumes use only this and your resume files) and `# Follow Up Questions` (answers to the questions forms ask). Then delete the first line, the `OHMYJOB-TEMPLATE` marker line.
 2. Open `ohmyjob/ohmyjob.json` and set your job boards, search titles, location and country (a country is required while `indeed` or `glassdoor` is a source), the page limit and the paper size. Then delete the `"_template"` line. Every key is documented in the README.
-3. In `ohmyjob/Default_Resume_Files/`, copy `Template.yaml` to one file per role you apply for, named by field (for example `Data-Analyst.yaml`), replace the mock data and delete the marker line in each. Optionally add ready-made PDF resumes there, also named by field (for example `Nurse-ICU.pdf`); they are used as they are.
+3. In `ohmyjob/Default_Resume_Files/`, copy `Template.yaml` (or `Template-CV.yaml`) to one file per role you apply for, named by field (for example `Data-Analyst.yaml`), replace the mock data and delete the marker line in each. Optionally add ready-made PDF resumes there, also named by field (for example `Nurse-ICU.pdf`); they are used as they are.
 4. Run `/ohmyjob:build-resumes` to build a PDF next to every resume yaml. Fix any OVERFLOW it reports (the resume is longer than your page limit) and run it again.
 5. Close this session, then start Claude in the project folder (the folder that holds `.claude/` and `ohmyjob/`; project settings and hooks load only from the folder Claude starts in) with:
 `claude --setting-sources project,local --strict-mcp-config --chrome`

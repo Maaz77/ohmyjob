@@ -214,10 +214,11 @@ def test_real_run_builds_everything(real):
     assert (e.ws / "CLAUDE.md").read_text() == (ROOT / "templates" / "CLAUDE.md").read_text()
     assert (e.ws / ".gitignore").read_text() == (ROOT / "templates" / "gitignore").read_text()
     assert (e.ws / "Profile.md").read_text() == (ROOT / "templates" / "Profile.md").read_text()
-    assert (e.ws / "Default_Resume_Files" / "Template.yaml").read_text() == (ROOT / "templates" / "Template.yaml").read_text()
-    pdf = (e.ws / "Default_Resume_Files" / "Template.pdf").read_bytes()
-    assert pdf.startswith(b"%PDF")  # built from the template: the warm-up build is the template build
-    assert not (e.ws / ".ohmyjob" / "Template.warm.pdf").exists()
+    for name in ("Template", "Template-CV"):
+        assert (e.ws / "Default_Resume_Files" / f"{name}.yaml").read_text() == (ROOT / "templates" / f"{name}.yaml").read_text()
+        pdf = (e.ws / "Default_Resume_Files" / f"{name}.pdf").read_bytes()
+        assert pdf.startswith(b"%PDF")  # built from the template: the warm-up builds are the template builds
+        assert not (e.ws / ".ohmyjob" / f"{name}.warm.pdf").exists()
     assert (e.data / "texmf-var").is_dir()  # font caches stay in the data folder
     assert not (e.proj / "ohmyjob.json").exists()  # nothing in the project folder but .claude and ohmyjob/
     assert sorted(p.name for p in e.proj.iterdir()) == [".claude", "ohmyjob"]
@@ -516,12 +517,14 @@ def test_layout_in_the_project_folder(env):
     names = {p.name for p in env.ws.iterdir()}
     assert names == {"ohmyjob.json", "Profile.md", "CLAUDE.md", ".gitignore", "Job_Tracker.xlsx", "Default_Resume_Files",
                      "Applications", "Pending-Review", "Needs-Attention", "Submitted", ".ohmyjob"}
-    assert sorted(p.name for p in (env.ws / "Default_Resume_Files").iterdir()) == ["Template.pdf", "Template.yaml"]
+    assert sorted(p.name for p in (env.ws / "Default_Resume_Files").iterdir()) == [
+        "Template-CV.pdf", "Template-CV.yaml", "Template.pdf", "Template.yaml"]
     assert (env.ws / "Profile.md").read_text().startswith("<!-- OHMYJOB-TEMPLATE:")
-    assert (env.ws / "Default_Resume_Files" / "Template.yaml").read_text().startswith("# OHMYJOB-TEMPLATE:")
+    for name in ("Template", "Template-CV"):
+        assert (env.ws / "Default_Resume_Files" / f"{name}.yaml").read_text().startswith("# OHMYJOB-TEMPLATE:")
     assert json.loads((env.ws / "ohmyjob.json").read_text())["_template"].startswith("OHMYJOB-TEMPLATE")
     assert (env.proj / ".claude" / "settings.json").exists() and not (env.ws / ".claude").exists()
-    # the warm-up build used the plugin's Template.yaml
+    # the warm-up builds used the plugin's Template.yaml and Template-CV.yaml
     assert env.calls("lualatex")
 
 
@@ -536,10 +539,13 @@ def test_template_files_are_never_overwritten(env):
     (env.ws / "Default_Resume_Files").mkdir(parents=True)
     (env.ws / "Default_Resume_Files" / "Template.yaml").write_text("# mine\n")
     (env.ws / "Default_Resume_Files" / "Template.pdf").write_bytes(b"mine")
+    (env.ws / "Default_Resume_Files" / "Template-CV.yaml").write_text("# mine too\n")
     (env.ws / "Profile.md").write_text("# Candidate\n- Name: Real Person\n")
     ok(env.run())
     assert (env.ws / "Default_Resume_Files" / "Template.yaml").read_text() == "# mine\n"
     assert (env.ws / "Default_Resume_Files" / "Template.pdf").read_bytes() == b"mine"
+    assert (env.ws / "Default_Resume_Files" / "Template-CV.yaml").read_text() == "# mine too\n"
+    assert (env.ws / "Default_Resume_Files" / "Template-CV.pdf").read_bytes().startswith(b"%PDF")  # only the missing one
     assert (env.ws / "Profile.md").read_text() == "# Candidate\n- Name: Real Person\n"
     assert not (env.ws / ".ohmyjob" / "Template.warm.pdf").exists()
 

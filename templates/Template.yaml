@@ -1,18 +1,27 @@
 # OHMYJOB-TEMPLATE: copy this file to <Field>.yaml, replace the mock data, then delete this line
 #
-# One complete resume. Copy it to a file named after the field it targets (Data-Analyst.yaml, Nurse-ICU.yaml ...), replace
-# every mock value with your own, and build it with /ohmyjob:build-resumes. Keep the keys; delete a whole optional
-# key (marked "optional") when you do not need it. The PDF is built next to the file with the same name.
+# One complete RESUME (the layout of Awesome-CV's examples/resume.tex). Copy it to a file named after the field it
+# targets (Data-Analyst.yaml, Nurse-ICU.yaml ...), replace every mock value with your own, and build it with
+# /ohmyjob:build-resumes. Keep the keys; delete a whole optional key (marked "optional") when you do not need it. A
+# section without entries is left out. The PDF is built next to the file with the same name.
+# For the longer CV layout (skills, extracurricular activity, presentations ...) start from Template-CV.yaml instead.
 #
 # Text rules: plain text, plus **double stars** for bold (use it for a few key terms). Anything else prints as you type
 # it: no LaTeX, no markdown links. Quote a value ("...") when it contains a colon or starts with a symbol, such as
-# a phone number starting with +. Keep every bullet to ONE line (about 124 characters) and every skills row to one line
-# (about 106 characters), so the resume fits its page limit (pipeline.resume_max_pages in ohmyjob.json, default 1).
+# a phone number starting with +. Keep every bullet to ONE line (about 124 characters) so the resume fits one page
+# (pipeline.resume_max_pages in ohmyjob.json, default 1; a CV has no page limit).
+
+# resume (default) or cv. A key the chosen document does not show (skills in a resume, introduction in a CV ...) is
+# ignored and the build prints a WARNING line.
+document: resume
 
 # Your name, as printed in the large header.
 name:
   first: Alex
   last: Example
+
+# The role you apply for: printed under your name, and used by the job screening to match jobs to this resume.
+title: Operations Analyst
 
 # Header contact lines.
 address: Musterstrasse 12, 10115 Berlin, Germany
@@ -23,30 +32,28 @@ homepage: example.com/alex
 # optional: your user name on GitHub and on LinkedIn (the part after github.com/ and linkedin.com/in/), not the full link.
 github: alex-example-fixture
 linkedin: alex-example-fixture
+# optional: a short quote printed under the header.
+quote: Be the change that you want to see in the world.
 # optional: one more short text for the header line, for example "Work permit: EU citizen".
 # extra: EU citizen
 # optional: a photo file (jpg, png or pdf) in this same folder; printed as a round picture in the header.
 # photo: photo.jpg
 # optional: a date of birth, printed in the header as written.
 # date_of_birth: 1 January 1990
-# optional: the accent colour of headings and the role title: six hex digits, or one of emerald, skyblue, red, pink,
-# orange, nephritis, concrete, darknight. Default: skyblue.
-# accent_color: "#0395DE"
+# optional: the accent colour of headings and the role title, one of Awesome-CV's colours: emerald, skyblue, red, pink,
+# orange, nephritis, concrete, darknight. Default: red.
+# accent_color: red
 
-# optional: rename the section headings. Keys: summary, experience, projects, education, skills, interests.
-sections:
-  summary: Profile
-  skills: Core Skills
+# optional: rename the section headings. Keys: summary, experience, honors, certificates, education.
+# sections:
+#   summary: Profile
 
-# The role you apply for: printed under your name, and used by the job screening to match jobs to this resume.
-title: Operations Analyst
-
-# Two or three sentences: what you do and what you deliver. Printed under the summary heading.
+# Summary: two or three sentences, what you do and what you deliver.
 introduction: >-
   Operations analyst with six years in logistics and food supply chains. Builds forecasts and weekly KPI reports
   that planners use to cut waiting time and waste.
 
-# Work history, newest first. Each entry is one of two shapes.
+# Work Experience, newest first. Each entry is one of two shapes.
 experience:
   # Shape 1: one employer with several roles (the employer is printed once, one row per role).
   - employer: Harborline Freight Group
@@ -73,12 +80,23 @@ experience:
       - Forecast demand for 400 chilled products and raised forecast accuracy from 71% to 83%.
       - Worked with buyers on promotion calendars and cut write-offs of short-life products by 12%.
 
-# Projects. Use "projects: []" when you have none (the section is then left out).
-projects:
-  - title: Dock scheduling model
-    repo: https://example.com/alex/dock-scheduling   # optional: printed as a link on the right (http or https only)
-    bullets:
-      - Wrote a slot-allocation model for inbound trucks in Python; two depots use it to plan their ramps.
+# Honors & Awards (optional): award, event, location, date.
+honors:
+  - award: 2nd Place
+    event: Rhein-Spree Logistics Case Competition
+    location: Berlin, Germany
+    date: 2017
+
+# Certificates (optional): award = the certificate, event = the issuer, location = the credential id (may be empty), date.
+certificates:
+  - award: Certified Supply Chain Analyst
+    event: Example Supply Chain Institute
+    location: ""
+    date: 2021
+  - award: Google Data Analytics Professional Certificate
+    event: Coursera
+    location: ""
+    date: 2020
 
 # Education. details: extra lines under the degree (thesis, grade ...), printed only when education_details is yes.
 education:
@@ -91,17 +109,3 @@ education:
       - Final grade 1.8 (German scale)
 # yes: print the details lines above. no: print only degree, school, place and dates.
 education_details: yes
-
-# Skills, one row each: a short label and a comma separated list (one line per row).
-skills:
-  - label: Analysis
-    items: Excel, SQL, Power BI, forecasting, KPI design
-  - label: Operations
-    items: Route planning, carrier management, invoice reconciliation, Lean basics
-  - label: Tools
-    items: Python (pandas), Excel macros, Jira
-
-# optional: interests as one line of text, printed only when show_interests is yes.
-interests: Trail running, board games, volunteering at a food bank
-# yes: print the interests section. no: leave it out.
-show_interests: yes

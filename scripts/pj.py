@@ -205,7 +205,8 @@ CATALOG_FILE_CAP = 6000  # characters of one ready-made PDF's text in the catalo
 
 def is_template(path: Path) -> bool:
     """Template.* and any resume file that still holds the template marker are never used."""
-    return path.stem.casefold() == "template" or W.has_template_marker(path)
+    stem = path.stem.casefold()
+    return stem == "template" or stem.startswith("template-") or W.has_template_marker(path)
 
 
 def usable_resumes() -> list[dict]:
