@@ -35,7 +35,7 @@ The command is safe to repeat. Success ends with `bootstrap: OK`; the lines `ext
 
 ## 4. Check the plugin is enabled in this project
 Run `claude plugin list` and look for `ohmyjob@ohmyjob`. It must be installed with scope project or local and enabled. If it is only in user scope, or missing, tell the user to run in this folder:
-`claude plugin marketplace add <github-owner>/ohmyjob --scope project` and `claude plugin install ohmyjob@ohmyjob --scope project`, then start Claude again here and run `/ohmyjob:setup` again. Stop in that case (hooks that keep Claude from pressing Submit only protect a project where the plugin is enabled).
+`claude plugin marketplace add Maaz77/ohmyjob --scope project` and `claude plugin install ohmyjob@ohmyjob --scope project`, then start Claude again here and run `/ohmyjob:setup` again. Stop in that case (hooks that keep Claude from pressing Submit only protect a project where the plugin is enabled).
 
 ## 5. Chrome extension and site permissions
 Print this for the user, with the real path from the `extension:` line:

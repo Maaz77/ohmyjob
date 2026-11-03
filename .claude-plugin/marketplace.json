@@ -2,7 +2,7 @@
   "name": "ohmyjob",
   "description": "Job search pipeline for Claude Code, published as the ohmyjob plugin.",
   "owner": {
-    "name": "<github-owner>"
+    "name": "Maaz77"
   },
   "plugins": [
     {
