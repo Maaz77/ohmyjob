@@ -785,10 +785,9 @@ class TestStagger(Base):
 
         def nav(tab: int, agent: str) -> float:
             started = _time.time()
-            proc = subprocess.run([sys.executable, str(HOOKS), "guard"], input=json.dumps(
-                {"hook_event_name": "PreToolUse", "tool_name": C + "navigate", "agent_type": W, "agent_id": agent,
-                 "tool_input": {"tabId": tab, "url": "https://www.linkedin.com/jobs/view/1"}}),
-                capture_output=True, text=True, env=env, cwd=self.root)
+            proc = self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": C + "navigate", "agent_type": W,
+                                       "agent_id": agent, "tool_input": {"tabId": tab, "url": "https://www.linkedin.com/jobs/view/1"}},
+                             env=env)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             return _time.time() - started
 

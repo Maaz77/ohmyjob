@@ -1,4 +1,4 @@
-// Apply Jobs: pop-ups as tabs (content script, isolated world).
+// ohmyjob: pop-ups as tabs (content script, isolated world).
 //
 // Asks the service worker whether this tab is in a run group. If yes, it sets the attribute
 // data-aa-popups-as-tabs on <html> (page.js reads it when the page calls window.open), and in the
@@ -7,7 +7,7 @@
 
 (() => {
   const ATTR = "data-aa-popups-as-tabs";
-  const TAG_RE = /^\[AA (on|from \d+|grouped \d+|adopted \d+)\] /;
+  const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\] /;
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];

@@ -661,7 +661,8 @@ def cmd_next(args: argparse.Namespace) -> None:
             free = max(0, L.SLOTS - len(running))
             take, state["waiting"] = waiting[:free], waiting[free:]
             for w in take:
-                state["jobs"][w["folder"]].update({"started_at": now, "spawned": False, "worker": w})
+                state["jobs"][w["folder"]].update({"started_at": now, "spawned": False, "worker": w,
+                                                  "brief_agent": None})  # a new worker claims the brief
             L.save_state(run_dir, state)
         if take:
             return emit({"workers": take})

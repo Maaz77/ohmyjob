@@ -14,6 +14,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
 EXTENSION = HERE.parents[1] / "chrome-extension"
@@ -27,6 +28,11 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover
     sync_playwright = None
+
+
+def ROBOTS(route):
+    """LinkedIn's robots.txt is a plain-text page, as the extension meets it (not an HTML page with scripts)."""
+    route.fulfill(status=200, content_type="text/plain", body="User-agent: *\nDisallow: /\n")
 
 
 # Threads: Chromium keeps idle pre-connected sockets, and they stall a one-thread server (page loads time out).
@@ -173,13 +179,75 @@ class TestPopupsAsTabs(unittest.TestCase):
             try:
                 sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
                 ev = sw.evaluate
-                ctx.route("https://www.linkedin.com/robots.txt**", lambda route: route.fulfill(path=SITE / "job.html"))
+                ctx.route("https://www.linkedin.com/robots.txt**", ROBOTS)
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 ev("async () => { const t = await chrome.tabs.query({}); "
                    "return await chrome.tabs.group({tabIds: t.map(x => x.id)}); }")
                 page.goto("https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
                 time.sleep(0.8)
                 self.assertTrue(page.title().startswith(ON), page.title())
+            finally:
+                ctx.close()
+
+    def start_run(self, p, marker):
+        """A browser with the extension, a run group registered by `marker` in the home tab, and one job tab in it."""
+        try:
+            ctx = p.chromium.launch_persistent_context(
+                tempfile.mkdtemp(), channel="chromium", headless=True,
+                args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}", *NO_LNA],
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ctx.route("https://www.linkedin.com/robots.txt**", ROBOTS)
+        home = ctx.pages[0] if ctx.pages else ctx.new_page()
+        job = ctx.new_page()
+        job.goto("http://127.0.0.1:8001/job.html")
+        ids = sw.evaluate("async () => (await chrome.tabs.query({})).map(t => t.id)")
+        gid = sw.evaluate(f"async () => await chrome.tabs.group({{tabIds: {ids}}})")
+        home.goto(marker)
+        time.sleep(0.8)
+        self.assertTrue(home.title().startswith(ON), home.title())
+        home_id, job_id = ids
+        return ctx, sw, home, home_id, job_id, gid
+
+    def test_group_page_moves_the_job_tabs_into_their_groups(self):
+        # the master loads robots.txt?aa-groups#aa-groups=<plan> in its home tab (aa.py group-plan)
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                plan = quote(json.dumps({"Pending Review": [job_id]}, separators=(",", ":")), safe="")
+                home.goto("https://www.linkedin.com/robots.txt?aa-groups#aa-groups=" + plan)
+                time.sleep(1.0)
+                self.assertTrue(home.title().startswith("[AA grouped 1] "), home.title())
+                titles = sw.evaluate("async () => (await chrome.tabGroups.query({})).map(g => g.title)")
+                self.assertIn("Pending Review", titles)
+                moved = sw.evaluate(f"async () => (await chrome.tabs.get({job_id})).groupId")
+                self.assertNotEqual(moved, gid)
+                # a job page cannot ask for groups: only the owner tab of the run group can
+                other = ctx.new_page()
+                other.goto("http://127.0.0.1:8001/job.html")
+                time.sleep(0.5)
+                self.assertFalse(other.title().startswith("[AA grouped"))
+            finally:
+                ctx.close()
+
+    def test_adopt_page_brings_the_needs_attention_tabs_back(self):
+        # the home tab shows robots.txt#aa-popups-as-tabs; the adopt page differs from it before the '#', so Chrome loads it
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                parked = sw.evaluate(f"""async () => {{
+                    const g = await chrome.tabs.group({{tabIds: [{job_id}], createProperties: {{}}}});
+                    await chrome.tabGroups.update(g, {{title: "Needs Attention"}});
+                    return g; }}""")
+                self.assertNotEqual(parked, gid)
+                plan = quote(json.dumps([job_id], separators=(",", ":")), safe="")
+                home.goto("https://www.linkedin.com/robots.txt?aa-adopt#aa-adopt=" + plan)
+                time.sleep(1.0)
+                self.assertTrue(home.title().startswith("[AA adopted "), home.title())
+                back = sw.evaluate(f"async () => (await chrome.tabs.get({job_id})).groupId")
+                self.assertEqual(back, gid)
             finally:
                 ctx.close()
 

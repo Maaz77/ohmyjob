@@ -84,14 +84,15 @@ def read_json(path: Path, default: Any) -> Any:
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    # errors="replace": a lone surrogate in scraped page text must not make the write (and every later one) fail
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8", errors="replace")
     os.replace(tmp, path)
 
 
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8", errors="replace")  # surrogate-safe, see write_json
     os.replace(tmp, path)
 
 
@@ -157,6 +158,45 @@ def job_tab_owner(state: dict, tab: Any) -> Optional[str]:
     if entry and entry.get("role") == "job":
         return entry.get("folder")
     return None
+
+
+# --------------------------------------------------------------------------- refs of every Chrome caller
+# A click by a caller that is not an ohmyjob agent is checked against the refs of the page it read. Those reads are
+# kept per tab here, outside any run (there may be no run), apart from the worker snapshots of a run.
+
+CHROME_STORE = W.STATE_DIR / "run" / "chrome"
+
+
+def foreign_refs_path(tab: Any) -> Path:
+    return CHROME_STORE / f"tab_{tab_key(tab)}.refs.json"
+
+
+def save_foreign_refs(tab: Any, refs: dict, partial: bool) -> None:
+    """Keep the refs of a read by any caller. A full read replaces the tab's refs; a part read (ref_id, find) adds."""
+    path = foreign_refs_path(tab)
+    if partial:
+        refs = {**read_json(path, {}), **refs}
+    write_json(path, refs)
+
+
+def clear_foreign_refs(tab: Any) -> None:
+    """The page may have changed (a click, a key, a typed text, a navigation): the next click needs a new read."""
+    foreign_refs_path(tab).unlink(missing_ok=True)
+
+
+def known_items(run_dir: Optional[Path], tab: Any, ref: str) -> list[dict]:
+    """Every entry for `ref` in the tab's snapshots: the caller-read refs and, in a run, the worker snapshot."""
+    items = []
+    try:
+        sources = [read_json(foreign_refs_path(tab), {})]
+        if run_dir is not None:
+            sources.append(read_json(refs_path(run_dir, tab), {}))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    for refs in sources:
+        if isinstance(refs, dict) and isinstance(refs.get(ref), dict):
+            items.append(refs[ref])
+    return items
 
 
 # --------------------------------------------------------------------------- page reads
@@ -472,9 +512,48 @@ OAUTH_URL_RE = re.compile(
     re.I,
 )
 TICK_ROLES = {"checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"}
-ENTER_RE = re.compile(r"(^|[\s+])(return|enter|kp_enter)($|[\s+])", re.I)
-# Keys that activate a focused button: never allowed for a worker.
-ACTIVATE_KEY_RE = re.compile(r"(^|[\s+])(return|enter|kp_enter|space|kp_space|spacebar)($|[\s+])", re.I)
+# Keys a worker may press (a computer "key" action): an ALLOWLIST. Enter, Return, Space and their many spellings
+# (NumpadEnter, KP_Return, ISO_Enter, a raw "\r") activate the focused button, so none of them is on it.
+KEY_NAMES = {"tab", "shift+tab", "escape", "esc", "backspace", "delete", "home", "end", "pageup", "pagedown",
+             "arrowup", "arrowdown", "arrowleft", "arrowright", "up", "down", "left", "right"}
+EDIT_CHORD_RE = re.compile(r"(ctrl|control|cmd|meta|super)\+[acvxzy]")
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def keys_allowed(text: Any) -> bool:
+    """True if every key of a space-separated key action is on the allowlist (no control characters)."""
+    if not isinstance(text, str) or CONTROL_CHAR_RE.search(text) or not text.strip():
+        return False
+    return all(k in KEY_NAMES or EDIT_CHORD_RE.fullmatch(k) for k in text.lower().split())
+
+
+def activation_key(text: Any) -> Optional[str]:
+    """The first key of a key action that can press a focused control (Enter, Return, Space in any spelling, Ctrl+M or
+    Ctrl+J), or a control character. For callers that are not ohmyjob agents: they may press other keys."""
+    text = text if isinstance(text, str) else ""
+    if text and not text.strip():
+        return "space"  # a text of blanks is the Space key
+    match = CONTROL_CHAR_RE.search(text)
+    if match:
+        return repr(match.group(0))
+    for key in text.lower().split():
+        plain = re.sub(r"[^a-z0-9]", "", key)
+        if "enter" in plain or "return" in plain or "space" in plain or re.fullmatch(r"(ctrl|control)[+]?[mj]", plain) \
+                or re.fullmatch(r"(ctrl|control)\+[mj]", key):
+            return key
+    return None
+
+
+def url_problem(url: str) -> Optional[str]:
+    """Why a navigate address is refused: a control character (URL parsers drop them, so "java\tscript:" would run), or
+    a scheme that is not http or https. None when it is fine. An address without a scheme is https."""
+    if CONTROL_CHAR_RE.search(url):
+        return "Navigate only to plain http or https addresses (no control characters)."
+    if re.match(r"^[a-z][a-z0-9+.-]*:", url, re.I) and not re.match(r"^https?://", url, re.I):
+        return "Navigate only to http or https addresses."
+    return None
+
+
 TAB_KEY_RE = re.compile(r"(^|[\s+])tab($|[\s+])", re.I)
 # Roles that take typed text. A worker may type only after it clicked one of them.
 TYPE_ROLES = {"textbox", "combobox", "searchbox", "spinbutton", "textarea"}

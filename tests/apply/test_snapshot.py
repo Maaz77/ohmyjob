@@ -69,9 +69,6 @@ class TestParsers(unittest.TestCase):
         self.assertTrue(X.FINAL.find("Submit application"))
         self.assertFalse(X.FINAL.find("Next"))
         self.assertFalse(X.FINAL.find("Review your application"))
-        self.assertTrue(L.ENTER_RE.search("Return"))
-        self.assertTrue(L.ENTER_RE.search("shift+Enter"))
-        self.assertFalse(L.ENTER_RE.search("Tab"))
         self.assertTrue(L.LINKEDIN_SIGNED_OUT_RE.search("https://www.linkedin.com/authwall?trk=x"))
         self.assertFalse(L.LINKEDIN_SIGNED_OUT_RE.search("https://www.linkedin.com/feed/"))
         self.assertTrue(L.navigable_href("https://x.example/privacy"))
@@ -126,6 +123,51 @@ class TestJobOverview(unittest.TestCase):
             self.assertEqual(fields["Match Score"], "", folder)
             self.assertEqual(fields["Matched Resume"], "", folder)
             self.assertFalse(any(v.startswith("**") for v in fields.values()), folder)
+
+
+class TestKeysAndAddresses(unittest.TestCase):
+    ENTER_LIKE = ["Return", "Enter", "enter", "shift+Enter", "cmd+Enter", "ctrl+Return", "NumpadEnter", "KP_Return", "KP_Enter",
+                  "ISO_Enter", "space", "Space", "kp_space", "spacebar", " ", "\r", "\n", "\r\n", "Tab\nTab", "Tab space",
+                  "ctrl+m", "ctrl+j", "Control+M"]
+
+    def test_workers_press_only_keys_of_the_allowlist(self):
+        for keys in ["Tab", "tab", "shift+Tab", "Tab Tab", "Escape", "BackSpace", "Delete", "ArrowDown", "Home", "PageDown",
+                     "ctrl+a", "cmd+v", "ctrl+z"]:
+            self.assertTrue(L.keys_allowed(keys), keys)
+        for keys in self.ENTER_LIKE + ["", "F5", "alt+Tab", "ctrl+Enter", "a", "ctrl+w", "cmd+q", "Tab\x00", None, 5]:
+            self.assertFalse(L.keys_allowed(keys), repr(keys))
+
+    def test_other_callers_may_not_press_anything_that_activates_a_control(self):
+        for keys in self.ENTER_LIKE:
+            self.assertIsNotNone(L.activation_key(keys), repr(keys))
+        for keys in ["Tab", "Escape", "ctrl+f", "F5", "ArrowDown", "cmd+t", "ctrl+a"]:
+            self.assertIsNone(L.activation_key(keys), keys)
+
+    def test_navigate_addresses(self):
+        for url in ["https://example.com/a", "http://example.com", "HTTPS://EXAMPLE.COM", "example.com/jobs",
+                    "https://example.com/a b"]:
+            self.assertIsNone(L.url_problem(url), url)
+        for url in ["javascript:alert(1)", "java\tscript:alert(1)", "javascript\n:alert(1)", "\x01javascript:alert(1)",
+                    "data:text/html,x", "file:///etc/passwd", "https://example.com/\x00", "ht\ntps://example.com"]:
+            self.assertIsNotNone(L.url_problem(url), repr(url))
+
+    def test_writes_survive_a_lone_surrogate(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            L.write_text(Path(d) / "a.txt", 'button "bad \ud800 title" [ref_1]')
+            L.write_json(Path(d) / "a.json", {"title": "bad \udfff"})
+            self.assertIn("ref_1", (Path(d) / "a.txt").read_text(encoding="utf-8"))
+            self.assertIn("title", json.loads((Path(d) / "a.json").read_text(encoding="utf-8")))
+
+
+class TestOneClickApply(unittest.TestCase):
+    def test_one_click_variants_are_final_but_the_openers_are_not(self):
+        for name in ["1-Click Apply", "1 Click Apply", "Apply with 1-Click", "One-Click Apply", "One click apply",
+                     "Quick Apply", "Instant Apply", "Apply instantly", "Apply in one click"]:
+            self.assertTrue(X.FINAL.find(name), name)
+        for name in ["Apply", "Apply now", "Easy Apply", "Apply on company website", "Apply Now"]:
+            self.assertIsNone(X.FINAL.find(name), name)
 
 
 class TestResponseShapes(unittest.TestCase):

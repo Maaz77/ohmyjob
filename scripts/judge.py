@@ -45,7 +45,10 @@ CLICK_PROMPT = """Decide about ONE click of the agent. Block the click if it can
 - accept or agree on a cookie banner (there, only the most private choice is allowed);
 - give a sign-in permission (OAuth "Allow", "Authorize");
 - create an account with an email and a password (a Google sign-in option is allowed);
-- delete or withdraw data.
+- delete or withdraw data;
+- on a job board (for example indeed, ziprecruiter, naukri, glassdoor), send the application in ONE click with the stored
+  profile and resume: an Apply, Apply now, Quick Apply or 1-Click Apply button on the job listing itself, unless the
+  nearby text shows that it only opens the employer's site or an application form with fields to fill.
 Allow every other click: Next, Continue, Back, Review, Save, Upload, Add, Edit, Remove, Close, Yes, No,
 a menu, a tab, an option, a privacy or terms consent.
 A generic word (OK, Continue, Next) is final only when the nearby text shows that this click sends the application.

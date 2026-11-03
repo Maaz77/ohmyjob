@@ -61,6 +61,11 @@ ADOPT_RE = re.compile(r"^https://www\.linkedin\.com/robots\.txt\?aa-adopt#aa-ado
 # stays under the guard's 150-second hook timeout in hooks/hooks.json.
 STAGGER_SECONDS = float(os.environ.get("AA_STAGGER", "4"))
 MAX_STAGGER_WAIT = 120.0
+# Job boards whose Apply button on a listing can send the application in one click (stored profile, stored resume):
+# a name like "Apply" is judged there before a form was seen, not waved through. LinkedIn is not here: its Easy Apply
+# opens a dialog (ats/linkedin-easy-apply.md), and an "Apply" that leaves for the employer is a link.
+BOARD_LABELS = {"ziprecruiter", "naukri", "indeed", "glassdoor", "bayt", "bdjobs", "hellowork", "monster", "jooble",
+                "reed", "totaljobs", "stepstone", "jobsdb", "seek"}
 MAX_JUDGE_ROUNDS = 6  # Haiku checks for one tool call (a browser_batch can hold several new names)
 ALLOW = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}
 
@@ -316,7 +321,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "page has one, else stop with status 'blocked'.")
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
-    if not name.strip() or consent or (google and not filled) or (apply_word and not filled and not sticky) or name in X.SAFE:
+    board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
+    if not name.strip() or consent or (google and not filled) or (apply_word and not filled and not sticky and not board) \
+            or name in X.SAFE:
         return
     if role == "button" or (role == "link" and not L.navigable_href(attrs.get("href"))):
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
@@ -409,15 +416,16 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
         url = str(ti.get("url") or "").strip()
         if url in ("back", "forward"):
             return None
-        if re.match(r"^[a-z][a-z0-9+.-]*:", url, re.I) and not re.match(r"^https?://", url, re.I):
-            raise Deny("Navigate only to http or https addresses.")
+        problem = L.url_problem(url)
+        if problem:
+            raise Deny(problem)
         if "…" in url:
             prefix = url.split("…")[0].rstrip("?")
             full = {h for h in L.HREF_RE.findall(L.snapshot_text(ctx.run_dir, tab)) if h.startswith(prefix)}
             if "://" not in prefix or len(full) != 1:
                 raise Deny("This link is shortened in your view. Read the link with read_page and its ref_id to see its full address.")
             url = full.pop()
-            if not re.match(r"^https?://", url, re.I):
+            if L.url_problem(url) or not re.match(r"^https?://", url, re.I):
                 raise Deny("Navigate only to http or https addresses.")
         if (ctx.entry(tab) or {}).get("sticky") and X.SUBMITTED.find(L.snapshot_text(ctx.run_dir, tab)):
             # /continue-applying: the candidate may have sent this application by hand and left the tab open
@@ -485,8 +493,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             keys = str(ti.get("text") or "")
             if google or signin:
                 raise Deny("Do not press keys on Google pages.")
-            if L.ACTIVATE_KEY_RE.search(keys):
-                raise Deny("Do not press Enter or Space: they can press a focused button. Click the control by its ref instead.")
+            if not L.keys_allowed(keys):
+                raise Deny("Press only Tab, Shift+Tab, Escape, Backspace, Delete, the arrow, Home, End and Page keys, or "
+                           "Ctrl/Cmd with A, C, V, X, Z, Y. Enter, Return and Space can press a focused button: click the "
+                           "control by its ref instead.")
             if L.TAB_KEY_RE.search(keys):
                 ctx.set_focus(tab, None)
             return None
@@ -494,8 +504,9 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if google or signin:
                 raise Deny("Do not type on Google pages.")
             text = str(ti.get("text") or "")
-            if "\n" in text or "\r" in text:
-                raise Deny("No line breaks in a type action. Use form_input for text with line breaks.")
+            if L.CONTROL_CHAR_RE.search(text):
+                raise Deny("No line breaks, tabs or other control characters in a type action (they go out as key presses). "
+                           "Use form_input for text with line breaks.")
             if ctx.focus(tab) not in L.TYPE_ROLES:
                 raise Deny("Type only right after you click a text field by its ref. Better: use form_input with the field's ref.")
             if not L.is_search_field(ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}):
@@ -531,7 +542,9 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             ctx.set_focus(tab, role, ti["ref"])
             if pressable:
                 ctx.set_last_click(tab, ti["ref"])
-            return None
+            # only the checked fields go through: a coordinate or a modifier next to the ref would move the click
+            clean = {k: ti[k] for k in ("tabId", "action", "ref", "action_summary") if k in ti}
+            return clean if clean != ti else None
         raise Deny(f"computer action '{action}' is not allowed.")
 
     raise Deny(f"{short} is not available to the worker.")
@@ -565,33 +578,83 @@ def check_master_action(ctx: Ctx, short: str, ti: dict) -> Optional[dict]:
     return None
 
 
-def check_any_action(ctx: Optional[Ctx], short: str, ti: dict) -> None:
+def foreign_click_problem(run_dir: Optional[Path], ti: dict) -> Optional[str]:
+    """Why a click by a caller that is not an ohmyjob agent is refused, or None. The rule holds in every run state: it
+    rests on the pages that any caller read (L.known_items), not on a run."""
+    ref, tab = ti.get("ref"), ti.get("tabId")
+    if not ref or tab is None:
+        return "Click only by a ref: read the page with read_page (or find), then click the element by its ref, never by coordinates."
+    items = L.known_items(run_dir, tab, str(ref))
+    if not items:
+        return (f"Unknown ref {ref} for this tab. Read the page with read_page (or find) first, then click the element by "
+                "its ref.")
+    for item in items:
+        name = item.get("name") or ""
+        if item.get("role") not in L.CHOICE_ROLES and X.FINAL.find(name):
+            return f"'{name}' is a final control. The candidate submits applications personally."
+    return None
+
+
+def check_any_action(run_dir: Optional[Path], short: str, ti: dict) -> None:
     """The main-session rules, for every Chrome caller that is not an ohmyjob agent (the main session, Explore and any
-    other subagent): no final clicks, no JavaScript."""
+    other subagent), in every run state: no JavaScript, no final click, and no way around the click check (a click only
+    by a ref that a read of the page showed, no Enter or Space, no typed line break, no javascript: address)."""
     if short == "javascript_tool":
         raise Deny("JavaScript is not allowed in this workspace.")
-    if short == "computer" and ti.get("action") in CLICKS and ti.get("ref") and ctx is not None:
-        item = ctx.refs(ti.get("tabId")).get(ti.get("ref")) if ti.get("tabId") is not None else None
-        name = (item or {}).get("name") or ""
-        if X.FINAL.find(name):
-            raise Deny(f"'{name}' is a final control. The candidate submits applications personally.")
+    if short == "navigate":
+        url = re.sub(r"[\x00-\x20\x7f]", "", str(ti.get("url") or "")).lower()
+        if url.startswith(("javascript:", "vbscript:")):
+            raise Deny("JavaScript is not allowed in this workspace.")
+    if short == "computer":
+        action = ti.get("action")
+        if action in CLICKS:
+            problem = foreign_click_problem(run_dir, ti)
+            if problem:
+                raise Deny(problem)
+        elif action == "key":
+            key = L.activation_key(ti.get("text"))
+            if key:
+                raise Deny(f"Do not press {key}: it can press a focused button, such as Submit. Click the control by its ref.")
+        elif action == "type" and L.CONTROL_CHAR_RE.search(str(ti.get("text") or "")):
+            raise Deny("No line breaks or other control characters in a type action: they go out as key presses.")
     if short == "browser_batch":
         for action in ti.get("actions") or []:
             name = str(action.get("name") or "")
             name = name[len(PREFIX):] if name.startswith(PREFIX) else name
-            check_any_action(ctx, name, action.get("input") or {})
+            check_any_action(run_dir, name, action.get("input") if isinstance(action.get("input"), dict) else {})
 
 
-def read_allowed(run_dir: Optional[Path], file_path: str) -> bool:
-    """The worker may read its brief (run folder, jobs/) and the plugin's ATS notes (outside the workspace)."""
-    if run_dir is None:
+def read_allowed(run_dir: Optional[Path], file_path: Any, agent_id: Optional[str] = None) -> bool:
+    """The worker may read the plugin's ATS notes and ITS OWN brief, by an absolute path.
+
+    The brief is claimed by the first worker that reads it (a worker has no tab bound yet: it reads the brief first);
+    'next' clears the claim when it hands the job to a new worker. Other briefs and every result.json are refused."""
+    if run_dir is None or not isinstance(file_path, str) or not os.path.isabs(file_path):
         return False
     try:
-        target = Path(file_path).expanduser().resolve()
+        target = Path(file_path).resolve()
     except (OSError, RuntimeError):
         return False
-    allowed = [W.ATS_DIR.resolve(), (run_dir / "jobs").resolve()]
-    return any(target == base or base in target.parents for base in allowed)
+    ats = W.ATS_DIR.resolve()
+    if target.parent == ats and target.suffix == ".md":
+        return True
+    if not agent_id or target.name != "brief.md" or target.parent.parent != (run_dir / "jobs").resolve():
+        return False
+    folder = target.parent.name
+    with L.locked(run_dir):
+        state = L.load_state(run_dir)
+        job = state.get("jobs", {}).get(folder)
+        if job is None:
+            return False
+        for entry in state.get("tabs", {}).values():  # a job tab bound to another worker is not this worker's
+            if entry.get("role") == "job" and entry.get("folder") == folder and entry.get("agent_id") not in (None, agent_id):
+                return False
+        if job.get("brief_agent") not in (None, agent_id):
+            return False
+        if job.get("brief_agent") is None:
+            job["brief_agent"] = agent_id
+            L.save_state(run_dir, state)
+    return True
 
 
 TIME_UP = ("Time is up: your 17 minutes are over. Make no more tool calls (the hook denies them all). Send your "
@@ -625,9 +688,8 @@ def guard(inp: dict) -> None:
         # the main session and any other agent: only Chrome calls are checked; every other call gets no decision
         if not tool.startswith(PREFIX):
             sys.exit(0)
-        ctx = Ctx(run_dir, L.load_state(run_dir), agent_id) if run_dir is not None else None
         try:
-            check_any_action(ctx, tool[len(PREFIX):], ti)
+            check_any_action(run_dir, tool[len(PREFIX):], ti)
         except Deny as exc:
             finish_deny(run_dir, str(exc), tool=tool, agent_type=agent_type)
         sys.exit(0)
@@ -638,9 +700,9 @@ def guard(inp: dict) -> None:
 
     # ---- ohmyjob application agents: validate, then allow explicitly (or deny)
     if tool == "Read":
-        if agent_type != L.WORKER or not read_allowed(run_dir, str(ti.get("file_path") or "")):
-            finish_deny(run_dir, "The worker may read only its brief and the ATS notes of the plugin (its ats/ folder); "
-                                 "the master reads no files.", tool=tool, agent_type=agent_type)
+        if agent_type != L.WORKER or not read_allowed(run_dir, ti.get("file_path"), agent_id):
+            finish_deny(run_dir, "The worker may read only its own brief and the ATS notes of the plugin (its ats/ folder), "
+                                 "by absolute paths; the master reads no files.", tool=tool, agent_type=agent_type)
         finish_allow()
     if tool == "Bash":
         if agent_type != L.MASTER or not master_command_ok(ti):
@@ -735,6 +797,10 @@ def save_page(run_dir: Path, tab: Any, text: str, partial: bool) -> bool:
     if partial and path.exists():
         # keep the whole page first: the labels and questions around a ref are looked up there (first match)
         text = path.read_text(encoding="utf-8") + "\n" + text
+    else:
+        # a full read replaces the page: delete the old refs first, so that a failed write never leaves them to judge
+        # the clicks on the new page
+        L.refs_path(run_dir, tab).unlink(missing_ok=True)
     L.write_text(path, text)
     if partial:
         merged = L.snapshot_refs(run_dir, tab)
@@ -776,16 +842,39 @@ def observe_tabs(state: dict, tabs: dict[int, dict]) -> bool:
     return changed
 
 
+def record_foreign(short: str, ti: dict, text: str) -> None:
+    """The result of a Chrome call by a caller that is not an ohmyjob agent: keep the refs it read (for the click check of
+    check_any_action), forget a tab's refs when its page may have changed. The output is never rewritten."""
+    tab = ti.get("tabId")
+    if tab is None:
+        return
+    try:
+        L.tab_key(tab)
+    except (TypeError, ValueError):
+        return
+    if short in ("read_page", "find"):
+        refs = L.parse_refs(text)
+        if refs:
+            L.save_foreign_refs(tab, refs, partial=short == "find" or bool(ti.get("ref_id")))
+    elif short in ("navigate", "computer", "form_input", "file_upload", "browser_batch"):
+        if short != "computer" or ti.get("action") not in ("screenshot", "zoom", "wait", "scroll", "scroll_to", "hover"):
+            L.clear_foreign_refs(tab)
+
+
 def snapshot(inp: dict) -> None:
     tool = str(inp.get("tool_name") or "")
-    if not tool.startswith(PREFIX) or inp.get("agent_type") not in W.APPLICATION_AGENTS:
-        sys.exit(0)
-    run_dir = L.current_run_dir()
-    if run_dir is None:
+    agent_type = inp.get("agent_type") if isinstance(inp.get("agent_type"), str) else None
+    if not tool.startswith(PREFIX) or agent_type in W.PREP_AGENTS:
         sys.exit(0)
     short = tool[len(PREFIX):]
     ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
     text = L.tool_text(inp.get("tool_response"))
+    if agent_type not in W.APPLICATION_AGENTS:
+        record_foreign(short, ti, text)  # every other caller: the refs of its reads; nothing in the run, no rewrite
+        sys.exit(0)
+    run_dir = L.current_run_dir()
+    if run_dir is None:
+        sys.exit(0)
     replace = None
     with L.locked(run_dir):
         state = L.load_state(run_dir)
@@ -995,7 +1084,8 @@ def report(inp: dict) -> None:
 
 def find_workspace(inp: dict) -> Optional[Path]:
     """The workspace: the nearest folder with ohmyjob.json at or above the PARSED top-level cwd, else above
-    $CLAUDE_PROJECT_DIR, else the workspace hook.sh exported (a candidate only, never trusted over the parsed cwd)."""
+    $CLAUDE_PROJECT_DIR; none: not a workspace. (The workspace that hook.sh exports is not used: it can come from a "cwd"
+    text inside tool_input.)"""
     cwd = inp.get("cwd")
     for start in (cwd if isinstance(cwd, str) else None, os.environ.get("CLAUDE_PROJECT_DIR")):
         if start and os.path.isabs(start):
@@ -1003,9 +1093,6 @@ def find_workspace(inp: dict) -> Optional[Path]:
             for folder in (here, *here.parents):
                 if (folder / "ohmyjob.json").is_file():
                     return folder
-    exported = os.environ.get("OHMYJOB_WORKSPACE")
-    if exported and (Path(exported) / "ohmyjob.json").is_file():
-        return Path(exported).resolve()
     return None
 
 

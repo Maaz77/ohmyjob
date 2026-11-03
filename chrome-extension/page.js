@@ -1,6 +1,6 @@
-// Apply Jobs: pop-ups as tabs (content script, page world).
+// ohmyjob: pop-ups as tabs (content script, page world).
 //
-// In a tab of an /apply-jobs run (bridge.js sets data-aa-popups-as-tabs on <html>), window.open
+// In a tab of an /ohmyjob:apply-jobs run (bridge.js sets data-aa-popups-as-tabs on <html>), window.open
 // with pop-up features (width, height, popup ...) opens a tab instead of a pop-up window. Chrome
 // puts the new tab in the run's tab group, where Claude in Chrome can see it. The new tab keeps
 // window.opener, so a sign-in page can send its result back and close itself.

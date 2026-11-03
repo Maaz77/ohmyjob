@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -160,9 +161,16 @@ class TestWorkspaceLookup(T.Base):
             proc = subprocess.run([sys.executable, str(HOOKS), "guard"], input=json.dumps({**payload, "cwd": str(sub)}),
                                   capture_output=True, text=True, env=env, cwd=outside)
             self.assertDenied(proc, "javascript")
+            # the workspace that hook.sh exports is no fallback: a cwd outside any workspace means "not a workspace"
             proc = subprocess.run([sys.executable, str(HOOKS), "guard"], input=json.dumps({**payload, "cwd": str(outside)}),
                                   capture_output=True, text=True, env=self.env, cwd=outside)
-            self.assertDenied(proc, "javascript")
+            self.assertNoDecision(proc)
+            # nor does a "cwd" inside tool_input find one (hook.sh's text match can export it)
+            forged = {k: v for k, v in payload.items() if k != "cwd"}
+            forged["tool_input"] = {"cwd": str(self.root)}
+            proc = subprocess.run([sys.executable, str(HOOKS), "guard"], input=json.dumps(forged), capture_output=True,
+                                  text=True, env={**self.env, "OHMYJOB_WORKSPACE": str(self.root)}, cwd=outside)
+            self.assertNoDecision(proc)
         finally:
             shutil.rmtree(outside, ignore_errors=True)
 
@@ -429,6 +437,229 @@ class TestSkillText(unittest.TestCase):
         for name in ("apply-jobs", "continue-applying"):
             text = (T.REPO / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("apostrophe inside the JSON as " + chr(92) + "u0027", text)
+
+
+class TestWorkerBypasses(T.Base):
+    """The worker's own rules, one bypass each (keys, typed text, addresses, click fields, page writes, reads)."""
+
+    def start(self):
+        self.aa_json("start")
+        (self.f1, self.t1, self.b1), (self.f2, self.t2, self.b2) = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://www.linkedin.com/jobs/view/1"}, W, "A1"))
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 102, "url": "https://careers.example.com/a"}, W, "A2"))
+
+    def key(self, text, agent="A1", tab=101):
+        return self.guard(C + "computer", {"tabId": tab, "action": "key", "text": text}, W, agent)
+
+    def test_keys_are_an_allowlist(self):
+        self.start()
+        for keys in ["NumpadEnter", "KP_Return", "KP_Enter", "ISO_Enter", "\r", "\n", "Return", "space", "cmd+Enter", "F5"]:
+            self.assertDenied(self.key(keys), "press only")
+        for keys in ["Tab", "shift+Tab", "Escape", "ctrl+a"]:
+            self.assertExplicitAllow(self.key(keys))
+
+    def test_typed_text_has_no_control_characters(self):
+        self.start()
+        self.page(101, "constructed_form_page.txt")
+        self.assertAllowed(self.click(101, "ref_41", "A1", "Focuses the First name field"))
+        for text in ["x\t ", "x\ty", "a\rb", "a\nb", "a\x1bb", "a\x7fb"]:
+            self.assertDenied(self.guard(C + "computer", {"tabId": 101, "action": "type", "text": text}, W, "A1"),
+                              "control characters")
+        self.assertExplicitAllow(self.guard(C + "computer", {"tabId": 101, "action": "type", "text": "Alex Example"}, W, "A1"))
+
+    def test_addresses_with_control_characters_are_refused(self):
+        self.start()
+        for url in ["java\tscript:alert(1)", "javascript\n:alert(1)", "\x01javascript:alert(1)", "javascript:alert(1)",
+                    "https://example.com/\x00x", "ht\ntps://example.com"]:
+            self.assertDenied(self.guard(C + "navigate", {"tabId": 101, "url": url}, W, "A1"), "http")
+        batch = {"actions": [{"name": "navigate", "input": {"tabId": 101, "url": "java\tscript:alert(1)"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "item 1")
+        self.assertExplicitAllow(self.guard(C + "navigate", {"tabId": 101, "url": "https://example.com/ok"}, W, "A1"))
+
+    def test_a_click_passes_only_the_checked_fields(self):
+        self.start()
+        self.page(101, "constructed_form_page.txt")
+        proc = self.guard(C + "computer", {"tabId": 101, "action": "left_click", "ref": "ref_66", "action_summary": "Goes to the next step",
+                                           "coordinate": [10, 20], "text": "ctrl", "modifiers": "shift"}, W, "A1")
+        self.assertExplicitAllow(proc)
+        self.assertEqual(json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"],
+                         {"tabId": 101, "action": "left_click", "ref": "ref_66", "action_summary": "Goes to the next step"})
+        self.page(101, "constructed_form_page.txt")
+        proc = self.click(101, "ref_66", "A1", "Goes to the next step")
+        self.assertNotIn("updatedInput", proc.stdout)  # a clean click is not rewritten
+
+    def test_a_lone_surrogate_in_a_page_does_not_freeze_the_refs(self):
+        self.start()
+        self.post("read_page", {"tabId": 101}, 'button "Next" [ref_5] type="button"\n\nTab Context:\n- tab 101', W, "A1")
+        self.assertAllowed(self.click(101, "ref_5", "A1", "Goes to the next step"))
+        # the next page has a lone surrogate in a title and shows Submit under the same ref
+        text = ('generic "Job \\ud800 title" [ref_1]\nbutton "Submit application" [ref_5] type="submit"\n\n'
+                'Tab Context:\n- tab 101')
+        proc = self.hook("snapshot", {"hook_event_name": "PostToolUse", "tool_name": C + "read_page",
+                                      "tool_input": {"tabId": 101, "filter": "interactive"}, "agent_type": W, "agent_id": "A1",
+                                      "tool_response": [{"type": "text", "text": text.replace("\\ud800", "\ud800")}]})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        refs = json.loads((self.run_dir() / "snap" / "tab_101.refs.json").read_text(encoding="utf-8"))
+        self.assertEqual(refs["ref_5"]["name"], "Submit application")
+        self.assertDenied(self.click(101, "ref_5", "A1", "Clicks the button"), "final control")
+
+    def test_a_full_read_that_cannot_be_written_leaves_no_old_refs(self):
+        self.start()
+        self.post("read_page", {"tabId": 101}, 'button "Next" [ref_5] type="button"\n\nTab Context:\n- tab 101', W, "A1")
+        refs_file = self.run_dir() / "snap" / "tab_101.refs.json"
+        self.assertTrue(refs_file.exists())
+        snap = self.run_dir() / "snap" / "tab_101.txt"
+        snap.unlink()
+        snap.mkdir()  # the page file cannot be written: the write fails
+        proc = self.hook("snapshot", {"hook_event_name": "PostToolUse", "tool_name": C + "read_page",
+                                      "tool_input": {"tabId": 101}, "agent_type": W, "agent_id": "A1",
+                                      "tool_response": 'button "Submit application" [ref_5]\n\nTab Context:\n- tab 101'})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertFalse(refs_file.exists())  # the old refs of the old page must not judge clicks on the new page
+        self.assertDenied(self.click(101, "ref_5", "A1", "Goes to the next step"), "unknown ref")
+
+    def test_reads_are_the_workers_own_brief_and_the_ats_notes_by_absolute_path(self):
+        self.start()
+        for note in (ATS / "workday.md", ATS / "greenhouse.md"):
+            self.assertExplicitAllow(self.guard("Read", {"file_path": str(note)}, W, "A1"))
+        self.assertExplicitAllow(self.guard("Read", {"file_path": self.b1}, W, "A1"))
+        self.assertExplicitAllow(self.guard("Read", {"file_path": self.b1}, W, "A1"))  # again: the same worker
+        self.assertDenied(self.guard("Read", {"file_path": self.b2}, W, "A1"), "own brief")
+        self.assertExplicitAllow(self.guard("Read", {"file_path": self.b2}, W, "A2"))
+        self.assertDenied(self.guard("Read", {"file_path": self.b1}, W, "A2"), "own brief")
+        self.assertDenied(self.guard("Read", {"file_path": self.b1}, W, "A3"), "own brief")
+        jobs = self.run_dir() / "jobs"
+        (jobs / self.f1 / "result.json").write_text("{}")
+        self.assertDenied(self.guard("Read", {"file_path": str(jobs / self.f1 / "result.json")}, W, "A1"), "own brief")
+        self.assertDenied(self.guard("Read", {"file_path": str(self.run_dir() / "state.json")}, W, "A1"))
+        # relative paths are refused, not resolved; so are ~ and .. out of the notes folder
+        self.assertDenied(self.guard("Read", {"file_path": f"jobs/{self.f1}/brief.md"}, W, "A1"), "absolute")
+        self.assertDenied(self.guard("Read", {"file_path": "~/brief.md"}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": str(ATS / ".." / "scripts" / "aa.py")}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": str(ATS / "workday.md") + "\n"}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": None}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": ["a"]}, W, "A1"))
+        # a new worker for the same job (UPLOAD_HANG retry, or a dropped worker printed again) may claim the brief again
+        (jobs / self.f1 / "result.json").unlink()
+        state = self.state()
+        state["tabs"]["101"]["agent_id"] = None  # what retry-plan does for a job it starts again
+        state["jobs"][self.f1].update(started_at=time.time() - 120, spawned=False)
+        (self.run_dir() / "state.json").write_text(json.dumps(state))
+        self.aa_json("next")
+        self.assertExplicitAllow(self.guard("Read", {"file_path": self.b1}, W, "A9"))
+
+
+class TestForeignCallersEveryRunState(T.Base):
+    """The main session and other agents are checked with no run, with the refs of the pages THEY read."""
+
+    def read(self, text, tab=301, tool="read_page", agent=None, **ti):
+        payload = {"hook_event_name": "PostToolUse", "tool_name": C + tool, "tool_input": {"tabId": tab, **ti},
+                   "tool_response": [{"type": "text", "text": text}]}
+        if agent:
+            payload.update(agent_type=agent, agent_id="X1")
+        proc = self.hook("snapshot", payload)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc
+
+    def foreign_click(self, ref, tab=301, agent=None, **extra):
+        return self.guard(C + "computer", {"tabId": tab, "action": "left_click", **({"ref": ref} if ref else {}), **extra},
+                          agent, "X1" if agent else None)
+
+    PAGE = 'button "Next" [ref_1] type="button"\nbutton "Submit application" [ref_2] type="submit"\ncheckbox "I confirm" [ref_3]\n'
+
+    def test_no_run_is_active(self):
+        self.assertFalse((self.root / ".ohmyjob" / "run" / "apply" / "CURRENT").exists())
+        for agent in (None, "Explore", "general-purpose"):
+            # a click needs a ref that a read showed
+            self.assertDenied(self.foreign_click("ref_2", agent=agent), "read the page")
+            self.assertDenied(self.foreign_click(None, agent=agent, coordinate=[10, 10]), "coordinates")
+            self.read(self.PAGE, agent=agent)
+            self.assertDenied(self.foreign_click("ref_2", agent=agent), "final control")
+            self.assertDenied(self.foreign_click("ref_9", agent=agent), "unknown ref")
+            self.assertDenied(self.foreign_click("ref_2", tab=302, agent=agent), "unknown ref")  # another tab's page
+            self.assertNoDecision(self.foreign_click("ref_3", agent=agent))  # a checkbox "I confirm" sends nothing
+            self.assertNoDecision(self.foreign_click("ref_1", agent=agent))
+            # a click may change the page: after its result the refs are forgotten until the next read
+            self.hook("snapshot", {"tool_name": C + "computer", "tool_response": "Clicked",
+                                   "tool_input": {"tabId": 301, "action": "left_click", "ref": "ref_1"},
+                                   **({"agent_type": agent, "agent_id": "X1"} if agent else {})})
+            self.assertDenied(self.foreign_click("ref_1", agent=agent), "unknown ref")
+
+    def test_enter_and_typed_line_breaks(self):
+        for agent in (None, "Explore"):
+            for keys in ["Return", "Enter", "NumpadEnter", "KP_Return", "ISO_Enter", "\r", "\n", "space", "shift+Enter"]:
+                self.assertDenied(self.guard(C + "computer", {"tabId": 301, "action": "key", "text": keys}, agent,
+                                             "X1" if agent else None), "press")
+            self.assertDenied(self.guard(C + "computer", {"tabId": 301, "action": "type", "text": "x\n"}, agent,
+                                         "X1" if agent else None), "control characters")
+            for keys in ["Tab", "Escape", "ctrl+f"]:
+                self.assertNoDecision(self.guard(C + "computer", {"tabId": 301, "action": "key", "text": keys}, agent,
+                                                 "X1" if agent else None))
+        batch = {"actions": [{"name": "computer", "input": {"tabId": 301, "action": "key", "text": "Return"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch), "press")
+
+    def test_find_results_count_and_a_navigation_forgets_the_page(self):
+        self.read('button "Submit application" [ref_7] type="submit"\n', tool="find", agent="Explore")
+        self.assertDenied(self.foreign_click("ref_7", agent="Explore"), "final control")
+        self.read('button "Next" [ref_8] type="button"\n', tool="find")
+        self.assertNoDecision(self.foreign_click("ref_8"))  # find added ref_8 (a click forgets the page...)
+        self.read(self.PAGE)
+        self.hook("snapshot", {"tool_name": C + "navigate", "tool_input": {"tabId": 301, "url": "https://example.com/"},
+                               "tool_response": "ok"})
+        self.assertDenied(self.foreign_click("ref_1"), "unknown ref")
+
+    def test_javascript_addresses_and_calls(self):
+        for url in ["javascript:alert(1)", "java\tscript:alert(1)", "\x01JavaScript:alert(1)", "vbscript:x"]:
+            self.assertDenied(self.guard(C + "navigate", {"tabId": 301, "url": url}, "Explore", "X1"), "javascript")
+        self.assertNoDecision(self.guard(C + "navigate", {"tabId": 301, "url": "https://example.com/"}))
+        self.assertDenied(self.guard(C + "javascript_tool", {"tabId": 301, "text": "1"}), "javascript")
+
+    def test_the_output_of_other_callers_is_never_rewritten_and_prep_agents_are_ignored(self):
+        page = "\n".join(['combobox "Country" [ref_2]'] + [f' option "Country {i}" [ref_{100 + i}]' for i in range(60)])
+        proc = self.read(page + "\n\nTab Context:\n- tab 301", agent="Explore", filter="all")
+        self.assertEqual(proc.stdout.strip(), "")
+        proc = self.read(page, agent="Explore", filter="all")
+        self.assertEqual(proc.stdout.strip(), "")
+        store = self.root / ".ohmyjob" / "run" / "chrome"
+        self.assertTrue((store / "tab_301.refs.json").exists())
+        (store / "tab_301.refs.json").unlink()
+        for agent in ("ohmyjob:prep-master", "ohmyjob:resume-worker"):
+            self.read(self.PAGE, agent=agent)
+        self.assertFalse((store / "tab_301.refs.json").exists())
+
+    def test_worker_pages_count_for_other_callers_too(self):
+        self.aa_json("start")
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://www.linkedin.com/jobs/view/1"}, W, "A1"))
+        self.page(101, "constructed_form_page.txt")
+        self.assertDenied(self.foreign_click("ref_49", tab=101), "final control")  # "Submit application" of the worker's page
+        self.assertDenied(self.foreign_click("ref_49", tab=101, agent="Explore"), "final control")
+
+
+class TestJobBoardApply(T.Base):
+    """ZipRecruiter's 1-Click Apply and Naukri's Apply send the application on the listing itself."""
+
+    def test_one_click_apply_is_final_and_a_plain_apply_on_a_board_is_judged(self):
+        self.aa_json("start")
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://www.ziprecruiter.com/c/x/job/y"}, W, "A1"))
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 102, "url": "https://careers.example.com/a"}, W, "A2"))
+        listing = ('button "1-Click Apply" [ref_1] type="button"\nbutton "Apply" [ref_2] type="button"\n'
+                   'button "Quick Apply" [ref_3] type="button"\nlink "Apply on company site" [ref_4] href="https://example.org/x"\n'
+                   'button "Save" [ref_5] type="button"\n\nTab Context:\n- tab')
+        self.post("read_page", {"tabId": 101}, listing, W, "A1")
+        self.post("read_page", {"tabId": 102}, listing, W, "A2")
+        self.assertDenied(self.click(101, "ref_1", "A1"), "final control")
+        self.assertDenied(self.click(101, "ref_3", "A1"), "final control")
+        before = len(self.judge_calls())
+        self.assertAllowed(self.click(101, "ref_2", "A1", "Opens the application"))  # the fake judge allows it...
+        self.assertEqual(len(self.judge_calls()), before + 1)  # ...but it was asked (a board host)
+        self.assertEqual(self.judge_calls()[-1]["name"], "Apply")
+        self.assertAllowed(self.click(101, "ref_4", "A1", "Opens the employer site"))  # a link with an address is no action
+        # on the employer's own site, an Apply that opens the form is not judged
+        self.assertAllowed(self.click(102, "ref_2", "A2", "Opens the application"))
+        self.assertEqual(len(self.judge_calls()), before + 1)
+        self.assertDenied(self.click(102, "ref_1", "A2"), "final control")
 
 
 class TestSlots(T.Base):

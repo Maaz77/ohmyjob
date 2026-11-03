@@ -138,6 +138,9 @@ def bare(text: Optional[str]) -> str:
 FINAL = Terms(
     # English
     ["submit", "send", "confirm", "finish", "done", "complete", "finalize", "finalise"],
+    # one-click variants of Apply send the application with the stored profile in that single click
+    ["~1-click", "~1 click", "~one-click", "~one click", "~quick apply", "~instant apply", "~apply instantly",
+     "~apply in one click", "~apply with one click"],
     # Italian
     ["invia", "inviare", "invio", "inoltra", "inoltrare", "conferma", "confermare", "termina", "terminare",
      "concludi", "concludere", "completa", "completare", "fatto", "presenta", "presentare"],
