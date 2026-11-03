@@ -30,6 +30,20 @@ except ImportError:  # pragma: no cover
     sync_playwright = None
 
 
+
+def _is_ours(worker) -> bool:
+    return worker.url.startswith("chrome-extension://") and worker.url.endswith("/background.js")
+
+
+def extension_worker(ctx):
+    """The helper extension's own service worker. The browser can run other service workers too (built-in
+    components), so taking the first one is flaky: their chrome.tabs is undefined."""
+    for worker in ctx.service_workers:
+        if _is_ours(worker):
+            return worker
+    return ctx.wait_for_event("serviceworker", predicate=_is_ours, timeout=15000)
+
+
 def ROBOTS(route):
     """LinkedIn's robots.txt is a plain-text page, as the extension meets it (not an HTML page with scripts)."""
     route.fulfill(status=200, content_type="text/plain", body="User-agent: *\nDisallow: /\n")
@@ -77,7 +91,7 @@ class TestPopupsAsTabs(unittest.TestCase):
             except Exception as exc:  # noqa: BLE001
                 self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
             try:
-                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                sw = extension_worker(ctx)
                 ev = sw.evaluate
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 gid = ev("async () => { const t = await chrome.tabs.query({}); "
@@ -143,7 +157,7 @@ class TestPopupsAsTabs(unittest.TestCase):
             except Exception as exc:  # noqa: BLE001
                 self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
             try:
-                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                sw = extension_worker(ctx)
                 ev = sw.evaluate
                 ctx.route("https://www.linkedin.com/feed/**", lambda route: route.fulfill(path=SITE / "job.html"))
                 home = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -177,7 +191,7 @@ class TestPopupsAsTabs(unittest.TestCase):
             except Exception as exc:  # noqa: BLE001
                 self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
             try:
-                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                sw = extension_worker(ctx)
                 ev = sw.evaluate
                 ctx.route("https://www.linkedin.com/robots.txt**", ROBOTS)
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -198,7 +212,7 @@ class TestPopupsAsTabs(unittest.TestCase):
             )
         except Exception as exc:  # noqa: BLE001
             self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
-        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        sw = extension_worker(ctx)
         ctx.route("https://www.linkedin.com/robots.txt**", ROBOTS)
         home = ctx.pages[0] if ctx.pages else ctx.new_page()
         job = ctx.new_page()
@@ -261,7 +275,7 @@ class TestPopupsAsTabs(unittest.TestCase):
             except Exception as exc:  # noqa: BLE001
                 self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
             try:
-                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                sw = extension_worker(ctx)
                 ev = sw.evaluate
                 ctx.route("https://www.linkedin.com/feed/**", lambda route: route.fulfill(path=SITE / "job.html"))
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
