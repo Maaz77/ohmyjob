@@ -212,6 +212,7 @@ def usable_resumes() -> list[dict]:
     """The resumes the screener may choose from: a <name>.yaml with a <name>.pdf (tailorable) and a <name>.pdf with no
     yaml (ready-made, used as is). Never Template.* nor a file that holds the template marker."""
     out = []
+    SKIPPED.clear()
     folder = DEFAULT_RESUMES
     if not folder.is_dir():
         return out
@@ -221,8 +222,39 @@ def usable_resumes() -> list[dict]:
             if not is_template(yml) and not is_template(pdf):
                 out.append({"file": pdf.name, "kind": "tailorable", "source": yml})
         elif not is_template(pdf):
-            out.append({"file": pdf.name, "kind": "ready-made", "source": pdf})
+            copy = mock_copy(pdf)
+            if copy:
+                SKIPPED.append(f"{pdf.name}: skipped, it is {copy}; replace it with your own resume")
+            else:
+                out.append({"file": pdf.name, "kind": "ready-made", "source": pdf})
     return out
+
+
+SKIPPED: list[str] = []  # PDFs usable_resumes() left out as copies of the mock template (start lists them as issues)
+
+
+def mock_name() -> Optional[str]:
+    """The mock persona's name in the plugin's templates/Template.yaml ("First Last"), read from the file."""
+    try:
+        name = (yaml.safe_load((W.TEMPLATES_DIR / "Template.yaml").read_text(encoding="utf-8")) or {})["name"]
+        return f"{name['first']} {name['last']}"
+    except (OSError, yaml.YAMLError, KeyError, TypeError):
+        return None
+
+
+def mock_copy(pdf: Path) -> Optional[str]:
+    """Why a PDF is the mock resume (compressed PDF text hides the marker from a byte search), else None: its bytes
+    equal Default_Resume_Files/Template.pdf, or its text holds the mock name."""
+    template = DEFAULT_RESUMES / "Template.pdf"
+    try:
+        if template.is_file() and pdf.read_bytes() == template.read_bytes():
+            return "a copy of Template.pdf"
+    except OSError:
+        pass
+    name = mock_name()
+    if name and " ".join(name.casefold().split()) in " ".join(pdf_text(pdf).casefold().split()):
+        return f"a resume of the mock persona {name}"
+    return None
 
 
 def pdf_text(path: Path) -> str:
@@ -663,6 +695,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     except TrackerError as exc:
         fatal(str(exc))
     write_catalog()
+    skipped = list(SKIPPED)
     today = L.today()
     rows = tracker.rows()
     by_key: dict[str, list[dict]] = {}
@@ -670,7 +703,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         by_key.setdefault(row["_key"], []).append(row)
     folders = folders_by_key()
     state: dict = {"run_id": f"{today}_{uuid.uuid4().hex[:6]}", "started": L.now_iso(), "status": "running",
-                   "jobs": {}, "screen": [], "build": [], "agents": {}, "issues": [], "start_deleted": [],
+                   "jobs": {}, "screen": [], "build": [], "agents": {}, "issues": skipped, "start_deleted": [],
                    "counts": {"rows_discarded": 0, "folders_deleted": 0}}
     changed = False
 

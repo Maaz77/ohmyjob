@@ -930,3 +930,18 @@ def test_header_and_education_are_frozen_in_the_one_file_yaml(pj, workspace):
     new = copy(src)
     del new["education"]
     assert any("top-level keys changed" in e for e in pj.check_yaml(new, src, False, ""))
+
+
+def test_copies_of_the_mock_template_pdf_are_never_ready_made(pe):
+    d = pe.root / "Default_Resume_Files"
+    (d / "Template.pdf").write_bytes(make_pdf("some template bytes"))
+    (d / "Nurse.pdf").write_bytes((d / "Template.pdf").read_bytes())  # cp Template.pdf Nurse.pdf
+    mock = yaml.safe_load((SCRIPTS.parent / "templates" / "Template.yaml").read_text())["name"]
+    (d / "Mock-Name.pdf").write_bytes(make_pdf(f"{mock['first']} {mock['last']}, Operations Analyst"))
+    (d / "Real.pdf").write_bytes(make_pdf("Sam Other, Registered Nurse"))
+    pe.folder("1001", "Acme", "Analyst")
+    pe.row("1001", "Acme", "Analyst", "Found")
+    start = json.loads(pe.pj("start"))
+    index = json.loads((pe.root / ".ohmyjob" / "catalog" / "index.json").read_text())
+    assert index == {OPS: "tailorable", COORD: "tailorable", "Real.pdf": "ready-made"}
+    assert any("Nurse.pdf: skipped" in i for i in start["issues"]) and any("Mock-Name.pdf: skipped" in i for i in start["issues"])
