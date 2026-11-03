@@ -179,6 +179,29 @@ def save_foreign_refs(tab: Any, refs: dict, partial: bool) -> None:
     write_json(path, refs)
 
 
+def foreign_state_path(tab: Any) -> Path:
+    return CHROME_STORE / f"tab_{tab_key(tab)}.state.json"
+
+
+def foreign_state(tab: Any) -> dict:
+    """What the guard keeps for a tab between the calls of callers that are not ohmyjob agents: "used" (a pressable click
+    was made since the last full read of the tab) and "focus" (a text field was clicked and nothing moved the focus)."""
+    try:
+        state = read_json(foreign_state_path(tab), {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def set_foreign_state(tab: Any, state: dict) -> None:
+    write_json(foreign_state_path(tab), state)
+
+
+def click_is_pressable(items: list) -> bool:
+    """A click that can press a control (button, link, tab, menu item...) rather than only tick a box or focus a field."""
+    return any(i.get("role") not in CHOICE_ROLES and i.get("role") not in TYPE_ROLES for i in items)
+
+
 def clear_foreign_refs(tab: Any) -> None:
     """The page may have changed (a click, a key, a typed text, a navigation): the next click needs a new read."""
     foreign_refs_path(tab).unlink(missing_ok=True)

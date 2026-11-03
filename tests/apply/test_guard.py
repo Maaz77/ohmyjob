@@ -592,7 +592,7 @@ class TestForeignCallersEveryRunState(T.Base):
                                              "X1" if agent else None), "press")
             self.assertDenied(self.guard(C + "computer", {"tabId": 301, "action": "type", "text": "x\n"}, agent,
                                          "X1" if agent else None), "control characters")
-            for keys in ["Tab", "Escape", "ctrl+f"]:
+            for keys in ["Tab", "Escape", "ctrl+a"]:
                 self.assertNoDecision(self.guard(C + "computer", {"tabId": 301, "action": "key", "text": keys}, agent,
                                                  "X1" if agent else None))
         batch = {"actions": [{"name": "computer", "input": {"tabId": 301, "action": "key", "text": "Return"}}]}
@@ -634,6 +634,144 @@ class TestForeignCallersEveryRunState(T.Base):
         self.page(101, "constructed_form_page.txt")
         self.assertDenied(self.foreign_click("ref_49", tab=101), "final control")  # "Submit application" of the worker's page
         self.assertDenied(self.foreign_click("ref_49", tab=101, agent="Explore"), "final control")
+
+
+class TestForeignOneClickPerRead(T.Base):
+    """One rule for every caller that is not an ohmyjob agent: a click needs a fresh read; a read allows one pressable
+    click; that click, a key, typed text or a navigation voids the tab's refs. Only an allowlist of computer actions."""
+
+    PAGE = ('button "Next" [ref_1] type="button"\nbutton "Save" [ref_4] type="button"\n'
+            'button "Submit application" [ref_2] type="submit"\ncheckbox "I confirm" [ref_3]\ntextbox "Name" [ref_5]\n'
+            'link "Terms" [ref_6] href="https://example.com/terms"\n')
+
+    def read(self, text=None, tab=301, agent=None, **ti):
+        payload = {"hook_event_name": "PostToolUse", "tool_name": C + "read_page", "tool_input": {"tabId": tab, **ti},
+                   "tool_response": [{"type": "text", "text": text or self.PAGE}]}
+        if agent:
+            payload.update(agent_type=agent, agent_id="X1")
+        self.assertEqual(self.hook("snapshot", payload).returncode, 0)
+
+    def computer(self, agent=None, **ti):
+        return self.guard(C + "computer", {"tabId": 301, **ti}, agent, "X1" if agent else None)
+
+    def batch(self, *actions, agent=None):
+        return self.guard(C + "browser_batch", {"actions": [{"name": n, "input": {"tabId": 301, **i}} for n, i in actions]},
+                          agent, "X1" if agent else None)
+
+    def click(self, ref, **extra):
+        return {"action": "left_click", "ref": ref, **extra}
+
+    def test_a_batch_cannot_click_twice_or_click_after_changing_the_page(self):
+        for agent in (None, "Explore"):
+            self.read(agent=agent)
+            self.assertDenied(self.batch(("computer", self.click("ref_1")), ("computer", self.click("ref_1")), agent=agent),
+                              "read the page again")
+            self.assertDenied(self.batch(("computer", self.click("ref_1")), ("computer", self.click("ref_4")), agent=agent),
+                              "read the page again")
+            self.assertDenied(self.batch(("computer", {"action": "key", "text": "Tab"}), ("computer", self.click("ref_1")),
+                                         agent=agent), "read the page again")
+            self.assertDenied(self.batch(("navigate", {"url": "https://example.com/"}), ("computer", self.click("ref_1")),
+                                         agent=agent), "read the page again")
+            self.assertDenied(self.batch(("computer", self.click("ref_2")), agent=agent), "final control")
+            self.assertDenied(self.batch(("read_page", {}), agent=agent), "inside browser_batch")
+            self.assertDenied(self.batch(("javascript_tool", {"text": "1"}), agent=agent), "javascript")
+            # a denied call changes nothing: the page can still be clicked once
+            self.assertNoDecision(self.batch(("computer", self.click("ref_3")), ("computer", self.click("ref_1")), agent=agent))
+            # that batch voided the refs, so a click after it needs a new read
+            self.assertDenied(self.computer(agent, **self.click("ref_4")), "read the page")
+            self.read(agent=agent)
+            self.assertNoDecision(self.computer(agent, **self.click("ref_4")))
+            self.assertDenied(self.computer(agent, **self.click("ref_1")), "read the page")
+
+    def test_only_allowlisted_computer_actions_and_never_a_coordinate(self):
+        for agent in (None, "Explore"):
+            self.read(agent=agent)
+            for extra in ({"action": "left_click_drag", "start_coordinate": [5, 5], "coordinate": [5, 5]},
+                          {"action": "left_click_drag", "ref": "ref_2"},
+                          {"action": "right_click", "ref": "ref_1"}, {"action": "double_click", "ref": "ref_1"},
+                          {"action": "triple_click", "ref": "ref_1"}, {"action": "left_mouse_down"},
+                          {"action": "left_click", "ref": "ref_1", "coordinate": [10, 10]},
+                          {"action": "left_click", "ref": "ref_2", "coordinate": [10, 10]},
+                          {"action": "hover", "coordinate": [10, 10]}, {"action": "hover", "ref": "ref_1", "coordinate": [1, 1]},
+                          {"action": "left_click", "coordinate": [10, 10]}, {"action": None}, {}):
+                self.assertDenied(self.computer(agent, **extra), "")
+            for extra in ({"action": "screenshot"}, {"action": "scroll", "coordinate": [10, 10], "scroll_direction": "down"},
+                          {"action": "scroll_to", "ref": "ref_2"}, {"action": "wait", "duration": 1},
+                          {"action": "hover", "ref": "ref_1"}, {"action": "zoom", "region": [0, 0, 5, 5]}):
+                self.assertNoDecision(self.computer(agent, **extra))
+            # none of that used up the read
+            self.assertNoDecision(self.computer(agent, **self.click("ref_1")))
+
+    def test_a_worker_snapshot_ref_can_be_clicked_once_per_foreign_read(self):
+        self.aa_json("start")
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://www.linkedin.com/jobs/view/1"}, W, "A1"))
+        self.page(101, "constructed_form_page.txt")
+        for agent in (None, "Explore"):
+            self.assertNoDecision(self.computer(agent, tabId=101, **self.click("ref_66")))
+            self.assertDenied(self.computer(agent, tabId=101, **self.click("ref_66")), "one click per read")
+            self.assertDenied(self.computer(agent, tabId=101, **self.click("ref_44")), "one click per read")
+            self.read('button "Next" [ref_66] type="button"\n', tab=101, agent=agent)
+            self.assertNoDecision(self.computer(agent, tabId=101, **self.click("ref_66")))
+            self.read('button "Next" [ref_66] type="button"\n', tab=101, agent=agent)  # reset for the next caller
+
+    def test_typed_text_needs_a_clicked_text_field_and_tab_moves_the_focus_away(self):
+        for agent in (None, "Explore"):
+            self.read(agent=agent)
+            self.assertDenied(self.computer(agent, action="type", text="abc"), "text field")
+            self.assertNoDecision(self.computer(agent, **self.click("ref_5")))
+            self.assertNoDecision(self.computer(agent, action="type", text="abc"))
+            self.assertNoDecision(self.computer(agent, action="type", text="def"))
+            self.assertNoDecision(self.computer(agent, action="key", text="Tab"))
+            for text in (" ", "\t", "x ", "\n"):
+                self.assertDenied(self.computer(agent, action="type", text=text), "")
+            # a pressable click and a navigation take the focus too
+            self.read(agent=agent)
+            self.assertNoDecision(self.computer(agent, **self.click("ref_5")))
+            self.assertNoDecision(self.computer(agent, **self.click("ref_1")))
+            self.assertDenied(self.computer(agent, action="type", text=" "), "text field")
+            # the same holds in a batch
+            self.read(agent=agent)
+            self.assertDenied(self.batch(("computer", self.click("ref_5")), ("computer", {"action": "key", "text": "Tab"}),
+                                         ("computer", {"action": "type", "text": " "}), agent=agent), "text field")
+
+    def test_a_link_click_is_pressable(self):
+        self.read()
+        self.assertNoDecision(self.computer(None, **self.click("ref_6")))
+        self.assertDenied(self.computer(None, **self.click("ref_1")), "read the page")
+
+
+class TestJudgeCacheIsPerHost(T.Base):
+    def test_an_apply_allowed_on_one_board_is_judged_again_on_another(self):
+        self.aa_json("start")
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://www.ziprecruiter.com/c/x/job/y"}, W, "A1"))
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 102, "url": "https://www.naukri.com/job-listings-x"}, W, "A2"))
+        listing = 'button "Apply" [ref_2] type="button"\n\nTab Context:\n- tab'
+        self.post("read_page", {"tabId": 101}, listing, W, "A1")
+        self.post("read_page", {"tabId": 102}, listing, W, "A2")
+        before = len(self.judge_calls())
+        self.assertAllowed(self.click(101, "ref_2", "A1", "Opens the application"))
+        self.assertEqual(len(self.judge_calls()), before + 1)
+        self.assertAllowed(self.click(102, "ref_2", "A2", "Opens the application"))
+        self.assertEqual(len(self.judge_calls()), before + 2)  # another host: asked again
+
+
+class TestOneBriefPerAgent(T.Base):
+    def test_an_agent_claims_one_brief_only(self):
+        self.aa_json("start")
+        (f1, _t1, b1), (f2, _t2, b2) = self.assign(101, 102)
+        self.assertExplicitAllow(self.guard("Read", {"file_path": b1}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": b2}, W, "A1"), "own brief")  # not a second one
+        self.assertExplicitAllow(self.guard("Read", {"file_path": b2}, W, "A2"))  # the other worker still gets its own
+        self.assertExplicitAllow(self.guard("Read", {"file_path": b1}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": b1}, W, "A2"), "own brief")
+
+    def test_a_job_that_next_has_not_handed_out_has_no_reader(self):
+        self.aa_json("start")
+        self.assertEqual(self.aa_json("assign", "--tabs", "101,102")["queued"], 2)
+        brief = next((self.run_dir() / "jobs").iterdir()) / "brief.md"
+        self.assertDenied(self.guard("Read", {"file_path": str(brief)}, W, "A1"), "own brief")  # no 'next' yet
 
 
 class TestJobBoardApply(T.Base):

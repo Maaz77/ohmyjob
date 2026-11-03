@@ -259,7 +259,7 @@ class Ctx:
 
     def judged_click(self, payload: dict) -> dict:
         """A name that Haiku called context-free is checked one time per run; else per page context."""
-        short = {k: payload[k] for k in ("name", "role", "filled")}
+        short = {k: payload[k] for k in ("name", "role", "filled", "host")}  # a verdict is per host: boards differ
         entry = J.cached(self.run_dir, J.key_for("click", short)) or {}
         if "result" in entry:
             return entry["result"]
@@ -578,6 +578,10 @@ def check_master_action(ctx: Ctx, short: str, ti: dict) -> Optional[dict]:
     return None
 
 
+COORDINATE_KEYS = ("coordinate", "start_coordinate", "end_coordinate")
+FOREIGN_FREE_ACTIONS = {"screenshot", "zoom", "wait", "scroll", "scroll_to"}  # they press and type nothing
+
+
 def foreign_click_problem(run_dir: Optional[Path], ti: dict) -> Optional[str]:
     """Why a click by a caller that is not an ohmyjob agent is refused, or None. The rule holds in every run state: it
     rests on the pages that any caller read (L.known_items), not on a run."""
@@ -595,40 +599,125 @@ def foreign_click_problem(run_dir: Optional[Path], ti: dict) -> Optional[str]:
     return None
 
 
-def check_any_action(run_dir: Optional[Path], short: str, ti: dict) -> None:
-    """The main-session rules, for every Chrome caller that is not an ohmyjob agent (the main session, Explore and any
-    other subagent), in every run state: no JavaScript, no final click, and no way around the click check (a click only
-    by a ref that a read of the page showed, no Enter or Space, no typed line break, no javascript: address)."""
-    if short == "javascript_tool":
-        raise Deny("JavaScript is not allowed in this workspace.")
-    if short == "navigate":
-        url = re.sub(r"[\x00-\x20\x7f]", "", str(ti.get("url") or "")).lower()
-        if url.startswith(("javascript:", "vbscript:")):
+class ForeignCall:
+    """The rules for a call of a caller that is not an ohmyjob agent, one browser_batch included (every action in order).
+
+    One rule for all of them: a click needs a fresh read of its tab. A read allows at most one pressable click (button,
+    link, ...), and that click, like any key, typed text or navigation, makes the tab's refs void until the next read.
+    Nothing is saved unless the whole call is allowed (commit())."""
+
+    def __init__(self, run_dir: Optional[Path]):
+        self.run_dir = run_dir
+        self.state: dict[Any, dict] = {}
+        self.tabs: dict[Any, Any] = {}
+        self.stale: set = set()  # tabs whose page an earlier action of this call may have changed
+
+    def tab(self, ti: dict) -> Any:
+        try:
+            key = L.tab_key(ti.get("tabId"))
+        except (TypeError, ValueError):
+            raise Deny("Give your tabId in every browser call.") from None
+        if key not in self.state:
+            self.state[key] = dict(L.foreign_state(ti.get("tabId")))
+            self.tabs[key] = ti.get("tabId")
+        return key
+
+    def moved(self, key: Any) -> None:
+        self.stale.add(key)
+        self.state[key]["clear"] = True
+
+    def check(self, short: str, ti: dict, in_batch: bool = False) -> None:
+        if short == "javascript_tool":
             raise Deny("JavaScript is not allowed in this workspace.")
-    if short == "computer":
+        if short == "navigate":
+            url = re.sub(r"[\x00-\x20\x7f]", "", str(ti.get("url") or "")).lower()
+            if url.startswith(("javascript:", "vbscript:")):
+                raise Deny("JavaScript is not allowed in this workspace.")
+            if ti.get("tabId") is not None:
+                key = self.tab(ti)
+                self.state[key]["focus"] = None
+                self.moved(key)
+        elif short == "browser_batch":
+            if in_batch:
+                raise Deny("Do not put browser_batch inside browser_batch.")
+            for action in ti.get("actions") or []:
+                name = str(action.get("name") or "") if isinstance(action, dict) else ""
+                name = name[len(PREFIX):] if name.startswith(PREFIX) else name
+                if name != "javascript_tool" and name not in BATCH_TOOLS:
+                    raise Deny(f"Do not put {name or 'this'} inside browser_batch. Call it alone.")
+                inner = action.get("input")
+                self.check(name, inner if isinstance(inner, dict) else {}, in_batch=True)
+        elif short == "computer":
+            self.computer(ti)
+
+    def computer(self, ti: dict) -> None:
         action = ti.get("action")
-        if action in CLICKS:
-            problem = foreign_click_problem(run_dir, ti)
+        if action in FOREIGN_FREE_ACTIONS:
+            return
+        if action not in ("left_click", "hover", "key", "type"):
+            raise Deny(f"computer action '{action}' is not allowed here: click by ref (left_click), press an allowed key, "
+                       "type into a field you clicked, scroll, wait or take a screenshot.")
+        if any(k in ti for k in COORDINATE_KEYS):
+            raise Deny("Never act by coordinates: read the page with read_page (or find), then use the ref.")
+        key = self.tab(ti)
+        st = self.state[key]
+        if action == "hover":
+            if not ti.get("ref"):
+                raise Deny("Hover only by a ref from read_page.")
+        elif action == "left_click":
+            if key in self.stale:
+                raise Deny("The page may have changed earlier in this call. Read the page again, then click by ref.")
+            problem = foreign_click_problem(self.run_dir, ti)
             if problem:
                 raise Deny(problem)
+            items = L.known_items(self.run_dir, ti.get("tabId"), str(ti.get("ref")))
+            if L.click_is_pressable(items):
+                if st.get("used"):
+                    raise Deny("One click per read of the page: read the page again (read_page), then click by ref.")
+                st["used"] = True
+                st["focus"] = None
+                self.moved(key)
+            else:  # ticking a box or focusing a field moves nothing; a text field takes typed text afterwards
+                st["focus"] = "text" if any(i.get("role") in L.TYPE_ROLES for i in items) else None
         elif action == "key":
-            key = L.activation_key(ti.get("text"))
-            if key:
-                raise Deny(f"Do not press {key}: it can press a focused button, such as Submit. Click the control by its ref.")
-        elif action == "type" and L.CONTROL_CHAR_RE.search(str(ti.get("text") or "")):
-            raise Deny("No line breaks or other control characters in a type action: they go out as key presses.")
-    if short == "browser_batch":
-        for action in ti.get("actions") or []:
-            name = str(action.get("name") or "")
-            name = name[len(PREFIX):] if name.startswith(PREFIX) else name
-            check_any_action(run_dir, name, action.get("input") if isinstance(action.get("input"), dict) else {})
+            text = ti.get("text")
+            if not L.keys_allowed(text):
+                raise Deny("Press only Tab, Shift+Tab, Escape, Backspace, Delete, the arrow, Home, End and Page keys, or "
+                           "Ctrl/Cmd with A, C, V, X, Z, Y. Enter, Return and Space can press a focused button, such as "
+                           "Submit: click the control by its ref instead.")
+            if L.TAB_KEY_RE.search(str(text)):
+                st["focus"] = None
+            self.moved(key)
+        else:  # type
+            if L.CONTROL_CHAR_RE.search(str(ti.get("text") or "")):
+                raise Deny("No line breaks or other control characters in a type action: they go out as key presses.")
+            if not st.get("focus"):
+                raise Deny("Type only right after you click a text field by its ref (Tab moves the focus away). "
+                           "Better: use form_input with the field's ref.")
+            self.moved(key)
+
+    def commit(self) -> None:
+        for key, st in self.state.items():
+            tab = self.tabs[key]
+            if st.pop("clear", False):
+                L.clear_foreign_refs(tab)
+            L.set_foreign_state(tab, st)
+
+
+def check_any_action(run_dir: Optional[Path], short: str, ti: dict) -> None:
+    """The main-session rules, for every Chrome caller that is not an ohmyjob agent (the main session, Explore and any
+    other subagent), in every run state: no JavaScript, no final click, no coordinates, only the computer actions of an
+    allowlist, and one pressable click per read of a tab (see ForeignCall)."""
+    call = ForeignCall(run_dir)
+    call.check(short, ti)
+    call.commit()
 
 
 def read_allowed(run_dir: Optional[Path], file_path: Any, agent_id: Optional[str] = None) -> bool:
     """The worker may read the plugin's ATS notes and ITS OWN brief, by an absolute path.
 
     The brief is claimed by the first worker that reads it (a worker has no tab bound yet: it reads the brief first);
-    'next' clears the claim when it hands the job to a new worker. Other briefs and every result.json are refused."""
+    'next' clears the claim when it hands the job to a new worker. One brief per agent. Other briefs and every result.json are refused."""
     if run_dir is None or not isinstance(file_path, str) or not os.path.isabs(file_path):
         return False
     try:
@@ -652,6 +741,9 @@ def read_allowed(run_dir: Optional[Path], file_path: Any, agent_id: Optional[str
         if job.get("brief_agent") not in (None, agent_id):
             return False
         if job.get("brief_agent") is None:
+            # one brief per agent, and only a job that 'next' has handed out
+            if not job.get("started_at") or any(j.get("brief_agent") == agent_id for j in state.get("jobs", {}).values()):
+                return False
             job["brief_agent"] = agent_id
             L.save_state(run_dir, state)
     return True
@@ -774,7 +866,7 @@ def guard(inp: dict) -> None:
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
         if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown":
-            short_payload = {k: pending.payload[k] for k in ("name", "role", "filled")}
+            short_payload = {k: pending.payload[k] for k in ("name", "role", "filled", "host")}
             J.store(run_dir, J.key_for("click", short_payload), {"result": result, "payload": short_payload})
     else:
         reason = "Too many new names in one call. Click one control at a time."
@@ -844,7 +936,8 @@ def observe_tabs(state: dict, tabs: dict[int, dict]) -> bool:
 
 def record_foreign(short: str, ti: dict, text: str) -> None:
     """The result of a Chrome call by a caller that is not an ohmyjob agent: keep the refs it read (for the click check of
-    check_any_action), forget a tab's refs when its page may have changed. The output is never rewritten."""
+    check_any_action). A full read of a tab allows a click again. The output is never rewritten. (The guard voids a tab's
+    refs when it lets a click, key, typed text or navigation through, see ForeignCall.)"""
     tab = ti.get("tabId")
     if tab is None:
         return
@@ -854,11 +947,15 @@ def record_foreign(short: str, ti: dict, text: str) -> None:
         return
     if short in ("read_page", "find"):
         refs = L.parse_refs(text)
+        partial = short == "find" or bool(ti.get("ref_id"))
         if refs:
-            L.save_foreign_refs(tab, refs, partial=short == "find" or bool(ti.get("ref_id")))
-    elif short in ("navigate", "computer", "form_input", "file_upload", "browser_batch"):
-        if short != "computer" or ti.get("action") not in ("screenshot", "zoom", "wait", "scroll", "scroll_to", "hover"):
-            L.clear_foreign_refs(tab)
+            L.save_foreign_refs(tab, refs, partial=partial)
+        if not partial:
+            state = L.foreign_state(tab)
+            if state.get("used"):
+                L.set_foreign_state(tab, {**state, "used": False})
+    elif short == "navigate":
+        L.clear_foreign_refs(tab)
 
 
 def snapshot(inp: dict) -> None:
