@@ -21,9 +21,9 @@ WORKERS = {"ohmyjob:screen-worker", "ohmyjob:resume-worker"}
 
 
 def workspace_for(inp: dict) -> Optional[Path]:
-    """The nearest folder with ohmyjob.json at or above the parsed cwd, else $CLAUDE_PROJECT_DIR, else the folder
-    hook.sh exported."""
-    for start in (inp.get("cwd"), os.environ.get("CLAUDE_PROJECT_DIR"), os.environ.get("OHMYJOB_WORKSPACE")):
+    """The nearest folder with ohmyjob.json at or above the parsed top-level cwd, else $CLAUDE_PROJECT_DIR. The
+    workspace hook.sh exports is not trusted: it may come from a "cwd" text inside tool_input."""
+    for start in (inp.get("cwd"), os.environ.get("CLAUDE_PROJECT_DIR")):
         if isinstance(start, str) and os.path.isabs(start):
             here = Path(start)
             for folder in (here, *here.parents):

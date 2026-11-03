@@ -776,3 +776,14 @@ def test_real_hooks_py_denies_a_main_session_javascript_call(pe):
     proc = pe.hook("guard", {"tool_name": "mcp__claude-in-chrome__javascript_tool",
                              "tool_input": {"agent_type": MASTER, "text": "1"}})
     assert proc.returncode == 2
+
+
+def test_a_fake_cwd_in_tool_input_does_not_pick_the_workspace(pe, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    payload = {"cwd": str(elsewhere), "agent_type": MASTER, "tool_name": "Read",
+               "tool_input": {"cwd": str(pe.root), "file_path": "x"}}
+    env = {k: v for k, v in pe.env.items() if k != "CLAUDE_PROJECT_DIR"}  # OHMYJOB_WORKSPACE still names the workspace
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "pj_hooks.py"), "guard"], input=json.dumps(payload),
+                          capture_output=True, text=True, env=env, cwd=elsewhere)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
