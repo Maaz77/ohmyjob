@@ -46,6 +46,20 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   (add a parameter there when a board's scrape shows it changing between runs); `LINKEDIN_PARAMS` (`trk`, `refid`, ...)
   are dropped on LinkedIn hosts only. Also `is_linkedin_url`, `LINKEDIN_ID_RE`.
 
+## resume_build.py
+- `build(role_yaml, out_pdf, *, max_pages=None, paper=None) -> (status, pages, detail)`, status `OK`, `OVERFLOW` or `FAIL`.
+  `None` reads `pipeline.resume_max_pages` / `resume_paper` from the config; `max_pages=0` means no page limit. It merges
+  `W.BASE_YAML` with the role yaml, builds in its own dir under `W.BUILD_DIR` (class copied in, dir removed after), runs
+  `$OHMYJOB_LUALATEX`, else `lualatex` on PATH, with `-interaction=nonstopmode -halt-on-error` and a timeout, and counts
+  pages from the log. It deletes `out_pdf` first, so OVERFLOW and FAIL leave no PDF.
+- CLI `ohmyjob resume build <yaml> [--out <pdf>]` prints exactly one line: `OK <pdf>`, `OVERFLOW <N> pages` or
+  `FAIL <reason>`.
+- `BULLET_BUDGET`: rendered characters of ONE bullet line. `SKILLS_BUDGET`: rendered characters of the items of ONE skills
+  row (the label is not counted). Both are checked before compiling, with `rendered_len(text)` (text as printed);
+  `render(role_yaml, *, paper=None, photo="")` returns the LaTeX source.
+- Markup: yaml text is plain text plus `**bold**`. Everything else, backslashes included, prints literally. Links accept
+  http(s) only; a bare address gets `https://`.
+
 ## bin/ohmyjob
 - `ohmyjob prep|apply|scrape|reconcile|resume <args>` runs `scripts/pj.py|aa.py|scrape.py|reconcile.py|resume_build.py` with
   `$OHMYJOB_PY`, finds the workspace like `find_root()` and exports `OHMYJOB_WORKSPACE OHMYJOB_PY OHMYJOB_UV OHMYJOB_DATA
