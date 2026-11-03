@@ -29,6 +29,16 @@ FOLDER_ROOTS = ("Applications", "Pending-Review", "Needs-Attention", "Submitted"
 KEY_RE = re.compile(r"^(\d+)_")
 
 
+EXIT_OK, EXIT_FATAL, EXIT_BOARD_FAILED = 0, 1, 2  # FATAL line / the run finished but a board failed
+
+
+def open_tracker(root: Path) -> Tracker:
+    try:
+        return Tracker(root / "Job_Tracker.xlsx")
+    except TrackerError as exc:
+        raise Stop(f"{exc}. Run /ohmyjob:setup.") from exc
+
+
 class Stop(Exception):
     """The run cannot go on: the message becomes a FATAL line."""
 
@@ -45,7 +55,7 @@ def cell(value: Any) -> str:
 
 def normalize(record: dict, board: str) -> dict:
     """One JobSpy row (its documented columns) as the fields this script uses."""
-    url = strip_tracking(cell(record.get("job_url")))
+    url = C.canonical_linkedin(strip_tracking(cell(record.get("job_url"))))
     apply_url = strip_tracking(cell(record.get("job_url_direct")))
     if not apply_url.lower().startswith(("http://", "https://")) or apply_url == url:
         apply_url = ""
@@ -57,12 +67,13 @@ def normalize(record: dict, board: str) -> dict:
     }
 
 
-def scrape_board(board: str, search: dict) -> tuple[list[dict], Optional[str]]:
-    """All rows of one board for every search term, and its error text (JobSpy reports a board's failure in attrs)."""
+def scrape_board(board: str, search: dict) -> tuple[list[dict], Optional[str], list[str]]:
+    """All rows of one board for every search term, its error text and its warnings (JobSpy reports both in attrs)."""
     import jobspy  # looked up at call time: the tests replace jobspy.scrape_jobs
 
     rows: list[dict] = []
     errors: list[str] = []
+    warnings: list[str] = []
     for term in search["search_query"]:
         args: dict[str, Any] = dict(
             site_name=[board], search_term=term, location=search["location"] or None,
@@ -79,8 +90,10 @@ def scrape_board(board: str, search: dict) -> tuple[list[dict], Optional[str]]:
             errors.append(f"{term!r}: {exc}")
             continue
         errors += [f"{term!r}: {text}" for text in (getattr(frame, "attrs", None) or {}).get("errors", {}).values()]
+        for text in (getattr(frame, "attrs", None) or {}).get("warnings", {}).values():
+            warnings += [w for w in (text if isinstance(text, list) else [text]) if w not in warnings]
         rows += [normalize(rec, board) for rec in frame.to_dict("records")]
-    return rows, "; ".join(errors) or None
+    return rows, "; ".join(errors) or None, warnings
 
 
 def known_keys(root: Path) -> set[str]:
@@ -102,11 +115,11 @@ def snapshot(root: Path) -> None:
     if not paths:
         return
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    steps = (("add", ["add", "-f", "--", *paths]),
-             ("commit", ["-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", f"ohmyjob snapshot {stamp}"]))
+    steps = (("add", ["add", "-f", "--", *paths]),  # the pathspec keeps the user's other staged changes out of the commit
+             ("commit", ["-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", f"ohmyjob snapshot {stamp}", "--", *paths]))
     for name, cmd in steps:
         done = subprocess.run(["git", "-C", str(root), *cmd], capture_output=True, text=True)
-        if done.returncode != 0 and "nothing to commit" not in done.stdout + done.stderr:
+        if done.returncode != 0 and not any(t in done.stdout + done.stderr for t in ("nothing to commit", "no changes added")):
             say(f"WARNING git_snapshot: git {name} failed ({(done.stderr or done.stdout).strip()[:120]}); continuing")
             return
 
@@ -123,17 +136,7 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
     if not boards:
         raise Stop("none of search.sources can run in this version (freehire is skipped); add a JobSpy board such as linkedin")
 
-    try:
-        tracker = Tracker(root / "Job_Tracker.xlsx")
-    except TrackerError as exc:
-        raise Stop(f"{exc}. Run /ohmyjob:setup.") from exc
-    rows = tracker.rows()
-    seen_keys = {r["_key"] for r in rows} | known_keys(root)
-    twins = C.TwinIndex()
-    for row in rows:
-        if C.recent_enough(row["Date Found"], TWIN_DAYS):
-            twins.add(row["Company"], row["Job Title"], row["Location"])
-
+    open_tracker(root)  # fail before the long scrape if there is no usable tracker
     lemmas = C.Lemmas(search["languages"])
     matcher = C.TitleMatcher(search["search_query"], search["languages"], search["title_filter"],
                              search["title_aliases"], search["title_only_aliases"])
@@ -141,22 +144,36 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
     if search["git_snapshot"] and not dry_run:
         snapshot(root)
 
+    scraped = {board: scrape_board(board, search) for board in boards}  # minutes; the tracker is not open meanwhile
+
+    tracker = open_tracker(root)  # a short load, change, save
+    rows = tracker.rows()
+    seen_keys = {r["_key"] for r in rows} | known_keys(root)
+    twins = C.TwinIndex()
+    for row in rows:
+        if (row["Status"] or "").strip() in C.KEPT_STATUSES or C.recent_enough(row["Date Found"], TWIN_DAYS):
+            twins.add(row["Company"], row["Job Title"], row["Location"], exact=True)
+
     found = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_jobs: list[dict] = []
     failed = 0
     totals = {"scraped": 0, "new": 0}
     for board in boards:
-        got, error = scrape_board(board, search)
+        got, error, warnings = scraped[board]
+        for text in warnings:
+            say(f"WARNING {board}: {text}")
         if error:
             failed += 1
         count = {"title": 0, "excluded": 0, "type": 0, "known": 0, "twin": 0, "bad": 0}
         kept: list[dict] = []
+        known: list[dict] = []
         for job in got:
             key = job_key(job["url"]) if job["url"] else ""
             if not job["title"] or not key.isdigit():
                 count["bad"] += 1
             elif key in seen_keys:
                 count["known"] += 1
+                known.append(job)
             elif filters.reason(job):
                 count["excluded"] += 1
             elif not matcher.matches(job["title"]):
@@ -169,7 +186,7 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
                 seen_keys.add(key)
                 job.update(key=key, found=found, employment=C.employment_label(job["job_type"]))
                 kept.append(job)
-        for job in kept:  # a board's own postings are compared with the earlier boards only
+        for job in kept + known:  # a board's own postings are compared with the earlier boards only
             twins.add(job["company"], job["title"], job["location"])
         new_jobs += kept
         totals["scraped"] += len(got)
@@ -182,7 +199,7 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
         raise Stop("every board failed; see the ERROR lines above")
     if dry_run:
         say(f"total: {totals['scraped']} scraped, {totals['new']} would be new (dry run, nothing written)")
-        return 1 if failed else 0
+        return EXIT_BOARD_FAILED if failed else EXIT_OK
 
     written = 0
     for job in new_jobs:
@@ -202,7 +219,7 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
         except TrackerError as exc:
             raise Stop(f"{exc} The {written} new folders are in Applications/; /ohmyjob:prep-jobs adds their rows at Found.") from exc
     say(f"total: {totals['scraped']} scraped, {written} new jobs at Found" + ("; run /ohmyjob:prep-jobs" if written else ""))
-    return 1 if failed else 0
+    return EXIT_BOARD_FAILED if failed else EXIT_OK
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -213,8 +230,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         root = W.find_root()
         return run(root, W.load_config(root)["search"], args.dry_run)
     except (W.WorkspaceError, Stop) as exc:
-        say(f"FATAL {exc}")
-        return 1
+        say(f"FATAL: {exc}")
+        return EXIT_FATAL
+    except Exception as exc:  # noqa: BLE001  (a full disk, a permission error: one line, not a traceback)
+        say(f"FATAL: unexpected {type(exc).__name__}: {exc}")
+        return EXIT_FATAL
 
 
 if __name__ == "__main__":

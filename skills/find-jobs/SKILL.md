@@ -7,13 +7,14 @@ allowed-tools: Bash(ohmyjob *)
 
 Find new jobs now.
 
-A line of output that starts with `ohmyjob: ` or `FATAL` is an error: show that line as it is, say what it asks for, and stop. Do not retry in a loop and do not work around it.
+A line of output that starts with `ohmyjob: ` or `FATAL` (`FATAL: ...`) is an error: show that line as it is, say what it asks for, and stop. Do not retry in a loop and do not work around it.
 
 1. Run `ohmyjob scrape` as a background Bash command (`run_in_background: true`). A search can take several minutes. While it runs, do not start anything else; when it ends, read its output. (`ohmyjob scrape --dry-run` counts what would be new and writes nothing.)
+Exit codes of `ohmyjob scrape`: 0 all boards ran; 1 a `FATAL:` line (nothing more was done); 2 the run finished but at least one board reported an `ERROR`.
 2. Read the output. It holds one line per board (`<board>: <n> scraped, <n> new (<n> <reason> dropped)`), `WARNING` lines, and a `total:` line. Tell the user, in a few short lines:
    - the total of new jobs, and per board how many were scraped and how many are new;
-   - why jobs were dropped, if many were (`title`: the title did not match a search term; `known`: already in the tracker or a folder; `twin`: the same job on an earlier board or a recent tracker row; `type`: employment type; `excluded`: company, seniority or title term);
-   - every `WARNING` and `ERROR` text as printed. A board with `ERROR` (for example a block by the site) did not run; the other boards did.
+   - why jobs were dropped, if many were (`title`: the title did not match a search term; `known`: already in the tracker or a folder; `twin`: the same job on an earlier board or a recent tracker row; `type`: employment type; `excluded`: company, seniority or title term; `bad`: a posting without a title or with an address that cannot be turned into a job id);
+   - every `WARNING` and `ERROR` text as printed. A board with `ERROR` (for example a block by the site) failed for at least one search term; it may still have added jobs from the other terms, and the other boards ran.
 3. If jobs were added, tell the user that `/ohmyjob:prep-jobs` screens them and builds the resumes. Do not start it yourself.
 
 What the settings do (all in the `search` section of `ohmyjob.json`):

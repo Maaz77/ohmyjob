@@ -97,3 +97,36 @@ def test_job_md_is_read_by_the_other_tools():
     assert titles == ["Job Discovery & Scoring", "1. Overview", "2. Job Description",
                       "3. Match Reasoning and Discussions", "Why Matched?", "Gaps?"]
     assert "- Apply URL:" not in C.job_md({"title": "t", "company": "c", "url": "https://u", "source": "s", "found": "f"})
+
+
+def test_lemmas_use_the_accented_word():
+    assert C.TitleMatcher(["Fachkraft Logistik"], ["de"]).matches("Fachkräfte Logistik (m/w/d)")
+    assert C.TitleMatcher(["Infirmier"], ["fr"]).matches("Infirmières de nuit")
+
+
+def test_gender_marks_in_french_and_dutch():
+    assert C.twin_title("Développeur (H/F)") == C.twin_title("Développeur") == "developpeur"
+    assert C.twin_title("Medewerker (m/v)") == "medewerker"
+    assert C.twin_title("Medewerker m/v/x") == "medewerker"
+
+
+def test_job_level_must_equal_the_seniority_word():
+    f = C.Filters({"exclude_seniority_level": ["senior", "entry level"]}, C.Lemmas(["en"]))
+    assert f.reason({"title": "Analyst", "job_level": "Mid-Senior level"}) is None
+    assert f.reason({"title": "Analyst", "job_level": "Senior"}) == "seniority"
+    assert f.reason({"title": "Analyst", "job_level": "Entry level"}) == "seniority"
+
+
+def test_exact_index_entries_do_not_use_the_empty_location_wildcard():
+    index = C.TwinIndex()
+    index.add("Acme", "Analyst", "", exact=True)
+    assert not index.find("Acme", "Analyst", "Paris")
+    assert index.find("Acme", "Analyst", "")
+    index.add("Beta", "Analyst", "")
+    assert index.find("Beta", "Analyst", "Paris")
+
+
+def test_canonical_linkedin():
+    assert C.canonical_linkedin("https://de.linkedin.com/jobs/view/data-analyst-at-acme-123?x=1") == "https://de.linkedin.com/jobs/view/123"
+    assert C.canonical_linkedin("https://www.linkedin.com/jobs/view/123") == "https://www.linkedin.com/jobs/view/123"
+    assert C.canonical_linkedin("https://example.com/jobs/view/a-123") == "https://example.com/jobs/view/a-123"

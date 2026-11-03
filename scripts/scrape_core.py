@@ -25,6 +25,11 @@ def tokens(text: Any) -> tuple[str, ...]:
     return tuple(_TOKEN_RE.findall(fold(text).replace("_", " ")))
 
 
+def words(text: Any) -> tuple[str, ...]:
+    """Like tokens, but accents kept (casefolded): simplemma needs "Fachkräfte" to find "Fachkraft"."""
+    return tuple(_TOKEN_RE.findall(unicodedata.normalize("NFC", str(text or "").casefold()).replace("_", " ")))
+
+
 def one_line(value: Any) -> str:
     return " ".join(str(value or "").split())
 
@@ -38,15 +43,16 @@ def _alias_rules(table: dict) -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
     rules = []
     for word, target in (table or {}).items():
         for text in target if isinstance(target, list) else [target]:
-            a, b = tokens(word), tokens(text)
-            if a and b and a != b:
+            a, b = words(word), words(text)
+            if a and b and tuple(map(fold, a)) != tuple(map(fold, b)):
                 rules.append((a, b))
     return rules
 
 
 def _replace_all(seq: tuple[str, ...], old: tuple[str, ...], new: tuple[str, ...]) -> Iterable[tuple[str, ...]]:
+    folded_old = tuple(map(fold, old))
     for i in range(len(seq) - len(old) + 1):
-        if seq[i:i + len(old)] == old:
+        if tuple(map(fold, seq[i:i + len(old)])) == folded_old:
             yield seq[:i] + new + seq[i + len(old):]
 
 
@@ -75,11 +81,16 @@ class Lemmas:
         if found is None:
             import simplemma
 
-            forms = {word}
-            for lang in self.languages:
+            forms = {fold(word)}
+            for lang in self.languages:  # the accented word first ("Fachkräfte"), then without accents (typed without them)
                 forms.add(fold(simplemma.lemmatize(word, lang=lang)))
+                forms.add(fold(simplemma.lemmatize(fold(word), lang=lang)))
             found = self._cache[word] = frozenset(forms)
         return found
+
+    def equals(self, a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+        """Same words in the same order (a whole value, not a part of one)."""
+        return bool(a) and len(a) == len(b) and all(self.forms(x) & self.forms(y) for x, y in zip(a, b))
 
     def contains(self, haystack: tuple[str, ...], phrase: tuple[str, ...]) -> bool:
         """The phrase's words stand next to each other in haystack, each in any of its forms."""
@@ -112,12 +123,12 @@ class TitleMatcher:
         self._title_only = _alias_rules(title_only_aliases or {})
         self._queries: list[tuple[str, ...]] = []
         for term in terms:
-            self._queries += [q for q in _variants(tokens(term), both) if q]
+            self._queries += [q for q in _variants(words(term), both) if q]
 
     def matches(self, title: str) -> bool:
         if self.mode == "off":
             return True
-        for variant in _variants(tokens(title), self._both + self._title_only):
+        for variant in _variants(words(title), self._both + self._title_only):
             hay = [self.lemmas.forms(w) for w in variant]
             for query in self._queries:
                 if all(any(self.lemmas.forms(q) & h for h in hay) for q in query):
@@ -169,29 +180,38 @@ def employment_ok(value: Any, wanted: Iterable[str]) -> bool:
 
 
 class Filters:
-    """exclude_companies, exclude_seniority_level and filter_title_terms (all empty by default)."""
+    """exclude_companies, exclude_seniority_level and filter_title_terms (all empty by default).
+
+    A seniority word is looked for in the title (as a phrase, after `title_aliases` rewrote it: "Sr." is "senior") and
+    must equal the board's job_level as a whole value: "senior" does not drop LinkedIn's "Mid-Senior level".
+    """
 
     def __init__(self, search: dict, lemmas: Lemmas):
         self.lemmas = lemmas
         self.companies = {company_key(c) for c in search.get("exclude_companies", []) if company_key(c)}
-        self.seniority = [tokens(s) for s in search.get("exclude_seniority_level", []) if tokens(s)]
-        self.title_terms = [tokens(s) for s in search.get("filter_title_terms", []) if tokens(s)]
+        self.seniority = [words(s) for s in search.get("exclude_seniority_level", []) if words(s)]
+        self.title_terms = [words(s) for s in search.get("filter_title_terms", []) if words(s)]
+        rules = _alias_rules(search.get("title_aliases") or {})
+        self._rules = rules + [(b, a) for a, b in rules]
+
+    def _in_title(self, title: tuple[str, ...], phrases: list) -> bool:
+        return any(self.lemmas.contains(variant, p) for variant in _variants(title, self._rules) for p in phrases)
 
     def reason(self, job: dict) -> Optional[str]:
         """Why a posting is dropped, else None."""
         if company_key(job.get("company")) in self.companies:
             return "company"
-        title, level = tokens(job.get("title")), tokens(job.get("job_level"))
-        if any(self.lemmas.contains(title, s) or self.lemmas.contains(level, s) for s in self.seniority):
+        title, level = words(job.get("title")), words(job.get("job_level"))
+        if self._in_title(title, self.seniority) or any(self.lemmas.equals(level, s) for s in self.seniority):
             return "seniority"
-        if any(self.lemmas.contains(title, s) for s in self.title_terms):
+        if self._in_title(title, self.title_terms):
             return "title term"
         return None
 
 
 # --------------------------------------------------------------------------- cross-board twins
 
-_GENDER_RE = re.compile(r"[\(\[]\s*[mwfdxi]\s*(?:[/|*]\s*[mwfdxi]\s*)+[\)\]]|\b[mwfdx](?:/[mwfdx]){1,2}\b", re.I)
+_GENDER_RE = re.compile(r"[\(\[]\s*[mwfdxihv]\s*(?:[/|*]\s*[mwfdxihv]\s*)+[\)\]]|\b[mwfdhv](?:/[mwfdxv]){1,2}\b", re.I)
 
 
 def twin_title(title: Any) -> str:
@@ -214,18 +234,26 @@ def is_twin(a: tuple[str, str, str], b: tuple[str, str, str]) -> bool:
 
 
 class TwinIndex:
-    """Postings seen so far (earlier boards, recent tracker rows): `find` says whether a new one is a twin of one."""
+    """Postings seen so far (earlier boards, tracker rows): `find` says whether a new one is a twin of one.
+
+    The empty-location wildcard of is_twin holds between postings of this run only. An `exact` entry (a tracker row)
+    needs the same city, so one row without a Location does not hide that company and title in every city.
+    """
 
     def __init__(self) -> None:
-        self._by_company: dict[str, list[tuple[str, str, str]]] = {}
+        self._by_company: dict[str, list[tuple[tuple[str, str, str], bool]]] = {}
 
-    def add(self, company: Any, title: Any, location: Any) -> None:
+    def add(self, company: Any, title: Any, location: Any, exact: bool = False) -> None:
         key = twin_key(company, title, location)
-        self._by_company.setdefault(key[0], []).append(key)
+        self._by_company.setdefault(key[0], []).append((key, exact))
 
     def find(self, company: Any, title: Any, location: Any) -> bool:
         key = twin_key(company, title, location)
-        return any(is_twin(key, other) for other in self._by_company.get(key[0], []))
+        return any(is_twin(key, other) and (not exact or key[2] == other[2])
+                   for other, exact in self._by_company.get(key[0], []))
+
+
+KEPT_STATUSES = frozenset({"Submitted", "Deleted", "Skipped-LowFit"})  # decided jobs: their twins never come back
 
 
 def recent_enough(found: Any, days: int, today: Optional[date] = None) -> bool:
@@ -307,3 +335,12 @@ def job_md(job: dict) -> str:
         "## 3. Match Reasoning and Discussions", "", "### Why Matched?", "", "### Gaps?", "",
     ]
     return "\n".join(lines)
+
+
+_LINKEDIN_VIEW_RE = re.compile(r"^(https?://[^/?#]+)/jobs/view/(?:[^/?#]*-)?(\d+)(?=[/?#]|$)", re.I)
+
+
+def canonical_linkedin(url: str) -> str:
+    """Google's LinkedIn links end in a slug ("/jobs/view/data-analyst-at-acme-4399000001"): back to /jobs/view/<id>."""
+    match = _LINKEDIN_VIEW_RE.match(url)
+    return f"{match.group(1)}/jobs/view/{match.group(2)}" if match and "linkedin." in match.group(1).lower() else url
