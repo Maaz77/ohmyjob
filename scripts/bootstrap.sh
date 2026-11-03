@@ -42,10 +42,20 @@ mkdir -p "$DATA" "$PROJECT"
 DATA="$(cd "$DATA" && pwd)"
 PROJECT="$(cd "$PROJECT" && pwd)"
 [ "$PROJECT" != "$PLUGIN_ROOT" ] || fatal "the project folder cannot be the plugin folder; start Claude in your job-search folder"
-# the workspace is <project>/ohmyjob; never nest one inside another
-if [ -f "$PROJECT/ohmyjob.json" ] && [ "${PROJECT##*/}" = "ohmyjob" ]; then
-  fatal "this is the ohmyjob workspace itself; start Claude in its parent folder (the project folder) and run /ohmyjob:setup there"
-fi
+# the workspace is <project>/ohmyjob; never nest one inside another. Same rule as W.find_workspace, walking up from the
+# folder: a folder D is a workspace when D/ohmyjob.json exists; D holds one when D/ohmyjob/ohmyjob.json exists. A folder
+# named ohmyjob counts as a workspace even without its json.
+dir="$PROJECT"
+while :; do
+  if [ -f "$dir/ohmyjob.json" ] || { [ "${dir##*/}" = "ohmyjob" ] && [ "$dir" != "/" ]; }; then
+    fatal "$dir is an ohmyjob workspace (or inside one); start Claude in its parent folder, the project folder, and run /ohmyjob:setup there"
+  fi
+  if [ "$dir" != "$PROJECT" ] && [ -f "$dir/ohmyjob/ohmyjob.json" ]; then
+    fatal "$PROJECT is inside the project $dir, which already has the workspace $dir/ohmyjob; start Claude in $dir (the project folder) and run /ohmyjob:setup there"
+  fi
+  [ "$dir" = "/" ] && break
+  dir="$(dirname "$dir")"
+done
 WORKSPACE="$PROJECT/ohmyjob"
 case "$DATA$PROJECT" in *\'*) fatal "a folder name with a single quote is not supported" ;; esac
 

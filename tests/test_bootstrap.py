@@ -584,16 +584,49 @@ def test_profile_template_shape_and_privacy():
     questions = text.split("# Follow Up Questions", 1)[1]
     items = [l for l in questions.splitlines() if l.startswith("- ")]
     assert len(items) >= 40 and all("?" in l for l in items)
-    # the owner's own list never reaches the repo: no answer of it appears here (read only when the file exists)
-    private = Path("/home/user/tmpfiles/questions.txt")
-    if private.exists():
+    placeholders = " ".join(items)
+    for token in ("<company>", "<country>", "<job site>"):
+        assert token in placeholders
+    assert all(re.fullmatch(r"- [^?]+\? \S.*", line) for line in items)
+    # the owner's own list never reaches the repo: given its path, no answer of it appears here
+    private = os.environ.get("OHMYJOB_PRIVATE_QUESTIONS")
+    if private and Path(private).exists():
         def norm(t):
             return " ".join(t.casefold().replace("\u2014", "-").strip(" .").split())
 
         mine = {norm(l.split("? ", 1)[1]) for l in items if "? " in l}
-        for line in private.read_text(encoding="utf-8").splitlines():
+        for line in Path(private).read_text(encoding="utf-8").splitlines():
             for sep in ("? ", "] ", ": "):
                 if sep in line:
                     answer = norm(line.rsplit(sep, 1)[1])
                     assert len(answer) < 5 or answer not in mine, "a private answer is in templates/Profile.md"
         assert not re.search(r"@(?!example\.com)[\w.-]+\.\w+", text)  # only the mock address domain
+
+
+def test_nested_workspaces_are_refused(env):
+    ok(env.run())
+    for start in (env.ws / "Applications", env.proj / "sub"):
+        start.mkdir(exist_ok=True)
+        result = subprocess.run(["bash", str(BOOTSTRAP), "--data", str(env.data), "--workspace", str(start)],
+                                capture_output=True, text=True, env=env.env)
+        assert str(env.proj) in error_line(result) or str(env.ws) in error_line(result)
+    assert not (env.ws / "ohmyjob").exists() and not (env.proj / "sub" / "ohmyjob").exists()
+
+
+def test_a_folder_named_ohmyjob_without_json_is_refused(env):
+    bare = env.tmp / "elsewhere" / "ohmyjob"
+    bare.mkdir(parents=True)
+    result = subprocess.run(["bash", str(BOOTSTRAP), "--data", str(env.data), "--workspace", str(bare)],
+                            capture_output=True, text=True, env=env.env)
+    assert str(bare) in error_line(result)
+    assert list(bare.iterdir()) == []
+
+
+def test_a_v1_flat_workspace_is_refused(env):
+    flat = env.tmp / "flat"
+    flat.mkdir()
+    (flat / "ohmyjob.json").write_text("{}")
+    result = subprocess.run(["bash", str(BOOTSTRAP), "--data", str(env.data), "--workspace", str(flat)],
+                            capture_output=True, text=True, env=env.env)
+    assert str(flat) in error_line(result)
+    assert not (flat / "ohmyjob").exists()
