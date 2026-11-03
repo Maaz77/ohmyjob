@@ -20,15 +20,19 @@ grep -v '^[[:space:]]*$' "$terms" > "$patterns"  # a blank line would match ever
 [ -s "$patterns" ] || { echo "pii_gate.sh: $terms holds no terms" >&2; exit 2; }
 
 command -v rg >/dev/null 2>&1 || { echo "pii_gate.sh: ripgrep (rg) is required, install it first" >&2; exit 2; }
-excludes=(-g '!/.git/' -g '!/.venv/' -g '!/tmp/' -g '!__pycache__' -g '!.pytest_cache' -g '!*.pyc' -g '!.DS_Store')
+excludes=(-g '!/.git' -g '!/.venv/' -g '!/tmp/' -g '!__pycache__' -g '!.pytest_cache' -g '!*.pyc' -g '!.DS_Store')
 
-# File names count too: a file called <Owner>_Resume.yaml is a leak whatever it holds.
-name_hits="$(rg --files --hidden --no-ignore "${excludes[@]}" . 2>&1 | grep -E -i -f "$patterns" | sed 's/^/path: /')"
+# File names count too: a file called <Owner>_Resume.yaml is a leak whatever it holds. Same regex dialect (rg's) as the
+# content search; a failure of either step ends the gate with 2, never with a pass.
+files="$(rg --files --hidden --no-ignore "${excludes[@]}" . 2>&1)" || { echo "pii_gate.sh: listing the files failed: $files" >&2; exit 2; }
+name_hits="$(printf '%s\n' "$files" | rg -i -f "$patterns" 2>&1)"
+name_status=$?
+[ "$name_status" -le 1 ] || { echo "pii_gate.sh: matching the file names failed: $name_hits" >&2; exit 2; }
 hits="$(rg -a -i -n --hidden --no-ignore "${excludes[@]}" -f "$patterns" . 2>&1)"
 status=$?
 
-if [ "$status" -eq 0 ] || [ -n "$name_hits" ]; then
-  [ -z "$name_hits" ] || echo "$name_hits"
+if [ "$status" -eq 0 ] || [ "$name_status" -eq 0 ]; then
+  [ "$name_status" -ne 0 ] || echo "path: ${name_hits//$'\n'/$'\n'path: }"
   [ "$status" -ne 0 ] || echo "$hits"
   exit 1
 elif [ "$status" -eq 1 ]; then

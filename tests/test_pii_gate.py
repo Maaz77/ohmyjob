@@ -21,7 +21,7 @@ def repo(tmp_path):
 
 
 def gate(repo, path_env=None):
-    env = {"PATH": path_env if path_env is not None else "/usr/bin:/bin:/usr/local/bin"}
+    env = {"PATH": path_env if path_env is not None else f"{Path(shutil.which('rg')).parent}:/usr/bin:/bin"}
     return subprocess.run(["bash", str(repo / "scripts" / "pii_gate.sh"), str(repo.parent / "terms.txt")],
                           capture_output=True, text=True, env=env, timeout=60)
 
@@ -71,3 +71,21 @@ def test_without_ripgrep_it_exits_2_and_names_it(repo, tmp_path):
                           capture_output=True, text=True, env={"PATH": str(empty)}, timeout=60)
     assert proc.returncode == 2
     assert "ripgrep" in proc.stderr and proc.stderr.count("\n") == 1
+
+
+@pytest.mark.parametrize("term", ["(?i)zyxwvfile", r"\p{L}yxwvfile", r"\x7ayxwvfile", "^\\./zyx.*file"])
+def test_file_names_are_matched_with_the_same_regex_syntax_as_the_contents(repo, term):
+    (repo.parent / "terms.txt").write_text(term + "\n")
+    (repo / "zyxwvfile.yaml").write_text("clean\n")
+    proc = gate(repo)
+    assert proc.returncode == 1 and "zyxwvfile.yaml" in proc.stdout
+
+
+def test_a_broken_term_ends_with_2_not_a_pass(repo):
+    (repo.parent / "terms.txt").write_text("(unclosed\n")
+    assert gate(repo).returncode == 2
+
+
+def test_a_git_file_of_a_worktree_is_skipped(repo):
+    (repo / ".git").write_text(f"gitdir: /x/{TERM}/.git/worktrees/a\n")
+    assert gate(repo).returncode == 0

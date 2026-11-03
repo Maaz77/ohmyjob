@@ -165,7 +165,7 @@ MAX_RECENCY_DAYS = 3650  # a typo must not stop the run
 
 DEFAULTS: dict[str, dict[str, Any]] = {
     "search": {
-        "sources": ["linkedin", "indeed"],  # order = priority when two boards list the same job
+        "sources": ["linkedin"],  # order = priority when two boards list the same job
         "search_query": [],
         "location": "",
         "country": "",

@@ -126,13 +126,11 @@ def test_every_setting_has_a_check():
 
 
 def test_every_default_passes_its_own_check():
-    with_country = {"search": {"country": "germany"}}
-    expected = {**W.DEFAULTS, "search": {**W.DEFAULTS["search"], "country": "germany"}}
-    assert W.validate_config(with_country) == expected
-    assert W.validate_config(expected) == expected
-    # the one default that is not valid alone: indeed (a default source) needs a country
-    with pytest.raises(W.ConfigError, match='"search.country" is empty'):
-        W.validate_config(W.DEFAULTS)
+    assert W.validate_config(W.DEFAULTS) == W.DEFAULTS
+    assert W.validate_config({}) == W.DEFAULTS
+    # the shipped template loads as it is
+    template = json.loads((Path(W.__file__).resolve().parents[1] / "templates" / "ohmyjob.json").read_text())
+    assert W.validate_config(template) == W.DEFAULTS
 
 
 def test_the_fixture_config_loads(workspace):
@@ -146,10 +144,10 @@ def test_the_fixture_config_loads(workspace):
 def test_missing_keys_take_their_defaults_and_defaults_are_not_shared(tmp_path):
     config = write_config(tmp_path, {"search": {"location": " Berlin ", "country": "germany"}})
     assert config["search"]["location"] == "Berlin"
-    assert config["search"]["sources"] == ["linkedin", "indeed"]
+    assert config["search"]["sources"] == ["linkedin"]
     assert config["pipeline"] == W.DEFAULTS["pipeline"]
     config["search"]["sources"].append("google")
-    assert W.DEFAULTS["search"]["sources"] == ["linkedin", "indeed"]
+    assert W.DEFAULTS["search"]["sources"] == ["linkedin"]
 
 
 def test_an_empty_object_and_ignored_schema_keys_are_fine(tmp_path):

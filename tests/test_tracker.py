@@ -291,3 +291,48 @@ def test_a_save_refuses_when_the_file_was_deleted(path, tr):
     path.unlink()
     with pytest.raises(TrackerError, match="changed on disk"):
         tr.save()
+
+
+def test_lone_surrogates_and_noncharacters_are_dropped_so_the_file_still_loads(path, tr):
+    tr.add_row({"Job URL": LINKEDIN, "Job Title": "Ops\ud800 An\udfffalyst￾￿", "Notes": "\udc00"})
+    tr.save()
+    row = Tracker(path).rows()[0]
+    assert (row["Job Title"], row["Notes"]) == ("Ops Analyst", None)
+
+
+def test_a_replace_in_the_same_clock_tick_is_still_seen(path, tr):
+    import os
+
+    tr.add_row({"Job URL": LINKEDIN})
+    tr.save()
+    stale = Tracker(path)
+    other = Tracker(path)
+    other.set_cell(1, "Company", "Written by another run")
+    other.save()
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, stale._loaded_at[2]))  # same mtime as when `stale` loaded; inode/size differ
+    stale.add_row({"Job URL": INDEED})
+    with pytest.raises(TrackerError, match="changed on disk"):
+        stale.save()
+
+
+def test_the_check_runs_again_after_the_slow_write_and_before_the_replace(path, tr, monkeypatch):
+    tr.add_row({"Job URL": LINKEDIN})
+    tr.save()
+    mine = Tracker(path)
+    mine.add_row({"Job URL": INDEED})
+    real_save = Workbook.save
+
+    def slow_save(self, filename):
+        monkeypatch.setattr(Workbook, "save", real_save)  # only the first save is the slow one
+        real_save(self, filename)  # another run saves while this one is still writing its temp file
+        other = Tracker(path)
+        other.set_cell(1, "Company", "Other run")
+        other.save()
+
+    monkeypatch.setattr(Workbook, "save", slow_save)
+    with pytest.raises(TrackerError, match="changed on disk"):
+        mine.save()
+    monkeypatch.undo()
+    assert [r["Company"] for r in Tracker(path).rows()] == ["Other run"]
+    assert [p.name for p in path.parent.iterdir() if p.name.startswith(".")] == []

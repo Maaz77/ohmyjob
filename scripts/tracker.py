@@ -9,6 +9,7 @@ Text written to a cell is always stored as text (scraped "=..." is no formula), 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,10 +33,19 @@ class TrackerError(Exception):
     pass
 
 
+_STALE = (
+    "{name} changed on disk since this run loaded it (another run or Excel saved it). "
+    "Nothing was saved; run the command again."
+)
+
+
+_UNSTORABLE_RE = re.compile("[\ud800-\udfff\ufffe\uffff]")  # lone surrogates, U+FFFE/U+FFFF: saved, but the file never loads
+
+
 def _clean(value: Any) -> Any:
     """Text without the control characters xlsx cannot hold, clipped to one cell; other values unchanged."""
     if isinstance(value, str):
-        return ILLEGAL_CHARACTERS_RE.sub("", value)[:MAX_CELL_CHARS]
+        return _UNSTORABLE_RE.sub("", ILLEGAL_CHARACTERS_RE.sub("", value))[:MAX_CELL_CHARS]
     return value
 
 
@@ -47,11 +57,26 @@ def _put(cell, value: Any) -> None:
         cell.data_type = "s"
 
 
-def _save_atomically(workbook: Workbook, path: Path) -> None:
+def _stamp(path: Path) -> Optional[tuple]:
+    """(inode, size, mtime_ns) of the file, None when it is missing: one tick of the clock cannot hide a replace."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return (info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _save_atomically(workbook: Workbook, path: Path, expect: Optional[tuple] = None, check: bool = False) -> Optional[tuple]:
+    """Write a temp file, then (when `check`) make sure `path` still has the stamp `expect`, then replace it.
+    Returns the stamp of the file that now sits at `path` (taken from the temp file, before the replace)."""
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         workbook.save(tmp)
+        stamp = _stamp(tmp)
+        if check and _stamp(path) != expect:
+            raise TrackerError(_STALE.format(name=path.name))
         os.replace(tmp, path)
+        return stamp
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -62,7 +87,7 @@ class Tracker:
         if not self.path.exists():
             raise TrackerError(f"Tracker not found: {path}")
         try:
-            self._loaded_at = self.path.stat().st_mtime_ns
+            self._loaded_at = _stamp(self.path)  # before the load: a replace during it counts as a change
             self.workbook = load_workbook(self.path)
         except Exception as exc:  # noqa: BLE001
             raise TrackerError(f"Could not open tracker {path}: {exc}") from exc
@@ -143,17 +168,9 @@ class Tracker:
             raise TrackerError(
                 f"Close the tracker in Excel/LibreOffice first ({lock.name} exists). Nothing was saved."
             )
-        try:
-            changed = self.path.stat().st_mtime_ns != self._loaded_at
-        except OSError:
-            changed = True
-        if changed:
-            raise TrackerError(
-                f"{self.path.name} changed on disk since this run loaded it (another run or Excel saved it). "
-                "Nothing was saved; run the command again."
-            )
-        _save_atomically(self.workbook, self.path)
-        self._loaded_at = self.path.stat().st_mtime_ns
+        if _stamp(self.path) != self._loaded_at:
+            raise TrackerError(_STALE.format(name=self.path.name))
+        self._loaded_at = _save_atomically(self.workbook, self.path, self._loaded_at, check=True)
 
     def _lock_file(self) -> Optional[Path]:
         """The file Excel (~$ + the name, sometimes without its first letters) or LibreOffice (.~lock.<name>#) keeps while the tracker is open."""

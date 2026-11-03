@@ -1,6 +1,6 @@
 {
   "search": {
-    "sources": ["linkedin", "indeed"],
+    "sources": ["linkedin"],
     "search_query": [],
     "location": "",
     "country": "",

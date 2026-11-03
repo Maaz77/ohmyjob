@@ -5,6 +5,7 @@
 #   ohmyjob:prep-master|screen-worker|resume-worker -> pj_hooks.py
 #   ohmyjob:application-*                           -> hooks.py
 #   guard of ANY Chrome tool (mcp__claude-in-chrome__*), whoever calls (main session, Explore, any agent) -> hooks.py
+#     (decided first; hooks.py hands a PARSED prep agent_type to pj_hooks.py's rules)
 #   anything else                                   -> exit 0
 # handback (SubagentHandback, auto mode only) and capture (SubagentStop, where a worker's last message is its report
 # in Manual and -p mode) are routed like guard for ohmyjob agents, never assuming that handback fires.
@@ -62,13 +63,19 @@ find_all tool_name
 for tool in ${found[@]+"${found[@]}"}; do
   case "$tool" in mcp__claude-in-chrome__*) chrome=1 ;; esac
 done
+if [ "$event" = "guard" ] && [ ${#found[@]} -eq 0 ]; then
+  # Inside a workspace but no readable tool_name (empty stdin, a path with a quote or backslash, other format): the
+  # guard cannot tell a Chrome call, so it does not let the call through.
+  echo "ohmyjob: the hook input has no readable tool_name, the call is blocked" >&2
+  exit 2
+fi
 
 script=""
 case "$event" in
   guard|handback|capture)
-    if [ "$prep" = 1 ]; then script="pj_hooks.py"
+    if [ "$event" = "guard" ] && [ "$chrome" = 1 ]; then script="hooks.py"  # first: no agent_type text can move it
+    elif [ "$prep" = 1 ]; then script="pj_hooks.py"
     elif [ "$app" = 1 ]; then script="hooks.py"
-    elif [ "$event" = "guard" ] && [ "$chrome" = 1 ]; then script="hooks.py"
     fi ;;
   snapshot) [ "$app_worker" = 1 ] && script="hooks.py" ;;
   report) [ -f "$root/.ohmyjob/last_report.txt" ] && script="hooks.py" ;;

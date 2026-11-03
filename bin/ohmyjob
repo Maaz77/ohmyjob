@@ -38,6 +38,7 @@ fi
 # NAME='value' (or NAME=value) for the four names. A quoted value is taken literally and holds no single quote; an
 # unquoted one holds no quote, $, backtick, backslash or whitespace. Anything else is an error.
 env_file="$root/.ohmyjob/env.sh"
+py_from_file=0
 if [ -f "$env_file" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ""|"#"*) continue ;; esac
@@ -50,13 +51,20 @@ if [ -f "$env_file" ]; then
       *[\'\"\$\`\\[:space:]]*) fatal "$env_file has a value that is not plain text, run /ohmyjob:setup" ;;
     esac
     case "$name" in
-      OHMYJOB_PY) OHMYJOB_PY="$value" ;;
+      OHMYJOB_PY) OHMYJOB_PY="$value"; py_from_file=1 ;;
       OHMYJOB_UV) OHMYJOB_UV="$value" ;;
       OHMYJOB_DATA) OHMYJOB_DATA="$value" ;;
       OHMYJOB_LUALATEX) OHMYJOB_LUALATEX="$value" ;;
       *) fatal "$env_file sets $name, which is not one of the four known names, run /ohmyjob:setup" ;;
     esac
   done < "$env_file"
+  # Parsing is not enough: env.sh must not name a program that the allowed `ohmyjob *` could be turned into a shell with
+  # (OHMYJOB_PY=/usr/bin/find). The interpreter is exactly the plugin's venv; uv and lualatex keep their names.
+  if [ "$py_from_file" = 1 ] && [ "${OHMYJOB_PY:-}" != "${OHMYJOB_DATA:-}/venv/bin/python" ]; then
+    fatal "environment missing or stale, run /ohmyjob:setup"
+  fi
+  [ -z "${OHMYJOB_UV:-}" ] || [ "${OHMYJOB_UV##*/}" = "uv" ] || fatal "$env_file has an OHMYJOB_UV that is not uv, run /ohmyjob:setup"
+  [ -z "${OHMYJOB_LUALATEX:-}" ] || [ "${OHMYJOB_LUALATEX##*/}" = "lualatex" ] || fatal "$env_file has an OHMYJOB_LUALATEX that is not lualatex, run /ohmyjob:setup"
 fi
 [ -n "${OHMYJOB_PY:-}" ] && [ -x "$OHMYJOB_PY" ] || fatal "environment missing or stale, run /ohmyjob:setup"
 [ -f "$SCRIPTS/$script" ] || fatal "$SCRIPTS/$script is missing from the plugin, reinstall it"

@@ -13,8 +13,8 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   errors: a new setting needs `DEFAULTS`, `CHECKS` and `templates/ohmyjob.json` (equal to `DEFAULTS` by test).
   Validation also rejects what the tools would fail on later: `languages` must be in `W.LANGUAGES` (simplemma's
   tuple, pinned by test; `ja`, `zh`, `xx` are refused), and `country` is required while `indeed` or `glassdoor` is in
-  `sources` (JobSpy would search the USA). So the shipped template and `DEFAULTS` alone are NOT valid: setup must write a
-  country (or drop those boards) before any script calls `load_config`.
+  `sources` (JobSpy would search the USA). `DEFAULTS` and the template use `sources: ["linkedin"]` and load as they are;
+  the profile step writes the real boards and country.
 - `slots(config=None) -> int`: `min(max_parallel_workers, subagent cap - 1)`; call it late, not at import.
   `file_prefix(root=None) -> str`: ASCII slug of `name.first` in `base.yaml`, else `Resume`; tailored files are
   `<prefix>_<Company>.pdf/.yaml`.
@@ -32,12 +32,13 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - A row dict has the nine headers plus `_index` (header row = 0, sheet row = `_index + 1`) and `_key` (`job_key` of its Job
   URL). `save()` is atomic (temp file + `os.replace`) and raises while `~$Job_Tracker.xlsx` or `.~lock.Job_Tracker.xlsx#`
   exists.
-- Stale workbook: a `Tracker` remembers the file's `st_mtime_ns` from its load (and from its own last save). `save()` raises
+- Stale workbook: a `Tracker` remembers the file's stamp (`st_ino, st_size, st_mtime_ns`) from its load (and from its own
+  last save). `save()` writes the temp file, checks the stamp again, then replaces, and raises
   `TrackerError` ("... changed on disk since this run loaded it ... Nothing was saved; run the command again.") when the
   file changed meanwhile, so a long run cannot revert statuses another command wrote. Callers load, change and save in one
   short step, and treat that error as a stop (print `FATAL ...`), never as a reason to overwrite.
 - Cell text: every string written (`set_cell`, `set_status` notes, `add_row`) is stored as text (a scraped `=...` is never a
-  formula), loses control characters xlsx cannot hold, and is clipped to 32767 characters (`Notes` keeps its newest lines).
+  formula), loses control characters xlsx cannot hold (also lone surrogates and U+FFFE/U+FFFF), and is clipped to 32767 characters (`Notes` keeps its newest lines).
 
 ## job_key.py
 - `job_key(url)`: a LinkedIn `/jobs/view/<id>` keeps its id; any other http(s) address gives `9` + 14 hash digits (utm_*
@@ -53,7 +54,10 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   comments, and `NAME='value'` or `NAME=value` for `OHMYJOB_PY OHMYJOB_UV OHMYJOB_DATA OHMYJOB_LUALATEX`. A quoted value
   is taken literally (spaces and `$` are fine, no single quote inside); an unquoted one holds no quote, `$`, backtick,
   backslash or whitespace. Any other line, name or value is an `ohmyjob: ...` error (exit 3) naming env.sh. Setup writes
-  single-quoted values, and an empty `OHMYJOB_LUALATEX=''` is fine.
+  single-quoted values, and an empty `OHMYJOB_LUALATEX=''` is fine. A value that is syntactically fine is still refused
+  unless `OHMYJOB_PY` is exactly `$OHMYJOB_DATA/venv/bin/python` (else the stale-environment line), a non-empty
+  `OHMYJOB_UV` has basename `uv` and a non-empty `OHMYJOB_LUALATEX` basename `lualatex`: `ohmyjob prep <args>` must never
+  run a program the file picks. (A caller's own `OHMYJOB_PY`, as in tests, skips env.sh.)
 - Errors are one stdout line starting `ohmyjob: `, exit 3; no `env.sh` or no executable Python gives exactly `ohmyjob:
   environment missing or stale, run /ohmyjob:setup`. The scripts print their own `FATAL: ...` lines.
 - Only `prep start` and `apply start` re-sync, when sha256(`uv.lock`) differs from `$OHMYJOB_DATA/venv/uv.lock.sha256`:
@@ -63,12 +67,14 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 ## Hooks: `hooks/hooks.json` -> `scripts/hook.sh <event>` -> `pj_hooks.py` or `hooks.py <event>`
 - Events: `guard` (PreToolUse), `handback` (PreToolUse of `SubagentHandback`), `snapshot` (PostToolUse of Chrome tools),
   `capture` (SubagentStop), `report` (Stop).
-- hook.sh stays in bash, without Python, unless: any `ohmyjob:prep-master|screen-worker|resume-worker` agent_type ->
-  `pj_hooks.py`; `ohmyjob:application-*` -> `hooks.py`; `guard` of ANY Chrome tool (`mcp__claude-in-chrome__*`), whoever
-  calls (main session, Explore, any agent) -> `hooks.py`; `snapshot` only for `application-worker`; `report` only if
+- hook.sh stays in bash, without Python, unless (tested in this order): `guard` of ANY Chrome tool
+  (`mcp__claude-in-chrome__*`), whoever calls (main session, Explore, a prep agent, any agent) -> `hooks.py`, whatever the
+  agent_type text says; any other call with a `ohmyjob:prep-master|screen-worker|resume-worker` agent_type -> `pj_hooks.py`;
+  `ohmyjob:application-*` -> `hooks.py`; `snapshot` only for `application-worker`; `report` only if
   `.ohmyjob/last_report.txt` exists. `handback` and `capture` route like `guard`, for ohmyjob agents only. Everything else
   (the main session's non-Chrome calls, other agents' non-Chrome calls, every call outside a workspace): exit 0, no output,
-  no Python. Without `$CLAUDE_PLUGIN_DATA/venv/bin/python` (an unset or empty `CLAUDE_PLUGIN_DATA` counts as missing),
+  no Python. A `guard` call inside a workspace whose input has no readable `tool_name` (empty stdin, a path with a quote or backslash
+  that defeats the text match) is denied: exit 2, one line on stderr. Without `$CLAUDE_PLUGIN_DATA/venv/bin/python` (an unset or empty `CLAUDE_PLUGIN_DATA` counts as missing),
   `guard` and `handback` of an `ohmyjob:*` agent, and `guard` of a Chrome call by any agent, are denied (the message above);
   the main session's Chrome call and the other events print `{"systemMessage": ...}` and exit 0.
 - Why Chrome is routed whatever the agent: the never-submit rule cannot hang on `agent_type`. Explore and other agents have
@@ -80,8 +86,9 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   first, and a false match may start Python once but never changes a decision. So **`pj_hooks.py` and `hooks.py` must
   parse the JSON and decide only from the top-level `agent_type`, `tool_name` and `cwd`**, never from `tool_input` text.
   The choice between the two scripts rests on a text test, so each re-checks the parsed `agent_type`: `pj_hooks.py` reached
-  with a parsed `agent_type` that is not a prep agent, or `hooks.py` reached with a prep agent, runs the other script's
-  rules on the same input (import and call its `main`). The workspace hook.sh exports is a candidate too: Python takes the
+  with a parsed `agent_type` that is not a prep agent runs `hooks.py`'s rules on the same input, and **`hooks.py` reached
+  with a parsed prep agent (always the case for a prep agent's Chrome call) runs `pj_hooks.py`'s rules** (import and call
+  its `main`). The workspace hook.sh exports is a candidate too: Python takes the
   nearest `ohmyjob.json` at or above the parsed top-level `cwd` (else `$CLAUDE_PROJECT_DIR`), and exits 0 with no output
   when there is none.
 - Python gets the hook JSON on stdin, the event as `argv[1]`, and `OHMYJOB_WORKSPACE`: the workspace hook.sh found by walking
