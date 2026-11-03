@@ -76,7 +76,7 @@ Answers the application workers reuse on forms. One line per item: `- Question? 
 - What job type do you want (permanent, part-time, contract)? A permanent contract.
 - How many days a week can you travel to the office? Up to 2.
 - Would you be willing to relocate for this or any other position? Yes, within the EU.
-- Please specify the locations you are willing to relocate to? Hamburg, Munich or Vienna.
+- Please specify the locations you are willing to relocate to? Hamburg, Leipzig or Vienna.
 - Where do you want to work, up to 3 locations? Berlin, Hamburg, remote.
 - Which office would you be applying to? The one closest to Berlin, or remote.
 - What is your preferred location? Berlin.
