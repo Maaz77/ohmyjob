@@ -1,0 +1,14 @@
+{
+  "name": "ohmyjob",
+  "description": "Job search pipeline for Claude Code, published as the ohmyjob plugin.",
+  "owner": {
+    "name": "<github-owner>"
+  },
+  "plugins": [
+    {
+      "name": "ohmyjob",
+      "source": "./",
+      "description": "Job search pipeline for Claude Code: find jobs, screen them, tailor resumes, fill applications up to the final submit button."
+    }
+  ]
+}

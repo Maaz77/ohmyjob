@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# ohmyjob <prep|apply|scrape|reconcile|resume> <args>: runs scripts/<pj|aa|scrape|reconcile|resume_build>.py with the
+# plugin's Python, inside the workspace. While the plugin is enabled, Claude Code puts this folder on the PATH of the
+# Bash tool (also for subagents), but does not export CLAUDE_PLUGIN_ROOT or CLAUDE_PLUGIN_DATA there. So setup writes
+# <workspace>/.ohmyjob/env.sh (OHMYJOB_PY, OHMYJOB_UV, OHMYJOB_DATA, OHMYJOB_LUALATEX, absolute paths), read here.
+# Output on stdout is for the agents: every error is one line that starts with "ohmyjob:", with exit code 3.
+set -euo pipefail
+
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPTS="$PLUGIN_ROOT/scripts"
+
+fatal() { echo "ohmyjob: $*"; exit 3; }
+
+case "${1:-}" in
+  prep) script="pj.py" ;;
+  apply) script="aa.py" ;;
+  scrape) script="scrape.py" ;;
+  reconcile) script="reconcile.py" ;;
+  resume) script="resume_build.py" ;;
+  *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume> <args>"; exit 2 ;;
+esac
+
+# The workspace, as workspace.find_root() finds it: $OHMYJOB_WORKSPACE, else the nearest folder with ohmyjob.json at or
+# above $CLAUDE_PROJECT_DIR, else at or above the current folder.
+root="${OHMYJOB_WORKSPACE:-}"
+if [ -z "$root" ]; then
+  for dir in "${CLAUDE_PROJECT_DIR:-}" "$PWD"; do
+    while [ -n "$dir" ] && [ ! -f "$dir/ohmyjob.json" ]; do
+      case "$dir" in /) dir="" ;; /*/*) dir="${dir%/*}" ;; /*) dir="/" ;; *) dir="" ;; esac
+    done
+    if [ -n "$dir" ]; then root="$dir"; break; fi
+  done
+fi
+[ -n "$root" ] && [ -f "$root/ohmyjob.json" ] || fatal "no ohmyjob.json in $PWD or above. Start Claude in your job-search folder and run /ohmyjob:setup."
+
+# Paths from setup. A caller that already set OHMYJOB_PY (tests) needs no env.sh.
+if [ -f "$root/.ohmyjob/env.sh" ]; then
+  set +eu  # a line of env.sh that fails or reads an unset variable must not end the run without a message
+  . "$root/.ohmyjob/env.sh"
+  env_status=$?
+  set -eu
+  [ "$env_status" -eq 0 ] || fatal "$root/.ohmyjob/env.sh failed, run /ohmyjob:setup"
+fi
+[ -n "${OHMYJOB_PY:-}" ] && [ -x "$OHMYJOB_PY" ] || fatal "environment missing or stale, run /ohmyjob:setup"
+[ -f "$SCRIPTS/$script" ] || fatal "$SCRIPTS/$script is missing from the plugin, reinstall it"
+
+# Dependencies follow the plugin's uv.lock, re-synced only at the start of a run (one process): never inside the
+# parallel workers, which would race. The stamp is the lock's checksum from the last sync (setup writes it too).
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
+resync() {
+  local lock="$PLUGIN_ROOT/uv.lock" stamp="${OHMYJOB_DATA:-}/venv/uv.lock.sha256" want uv
+  [ -n "${OHMYJOB_DATA:-}" ] && [ -f "$lock" ] || return 0
+  want="$(sha256_of "$lock")"
+  [ "$want" = "$(cat "$stamp" 2>/dev/null || true)" ] && return 0
+  uv="${OHMYJOB_UV:-$(command -v uv || true)}"
+  [ -n "$uv" ] && [ -x "$uv" ] || fatal "uv.lock changed but uv was not found, run /ohmyjob:setup"
+  UV_PROJECT_ENVIRONMENT="$OHMYJOB_DATA/venv" "$uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
+    || fatal "uv sync failed, run /ohmyjob:setup"
+  echo "$want" > "$stamp"
+}
+if [ "${2:-}" = "start" ] && { [ "$script" = "pj.py" ] || [ "$script" = "aa.py" ]; }; then
+  resync
+fi
+
+export OHMYJOB_WORKSPACE="$root"
+export OHMYJOB_PY OHMYJOB_UV OHMYJOB_DATA OHMYJOB_LUALATEX
+shift
+exec "$OHMYJOB_PY" "$SCRIPTS/$script" "$@"

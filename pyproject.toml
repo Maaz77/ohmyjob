@@ -1,0 +1,26 @@
+[project]
+name = "ohmyjob"
+version = "0.1.0"
+description = "Job search pipeline for Claude Code: scrape, screen, tailor a resume, fill applications, reconcile."
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "python-jobspy==1.4.1",
+    "rapidfuzz>=3.14.6,<4",
+    "simplemma>=2.0.0,<3",
+    "openpyxl>=3.1,<4",
+    "pyyaml>=6,<7",
+    "jinja2>=3.1,<4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false  # not installable: the scripts are run as files
+
+[tool.pytest.ini_options]
+pythonpath = ["scripts"]
+testpaths = ["tests"]
+markers = ["live: asks a real job board (run with `pytest -m live`; skipped otherwise)"]
+addopts = "-m 'not live'"

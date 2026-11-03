@@ -1,0 +1,23 @@
+# Fixed facts of the resume: header, education, headings. Edited only by the user or by setup; the pipeline never
+# changes this file. Tailored role files (<Role>.yaml) hold the rest.
+name:
+  first: Alex
+  last: Example
+address: Musterstrasse 12, 10115 Berlin, Germany
+phone: "+49 30 23125 042"
+email: alex.example@example.com
+homepage: example.com/alex
+github: alex-example-fixture
+linkedin: alex-example-fixture
+education:
+  - degree: BSc Business Administration
+    school: Rhein-Spree University of Applied Sciences
+    location: Berlin, Germany
+    dates: 2014 - 2018
+    details:
+      - "Thesis: forecast error in regional parcel networks"
+      - Final grade 1.8 (German scale)
+interests: Trail running, board games, volunteering at a food bank
+sections:
+  summary: Profile
+  skills: Core Skills

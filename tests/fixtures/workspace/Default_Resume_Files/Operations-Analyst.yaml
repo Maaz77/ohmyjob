@@ -1,0 +1,41 @@
+title: Operations Analyst
+introduction: >-
+  Operations analyst with six years in logistics and food supply chains. Builds forecasts and weekly KPI reports
+  that planners use to cut waiting time and waste.
+experience:
+  - employer: Harborline Freight Group
+    location: Hamburg, Germany
+    dates: 2020 - Present
+    roles:
+      - role: Senior Operations Analyst
+        dates: 2022 - Present
+        bullets:
+          - Built a weekly **dock utilisation** report in SQL and Power BI that cut average truck waiting time by 18% across 6 depots.
+          - Led 3 analysts in moving daily route planning from spreadsheets to a shared **forecasting model**.
+          - Presented monthly cost-per-parcel reviews to the regional operations director.
+      - role: Operations Analyst
+        dates: 2020 - 2022
+        bullets:
+          - Reconciled carrier invoices against shipment data and recovered EUR 140k in billing errors over two years.
+          - Automated the Monday KPI pack with Excel macros and Python, saving about 6 hours a week.
+  - role: Supply Planning Analyst
+    company: Brightwater Foods
+    location: Berlin, Germany
+    dates: 2018 - 2020
+    bullets:
+      - Forecast demand for 400 chilled products and raised forecast accuracy from 71% to 83%.
+      - Worked with buyers on promotion calendars and cut write-offs of short-life products by 12%.
+projects:
+  - title: Dock scheduling model
+    repo: https://example.com/alex/dock-scheduling
+    bullets:
+      - Wrote a slot-allocation model for inbound trucks in Python; two depots use it to plan their ramps.
+skills:
+  - label: Analysis
+    items: Excel, SQL, Power BI, forecasting, KPI design
+  - label: Operations
+    items: Route planning, carrier management, invoice reconciliation, Lean basics
+  - label: Tools
+    items: Python (pandas), Excel macros, Jira
+interests: yes
+education_details: yes

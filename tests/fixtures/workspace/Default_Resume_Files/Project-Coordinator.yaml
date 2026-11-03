@@ -1,0 +1,28 @@
+title: Project Coordinator
+introduction: >-
+  Project coordinator with six years of cross-team delivery in logistics and food supply chains. Keeps plans,
+  budgets and stakeholders in step, and reports progress in plain numbers.
+experience:
+  - role: Operations Analyst and Project Lead
+    company: Harborline Freight Group
+    location: Hamburg, Germany
+    dates: 2020 - Present
+    bullets:
+      - Coordinated a 9-month rollout of a shared forecasting model across 6 depots with 3 analysts and 12 planners.
+      - Kept the project plan, budget and risk log; delivered 2 weeks early and 5% under budget.
+      - Presented monthly **status reviews** to the regional operations director.
+  - role: Supply Planning Analyst
+    company: Brightwater Foods
+    location: Berlin, Germany
+    dates: 2018 - 2020
+    bullets:
+      - Ran the promotion calendar with buyers, suppliers and the warehouse, and cut write-offs of short-life products by 12%.
+      - Tracked 400 products against forecast each week and raised forecast accuracy from 71% to 83%.
+projects: []
+skills:
+  - label: Delivery
+    items: Project planning, risk logs, budget tracking, stakeholder reporting
+  - label: Tools
+    items: Jira, MS Project, Excel, Power BI
+interests: no
+education_details: no

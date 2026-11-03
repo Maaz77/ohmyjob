@@ -1,0 +1,15 @@
+{"hooks": {
+  "PreToolUse": [
+    {"matcher": "^(mcp__claude-in-chrome__.*|Read|Edit|Write|Bash|Agent)$",
+     "hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "guard"], "timeout": 150, "onFailure": "block"}]},
+    {"matcher": "^SubagentHandback$",
+     "hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "handback"], "timeout": 30}]}],
+  "PostToolUse": [
+    {"matcher": "^mcp__claude-in-chrome__.*$",
+     "hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "snapshot"], "timeout": 20}]}],
+  "Stop": [
+    {"hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "report"], "timeout": 30}]}],
+  "SubagentStop": [
+    {"matcher": "^ohmyjob:(application-worker|screen-worker|resume-worker)$",
+     "hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "capture"], "timeout": 30}]}]
+}}
