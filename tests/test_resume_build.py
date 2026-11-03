@@ -370,3 +370,31 @@ def test_cli_prints_one_line(workspace):
     yaml_path.write_text("title: [")
     run = subprocess.run(exe + [str(yaml_path)], capture_output=True, text=True, cwd=workspace)
     assert run.stdout.startswith("FAIL ") and run.stdout.count("\n") == 1
+
+
+# --------------------------------------------------------------------------- validation does not need TeX
+
+def test_validation_fails_name_the_real_problem_without_lualatex(env, monkeypatch, tmp_path):
+    """Where TeX is missing (CI), bad input must still be reported as bad input, not as "lualatex not found"."""
+    monkeypatch.delenv("OHMYJOB_LUALATEX", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))  # an empty dir: no lualatex
+    good = env / "Operations-Analyst.yaml"
+    base = yaml.safe_load((env / "base.yaml").read_text())
+    cases = [({"title": ""}, "title is missing"), ({"experience": "x"}, "experience must be a list"),
+             ({"projects": [{"title": "P", "repo": "run://x", "bullets": []}]}, "projects[0].repo")]
+    for changes, message in cases:
+        status, _, detail = rb.build(role(env, **changes), env / "o.pdf", max_pages=1, paper="a4")
+        assert status == "FAIL" and message in detail and "lualatex" not in detail
+    status, _, detail = rb.build(good, env / "o.pdf", max_pages=1, paper="legal")
+    assert status == "FAIL" and "a4 or letter" in detail
+    bad = env / "bad.yaml"
+    bad.write_bytes(b"title: \xff\n")
+    assert "UTF-8" in rb.build(bad, env / "o.pdf", max_pages=1, paper="a4")[2]
+    base["homepage"] = "run:x"
+    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    assert "only http" in rb.build(good, env / "o.pdf", max_pages=1, paper="a4")[2]
+    (env / "base.yaml").unlink()
+    assert "base.yaml not found" in rb.build(good, env / "o.pdf", max_pages=1, paper="a4")[2]
+    base["homepage"] = "example.com"
+    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    assert "lualatex not found" in rb.build(good, env / "o.pdf", max_pages=1, paper="a4")[2]

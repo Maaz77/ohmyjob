@@ -156,6 +156,9 @@ else
     # tlmgr of OUR TinyTeX only (never a system tree)
     case "$bin" in "$DATA"/tinytex/*) ;; *) fatal "refusing to run tlmgr outside $DATA/tinytex" ;; esac
     [ -x "$bin/tlmgr" ] || fatal "no tlmgr in $bin"
+    # a fresh TinyTeX's tlmgr can be older than its repository, and install then stops with exit 255
+    say "tlmgr update --self"
+    PATH="$bin:$PATH" "$bin/tlmgr" update --self >&2 || fatal "tlmgr update --self failed"
     pkgs="$(grep -v '^[[:space:]]*\(#\|$\)' "$TEX_PACKAGES_FILE" | tr -d '\r' | tr '\n' ' ')"
     [ -n "$pkgs" ] || fatal "$TEX_PACKAGES_FILE is empty"
     say "tlmgr install $pkgs"

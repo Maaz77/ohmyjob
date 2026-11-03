@@ -54,7 +54,18 @@ case "$*" in
 esac
 """
 FAKE_TLMGR = """#!/bin/sh
+# fake tlmgr: `install` only works after `update --self`, like a fresh TinyTeX whose tlmgr is older than its repository
 echo "tlmgr $*" >> "$FAKE_LOG"
+if [ "$1" = install ] && ! grep -q '^tlmgr update --self$' "$FAKE_LOG"; then
+  echo "tlmgr: please update tlmgr itself: tlmgr update --self" >&2
+  exit 255
+fi
+"""
+# a lualatex that works anywhere: writes a 1-page "PDF" and the log line the build reads
+FAKE_LUALATEX = """#!/bin/sh
+echo "lualatex $*" >> "$FAKE_LOG"
+printf '%%PDF-1.5 fake\n' > resume.pdf
+echo "Output written on resume.pdf (1 page, 14 bytes)."
 """
 
 
@@ -87,6 +98,7 @@ class Env:
         }
         # an installed uv would hide a missing one: tests with the fake uv on PATH use `with_uv`
         write_exe(self.fake / "claude", FAKE_CLAUDE)
+        write_exe(self.fake / "lualatex", FAKE_LUALATEX)  # never depend on the machine's TeX
 
     def with_uv(self) -> "Env":
         write_exe(self.fake / "uv", FAKE_UV)
@@ -148,11 +160,12 @@ def installer_scripts(env: Env) -> None:
     tinytex_installer.write_text(
         '[ "$1" = "" ] && [ "$2" = "--no-path" ] || exit 9\n'  # no symlinks into ~/bin, /usr/local/bin, /etc/paths.d
         f"mkdir -p {tex_bin}\n"
-        f"printf '#!/bin/sh\\nexec {REAL_LUALATEX} \"$@\"\\n' > {tex_bin}/lualatex\n"
+        f"cp '{env.tmp / 'lua_source'}' {tex_bin}/lualatex\n"
         f"cp '{env.tmp / 'tlmgr_source'}' {tex_bin}/tlmgr\n"
         f"chmod +x {tex_bin}/lualatex {tex_bin}/tlmgr\n"
     )
     write_exe(env.tmp / "tlmgr_source", FAKE_TLMGR)
+    write_exe(env.tmp / "lua_source", FAKE_LUALATEX)
     write_exe(env.fake / "curl", FAKE_CURL)
     env.env["FAKE_UV_INSTALLER"] = str(uv_installer)
     env.env["FAKE_TINYTEX_INSTALLER"] = str(tinytex_installer)
@@ -174,6 +187,8 @@ def error_line(result: subprocess.CompletedProcess) -> str:
 
 @pytest.fixture(scope="module")
 def real(tmp_path_factory):
+    if not REAL_LUALATEX or not shutil.which("uv"):
+        pytest.skip("needs a real lualatex and uv on PATH")
     tmp = tmp_path_factory.mktemp("real")
     e = Env(tmp)
     e.env = {**os.environ, "FAKE_LOG": str(e.log)}  # real PATH: real uv, real claude, real lualatex
@@ -296,8 +311,10 @@ def test_tinytex_install_with_flag(env_plain):
     result = env.run("--install-tinytex")
     ok(result)
     tlmgr = env.calls("tlmgr")
-    assert len(tlmgr) == 1
+    assert len(tlmgr) == 2
     listed = [l.strip() for l in (ROOT / "scripts" / "tex-packages.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
+    assert tlmgr[0] == "tlmgr update --self"  # first: a stale tlmgr cannot install
+    tlmgr = tlmgr[1:]
     assert tlmgr[0] == "tlmgr install " + " ".join(listed)
     for pkg in ("fancyhdr", "pgf", "tikzfill", "pdfcol", "environ", "trimspaces", "fontawesome6"):
         assert pkg in listed
@@ -306,7 +323,7 @@ def test_tinytex_install_with_flag(env_plain):
     assert f"OHMYJOB_LUALATEX='{lua}'" in (env.ws / ".ohmyjob" / "env.sh").read_text()
     # second run: TinyTeX is already there and works; nothing is downloaded or installed again
     ok(env.run("--install-tinytex"))
-    assert len(env.calls("curl")) == 1 and len(env.calls("tlmgr")) == 1
+    assert len(env.calls("curl")) == 1 and len(env.calls("tlmgr")) == 2
 
 
 def test_tinytex_refuses_a_data_path_with_space_or_quote(tmp_path, shared_home):
@@ -319,6 +336,13 @@ def test_tinytex_refuses_a_data_path_with_space_or_quote(tmp_path, shared_home):
         result = e.run("--install-tinytex")
         assert "TinyTeX" in error_line(result) or "single quote" in error_line(result)
         assert e.calls("curl") == [] and not (e.data / "tinytex").exists()
+
+
+def test_non_latex_tests_use_the_fake_lualatex(env):
+    """The fake sits first on PATH, so no test depends on the machine's TeX (a runner without lualatex passes too)."""
+    ok(env.run())
+    assert f"OHMYJOB_LUALATEX='{env.fake}/lualatex'" in (env.ws / ".ohmyjob" / "env.sh").read_text()
+    assert env.calls("lualatex")
 
 
 def test_working_system_latex_means_no_tinytex(env):

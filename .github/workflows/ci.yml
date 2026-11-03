@@ -61,7 +61,9 @@ jobs:
           bin="$(dirname "$(find "$HOME/.TinyTeX/bin" -name tlmgr | head -n 1)")"
           echo "$bin" >> "$GITHUB_PATH"
       - name: Install the LaTeX packages
-        run: tlmgr install $(grep -v '^[[:space:]]*#' scripts/tex-packages.txt | tr -s '[:space:]' ' ')
+        run: |
+          tlmgr update --self
+          tlmgr install $(grep -v '^[[:space:]]*#' scripts/tex-packages.txt | tr -s '[:space:]' ' ')
       - name: Build the sample resumes
         run: |
           export OHMYJOB_LUALATEX="$(command -v lualatex)"

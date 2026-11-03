@@ -335,7 +335,6 @@ def build(role_yaml: Path, out_pdf: Path, *, max_pages: int | None = None, paper
         if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 0:
             raise BuildError(f"max_pages must be a whole number >= 0, not {max_pages!r}")
         paper = _paper(paper)
-        exe = _lualatex()
         base, role = _inputs(role_yaml)
         W.BUILD_DIR.mkdir(parents=True, exist_ok=True)
         bdir = Path(tempfile.mkdtemp(prefix="b-", dir=W.BUILD_DIR))
@@ -350,6 +349,7 @@ def build(role_yaml: Path, out_pdf: Path, *, max_pages: int | None = None, paper
         (bdir / "resume.tex").write_text(
             _ENV.get_template(TEMPLATE_NAME).render(**_context(base, role, paper, photo)), encoding="utf-8", errors="replace")
         shutil.copyfile(CLASS_FILE, bdir / CLASS_FILE.name)
+        exe = _lualatex()  # only now: bad input is reported as such even where TeX is not installed
         try:
             proc = subprocess.run(
                 [exe, "-interaction=nonstopmode", "-halt-on-error", "-no-shell-escape", "-jobname=resume", "resume.tex"],
