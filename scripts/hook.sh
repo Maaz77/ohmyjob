@@ -76,7 +76,7 @@ case "$event" in
     elif [ "$prep" = 1 ]; then script="pj_hooks.py"
     elif [ "$app" = 1 ]; then script="hooks.py"
     fi ;;
-  snapshot) [ "$app" = 1 ] && script="hooks.py" ;;  # worker pages and the master's own tab reads (preflight)
+  snapshot) [ "$chrome" = 1 ] && script="hooks.py" ;;  # every Chrome caller: the guard needs the refs of all pages
   report) [ -f "$root/.ohmyjob/last_report.txt" ] && script="hooks.py" ;;
 esac
 [ -n "$script" ] || exit 0

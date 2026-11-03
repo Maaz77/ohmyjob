@@ -84,7 +84,14 @@ OTHER_AGENTS = ["general-purpose", "Explore", "other-plugin:worker", "ohmyjob", 
 
 
 @pytest.mark.parametrize("agent", OTHER_AGENTS)
-@pytest.mark.parametrize("event", ["handback", "capture", "snapshot"])
+def test_a_chrome_snapshot_of_any_agent_reaches_hooks_py(plugin, workspace, data, agent):
+    # The never-submit check needs every caller's page refs, not only the workers'.
+    report = routed(call(plugin, "snapshot", hook_input(agent, tool=CHROME), workspace, data))
+    assert report["script"] == "hooks.py"
+
+
+@pytest.mark.parametrize("agent", OTHER_AGENTS)
+@pytest.mark.parametrize("event", ["handback", "capture"])
 def test_an_agent_that_is_not_an_ohmyjob_agent_is_left_alone_for_the_other_events(plugin, workspace, tmp_path, agent, event):
     for data_dir in (None, tmp_path / "no-venv"):  # with or without a venv: no message either way
         proc = call(plugin, event, hook_input(agent, tool=CHROME), workspace, data_dir)
@@ -133,6 +140,8 @@ def test_the_main_session_is_left_alone_except_for_chrome_tools(plugin, workspac
     ("capture", "ohmyjob:application-worker", "", "hooks.py"),
     ("snapshot", "ohmyjob:application-worker", CHROME, "hooks.py"),
     ("snapshot", "ohmyjob:application-master", CHROME, "hooks.py"),  # preflight reads the master's own tabs
+    ("snapshot", None, CHROME, "hooks.py"),  # the main session: its refs feed the never-submit check
+    ("snapshot", "ohmyjob:screen-worker", CHROME, "hooks.py"),
 ])
 def test_a_call_is_routed_by_agent_type(plugin, workspace, data, event, agent, tool, script):
     payload = hook_input(agent, tool=tool)
@@ -145,8 +154,6 @@ def test_a_call_is_routed_by_agent_type(plugin, workspace, data, event, agent, t
 @pytest.mark.parametrize("event, agent, tool", [
     ("handback", None, "SubagentHandback"),
     ("capture", None, ""),
-    ("snapshot", None, CHROME),
-    ("snapshot", "ohmyjob:screen-worker", CHROME),
     ("bogus", "ohmyjob:application-worker", CHROME),
     ("", "ohmyjob:application-worker", CHROME),
 ])

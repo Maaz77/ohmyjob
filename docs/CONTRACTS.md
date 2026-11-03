@@ -84,7 +84,7 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - hook.sh stays in bash, without Python, unless (tested in this order): `guard` of ANY Chrome tool
   (`mcp__claude-in-chrome__*`), whoever calls (main session, Explore, a prep agent, any agent) -> `hooks.py`, whatever the
   agent_type text says; any other call with a `ohmyjob:prep-master|screen-worker|resume-worker` agent_type -> `pj_hooks.py`;
-  `ohmyjob:application-*` -> `hooks.py`; `snapshot` only for `ohmyjob:application-*` (worker pages and the master's own tab reads in preflight); `report` only if
+  `ohmyjob:application-*` -> `hooks.py`; `snapshot` of every Chrome call (hooks.py records each caller's page refs for the never-submit check, compacts pages only for `application-worker`, and reads the master's own tabs in preflight); `report` only if
   `.ohmyjob/last_report.txt` exists. `handback` and `capture` route like `guard`, for ohmyjob agents only. Everything else
   (the main session's non-Chrome calls, other agents' non-Chrome calls, every call outside a workspace): exit 0, no output,
   no Python. A `guard` call inside a workspace whose input has no readable `tool_name` (empty stdin, a path with a quote or backslash
