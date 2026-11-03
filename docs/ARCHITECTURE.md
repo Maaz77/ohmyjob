@@ -78,7 +78,7 @@ A worker's report reaches the scripts by two equal paths, `handback` (auto mode 
 Routing rules, in order (full text in CONTRACTS.md):
 
 1. `hook.sh` stays in bash and starts no Python unless it must. Outside a workspace (no `ohmyjob.json` at or above the project folder or the call's `cwd`) it exits 0 with no output.
-2. A `guard` of any Chrome tool goes to `hooks.py`, whoever calls. The main session and non-ohmyjob subagents get the main-session rules: no `javascript_tool`, no final-button clicks.
+2. A `guard` of any Chrome tool goes to `hooks.py`, whoever calls. The main session and non-ohmyjob subagents get the rules for callers outside the pipeline: no `javascript_tool`; clicks only on refs from a fresh read of that tab, one pressable click per read; no coordinate clicks; no Enter, Return or Space keys; navigation to http(s) addresses only; no Apply click on a job board or under a filled form; final button names checked by the word lists.
 3. Other calls with a prep agent type go to `pj_hooks.py`; with an application agent type go to `hooks.py`. The main session's non-Chrome calls and other agents' non-Chrome calls cost nothing.
 4. The model controls `tool_input`, so the Python hooks decide only from the parsed top-level `agent_type`, `tool_name` and `cwd`, never from text inside `tool_input`. Each script re-checks the parsed agent type and hands over to the other when the prefilter picked wrongly.
 5. Without the plugin's virtualenv, `guard` of any ohmyjob agent and of any Chrome call by an agent is denied with `ohmyjob: environment missing or stale, run /ohmyjob:setup`; the main session's Chrome call only gets a notice (fail-open, because no pipeline can run before setup). The guard is `onFailure: block`, so a crash blocks the call too.
@@ -87,17 +87,17 @@ What the guards enforce:
 
 - **Prep agents** stay inside their own job: a screen worker reads only its brief; a resume worker reads its brief, yaml and PDF, edits only its yaml and runs only the build of its job. A master may start only its own worker types.
 - **Application worker**: only its own tab (and its sign-in tab); no coordinate clicks, Enter or Space keys, or JavaScript; every click carries an English action note; refs of an old page are refused; a second click on the same element before a new page read is refused; typing only after a click on a text field; uploads only of the job's own resume; reads only its brief and the ATS notes in `ats/`.
-- **Final controls** are refused in about 50 languages (word lists in `lexicon.py`), as is a submit button without a name; once a tab has shown a form, every Apply button is refused. A name that no list can decide goes to a Haiku check (`judge.py`, one cached `claude -p` call with no tools); if it fails, the click is refused.
+- **Final controls** are refused in about 50 languages (word lists in `lexicon.py`), as is a submit button without a name; once a tab has shown a form, every Apply button is refused. For application workers (and for Apply clicks on job boards), a name that no list can decide goes to a Haiku check (`judge.py`, one cached `claude -p` call with no tools); if it fails, the click is refused. Callers outside the pipeline use the word lists only.
 - **Consent and sign-in**: cookie banners get the most private choice; OAuth permission grants are refused; on a Google account page only the account choice and the basic-profile consent are allowed; sign-up and delete buttons are refused.
 - **Application master**: tab handling and the sign-in check only, and only the application worker agent type.
 
 ## Queues
 
-Both masters are queue loops: a new worker starts as soon as one finishes, up to `max_parallel_workers` (minus one for the master). The master must keep its turn alive with the `next` loop; a forked master that ends its turn after launching background workers stops at once.
+Both masters are queue loops: a new worker starts as soon as one finishes, up to `max_parallel_workers` (capped below Claude Code's subagent limit by one for the master). The master must keep its turn alive with the `next` loop; a forked master that ends its turn after launching background workers stops at once.
 
 ### Prep (`ohmyjob prep`)
 
-1. `start` queues `Found` rows (at most 100) for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id.
+1. `start` queues `Found` rows for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id.
 2. `next` is the loop: it records finished jobs and prints the workers to start. `assign-screen` writes one brief per job (full `Profile.md`, the catalog of pre-made resumes, the job). Screen workers report a match score, the matched resume, reasons and gaps.
 3. `record` writes the result into `job.md`, sets the row (`Matched` or `Skipped-LowFit`), saves the tracker, and only then deletes skipped folders. A `Matched` job joins the build queue at once.
 4. `assign-build` copies the matched yaml into the job folder and writes the brief. The resume worker edits only that yaml and runs `ohmyjob prep build <job>`, which checks the mechanical rules (skeleton, bullet counts, title, line and skills budgets), compiles (at most 4 builds), and returns `OK`, `OVERFLOW` or `FAIL`. `record` then sets `Resume Built`, `Resume Failed`, or `Deleted` for a rejected posting.

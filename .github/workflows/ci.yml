@@ -34,6 +34,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Run the tests
         run: uv run --frozen pytest -q tests
+
+  pii-gate:
+    name: PII gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: PII gate
         env:
           PII_TERMS: ${{ secrets.PII_TERMS }}
@@ -43,9 +51,16 @@ jobs:
             exit 0
           fi
           terms="$(mktemp "${RUNNER_TEMP}/pii-terms.XXXXXX")"
-          trap 'rm -f "$terms"' EXIT
+          out="$(mktemp "${RUNNER_TEMP}/pii-out.XXXXXX")"
+          trap 'rm -f "$terms" "$out"' EXIT
           printf '%s\n' "$PII_TERMS" > "$terms"
-          bash scripts/pii_gate.sh "$terms"
+          # Never print the gate's output: a hit line or even a file name can hold a personal term.
+          if bash scripts/pii_gate.sh "$terms" > "$out" 2>&1; then
+            echo "PII gate: clean"
+          else
+            echo "PII gate: $(wc -l < "$out" | tr -d ' ') hits, run scripts/pii_gate.sh locally"
+            exit 1
+          fi
 
   resume-build:
     name: TinyTeX resume build
@@ -64,10 +79,14 @@ jobs:
         run: |
           tlmgr update --self
           tlmgr install $(grep -v '^[[:space:]]*#' scripts/tex-packages.txt | tr -s '[:space:]' ' ')
-      - name: Build the sample resumes
+      - name: Build the sample resumes and run bootstrap with this LaTeX
         run: |
+          set -o pipefail
           export OHMYJOB_LUALATEX="$(command -v lualatex)"
-          uv run --frozen pytest -q tests/test_resume_build.py
+          test -x "$OHMYJOB_LUALATEX"
+          uv run --frozen pytest -q -rs tests/test_resume_build.py tests/test_bootstrap.py | tee pytest.out
+          # a skipped test would leave this job green with nothing run
+          if grep -q SKIPPED pytest.out; then echo "a test was skipped"; exit 1; fi
 
   extension:
     name: Extension tests
@@ -78,4 +97,8 @@ jobs:
       - name: Install Playwright and Chromium (this job only)
         run: uv run --frozen --with "playwright==${PLAYWRIGHT_VERSION}" python -m playwright install --with-deps chromium
       - name: Run the extension tests
-        run: uv run --frozen --with "playwright==${PLAYWRIGHT_VERSION}" pytest -q tests/apply/test_extension.py
+        run: |
+          set -o pipefail
+          uv run --frozen --with "playwright==${PLAYWRIGHT_VERSION}" pytest -q -rs tests/apply/test_extension.py | tee pytest.out
+          # a skipped test would leave this job green with nothing run
+          if grep -q SKIPPED pytest.out; then echo "a test was skipped"; exit 1; fi
