@@ -1,0 +1,41 @@
+{
+  "title_aliases": {
+    "sw": "software",
+    "swe": "software engineer",
+    "sde": "software development engineer",
+    "dev": "developer",
+    "eng": "engineer",
+    "engr": "engineer",
+    "sr": "senior",
+    "jr": "junior",
+    "mgr": "manager",
+    "ml": "machine learning",
+    "ai": "artificial intelligence",
+    "qa": "quality assurance",
+    "sdet": "software development engineer in test",
+    "sre": "site reliability engineer",
+    "dba": "database administrator",
+    "db": "database",
+    "ui": "user interface",
+    "ux": "user experience",
+    "js": "javascript",
+    "ts": "typescript",
+    "k8s": "kubernetes",
+    "frontend": "front end",
+    "backend": "back end",
+    "fullstack": "full stack",
+    "devops": "dev ops"
+  },
+  "title_only_aliases": {
+    "developer": [
+      "engineer"
+    ],
+    "engineer": [
+      "developer"
+    ],
+    "programmer": [
+      "developer",
+      "engineer"
+    ]
+  }
+}
