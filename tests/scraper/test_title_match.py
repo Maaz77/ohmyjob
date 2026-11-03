@@ -67,7 +67,6 @@ SOFTWARE_VECTORS = [
     ("Software Engineer", "Programmer", False),
     ("Software Engineer", "Sw Engineer", True),
     ("Software Engineer", "Sw Eng", True),
-    ("Software Engineer", "Software Engineering Manager", False),
     ("Software Engineer", "Mechanical Engineer", False),
     ("Frontend Developer", "Front-End Engineer", True),
     ("Frontend Developer", "Front End Developer (React)", True),

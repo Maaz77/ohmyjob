@@ -36,9 +36,9 @@ Suggest boards from the countries, in this order of priority (the order in `sour
 - India: `naukri`, `linkedin`, `indeed`
 - Gulf states (UAE, Saudi Arabia, Qatar, Kuwait, Oman, Bahrain): `bayt`, `linkedin`
 - Bangladesh: `bdjobs`, `linkedin`
-- Elsewhere: `linkedin` and `indeed`
+- Elsewhere: `linkedin` and `indeed`, plus `freehire` for software and other tech roles
 - `google` works only with a city in `location`.
-Valid boards: linkedin, indeed, zip_recruiter, glassdoor, google, bayt, naukri, bdjobs, hellowork. Do not suggest `freehire` (this version has no client for it).
+Valid boards: linkedin, indeed, zip_recruiter, glassdoor, google, bayt, naukri, bdjobs, hellowork, freehire.
 
 **Country rule.** `country` is required while `indeed` or `glassdoor` is in `sources`: without it the board searches the USA. Set `country` to one of: argentina, australia, austria, bahrain, belgium, brazil, canada, chile, china, colombia, costa rica, czech republic, denmark, ecuador, egypt, finland, france, germany, greece, hong kong, hungary, india, indonesia, ireland, israel, italy, japan, kuwait, luxembourg, malaysia, mexico, morocco, netherlands, new zealand, nigeria, norway, oman, pakistan, panama, peru, philippines, poland, portugal, qatar, romania, saudi arabia, singapore, south africa, south korea, spain, sweden, switzerland, taiwan, thailand, türkiye, ukraine, united arab emirates, uk, usa, uruguay, venezuela, vietnam. If the user's country is not on that list, leave `indeed` and `glassdoor` out of `sources`.
 
@@ -50,7 +50,7 @@ Write the `search` object for `ohmyjob.json`:
 - `languages`: ISO codes of the languages the job titles are written in, from: ar, ast, bg, ca, cs, cy, da, de, el, en, enm, eo, es, et, fa, fi, fr, ga, gd, gl, grc, gv, hbs, he, hi, hu, hy, id, is, it, ka, la, lb, lt, lv, mk, ml, ms, nb, nl, nn, pl, pt, ro, ru, se, sk, sl, sq, sv, sw, tl, tr, uk. For a language not on the list (for example Japanese or Chinese) set `title_filter` to `"off"` instead.
 - `title_aliases`: generate it for the candidate's titles. Each key is a short or alternate word and each value is the words it stands for (a string or a list), so a job titled with the abbreviation still matches the search term, for example `"ops": "operations"`, `"mgr": "manager"`, `"sr": "senior"`, `"coord": "coordinator"`. Use the abbreviations and common alternate titles of this candidate's field only.
 - `exclude_seniority_level`: words in titles that do not fit the candidate's level (for example "director", "vice president", "intern" for a mid-level candidate). Keep it empty when unsure; a wrong word hides good jobs.
-- Keep the other keys at their defaults (`recency_days` 1, `results_per_term` 30, `title_filter` "strict", `uk_sponsor_only` false, `git_snapshot` false). Do not suggest `uk_sponsor_only` (it only affects `freehire`).
+- Keep the other keys at their defaults (`recency_days` 1, `results_per_term` 30, `title_filter` "strict", `uk_sponsor_only` false, `git_snapshot` false). Ask about `uk_sponsor_only` only when `freehire` is a source and the user needs UK visa sponsorship: it keeps only jobs from UK sponsor-licensed employers.
 - `pipeline`: `resume_max_pages` and `resume_paper` from the answers; leave `max_parallel_workers` at 5 unless asked (changing it later needs `/ohmyjob:setup` again).
 Unknown keys are errors in `ohmyjob.json`, so use only the keys above.
 

@@ -4,11 +4,14 @@ No network, no workspace, no tracker here (scrape.py does those), so every rule 
 """
 from __future__ import annotations
 
+import html
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Iterable, Optional
+
+from rapidfuzz import fuzz
 
 # --------------------------------------------------------------------------- text
 
@@ -88,21 +91,6 @@ class Lemmas:
             found = self._cache[word] = frozenset(forms)
         return found
 
-    def equals(self, a: tuple[str, ...], b: tuple[str, ...]) -> bool:
-        """Same words in the same order (a whole value, not a part of one)."""
-        return bool(a) and len(a) == len(b) and all(self.forms(x) & self.forms(y) for x, y in zip(a, b))
-
-    def contains(self, haystack: tuple[str, ...], phrase: tuple[str, ...]) -> bool:
-        """The phrase's words stand next to each other in haystack, each in any of its forms."""
-        if not phrase:
-            return False
-        hay = [self.forms(w) for w in haystack]
-        need = [self.forms(w) for w in phrase]
-        return any(
-            all(hay[i + j] & need[j] for j in range(len(need)))
-            for i in range(len(hay) - len(need) + 1)
-        )
-
 
 class TitleMatcher:
     """Does a posting's title belong to one of the search terms?
@@ -139,20 +127,47 @@ class TitleMatcher:
 # --------------------------------------------------------------------------- company names
 
 LEGAL_SUFFIXES = frozenset({
-    "inc", "incorporated", "llc", "llp", "lp", "ltd", "limited", "plc", "corp", "corporation", "co",
-    "gmbh", "mbh", "ag", "kg", "ug", "se", "sa", "sarl", "sas", "srl", "spa", "bv", "nv", "ab", "as", "asa", "aps",
-    "oy", "oyj", "pty", "pte", "pvt", "sdn", "bhd", "kk",
+    "inc", "incorporated", "llc", "llp", "lp", "ltd", "limited", "plc", "corp", "corporation", "co", "company",
+    "group", "holding", "holdings", "gmbh", "mbh", "ag", "kg", "ug", "se", "sa", "sarl", "sas", "srl", "spa", "bv", "nv",
+    "ab", "as", "asa", "aps", "oy", "oyj", "pty", "pte", "pvt", "sdn", "bhd", "kk",
 })
+COMPANY_TOKEN_FUZZ_THRESHOLD = 88
+
+
+def company_tokens(name: Any) -> list[str]:
+    """The words of a company name without accents, punctuation, HTML entities and legal forms ("Acme Pty. Ltd." -> acme).
+
+    A name made of nothing but legal forms keeps them.
+    """
+    words = list(tokens(html.unescape(str(name or "")).replace(".", "")))
+    kept = [w for w in words if w not in LEGAL_SUFFIXES]
+    while kept and kept[0] == "the" and len(kept) > 1:
+        kept.pop(0)
+    return kept or words
 
 
 def company_key(name: Any) -> str:
-    """The company name for comparing: no accents, punctuation or legal form ("Acme Pty. Ltd." -> "acme")."""
-    words = list(tokens(str(name or "").replace(".", "")))
-    while words and words[0] == "the" and len(words) > 1:
-        words.pop(0)
-    while len(words) > 1 and words[-1] in LEGAL_SUFFIXES:
-        words.pop()
-    return " ".join(words)
+    return " ".join(company_tokens(name))
+
+
+def company_matches_excluded(company: Any, excluded: Any) -> bool:
+    """True if `company` is the excluded company: legal forms, a trailing country or division word ("Accenture" matches
+    "Accenture Italia") and small spelling differences are tolerated, but the excluded name must be the START of the
+    company name ("Apple" is not "Big Apple Recruiting"; a plain fuzzy score gets this wrong)."""
+    if not isinstance(company, str) or not company or not isinstance(excluded, str) or not excluded:
+        return False
+    have, want = company_tokens(company), company_tokens(excluded)
+    if not want or len(want) > len(have):
+        return False
+    return all(fuzz.ratio(c, e) >= COMPANY_TOKEN_FUZZ_THRESHOLD for c, e in zip(have, want))
+
+
+def find_excluded_company_match(company: Any, excluded_companies: Optional[Iterable[str]]) -> Optional[str]:
+    """The first entry of exclude_companies that company matches, else None."""
+    for entry in excluded_companies or []:
+        if company_matches_excluded(company, entry):
+            return entry
+    return None
 
 
 # --------------------------------------------------------------------------- filters
@@ -180,33 +195,40 @@ def employment_ok(value: Any, wanted: Iterable[str]) -> bool:
 
 
 class Filters:
-    """exclude_companies, exclude_seniority_level and filter_title_terms (all empty by default).
+    """exclude_seniority_level and filter_title_terms (both empty by default); exclude_companies is `excluded_company`.
 
-    A seniority word is looked for in the title (as a phrase, after `title_aliases` rewrote it: "Sr." is "senior") and
+    A seniority word is looked for in the title (whole words, after `title_aliases` rewrote it: "Sr." is "senior") and
     must equal the board's job_level as a whole value: "senior" does not drop LinkedIn's "Mid-Senior level".
     """
 
     def __init__(self, search: dict, lemmas: Lemmas):
         self.lemmas = lemmas
-        self.companies = {company_key(c) for c in search.get("exclude_companies", []) if company_key(c)}
+        self.exclude_companies = list(search.get("exclude_companies", []))
         self.seniority = [words(s) for s in search.get("exclude_seniority_level", []) if words(s)]
         self.title_terms = [words(s) for s in search.get("filter_title_terms", []) if words(s)]
         rules = _alias_rules(search.get("title_aliases") or {})
         self._rules = rules + [(b, a) for a, b in rules]
 
+    @staticmethod
+    def _has_phrase(hay: tuple[str, ...], phrase: tuple[str, ...]) -> bool:
+        """Whole words only, no lemmas: "Staffing" must not meet "staff", as the old \\b(staff)\\b pattern did not."""
+        hay, phrase = tuple(map(fold, hay)), tuple(map(fold, phrase))
+        return any(hay[i:i + len(phrase)] == phrase for i in range(len(hay) - len(phrase) + 1))
+
     def _in_title(self, title: tuple[str, ...], phrases: list) -> bool:
-        return any(self.lemmas.contains(variant, p) for variant in _variants(title, self._rules) for p in phrases)
+        return any(self._has_phrase(variant, p) for variant in _variants(title, self._rules) for p in phrases)
 
     def reason(self, job: dict) -> Optional[str]:
-        """Why a posting is dropped, else None."""
-        if company_key(job.get("company")) in self.companies:
-            return "company"
+        """"level" or "term" when a posting is dropped, else None."""
         title, level = words(job.get("title")), words(job.get("job_level"))
-        if self._in_title(title, self.seniority) or any(self.lemmas.equals(level, s) for s in self.seniority):
-            return "seniority"
+        if self._in_title(title, self.seniority) or any(tuple(map(fold, level)) == tuple(map(fold, s)) for s in self.seniority):
+            return "level"
         if self._in_title(title, self.title_terms):
-            return "title term"
+            return "term"
         return None
+
+    def excluded_company(self, company: Any) -> Optional[str]:
+        return find_excluded_company_match(company, self.exclude_companies)
 
 
 # --------------------------------------------------------------------------- cross-board twins
@@ -215,8 +237,8 @@ _GENDER_RE = re.compile(r"[\(\[]\s*[mwfdxihv]\s*(?:[/|*]\s*[mwfdxihv]\s*)+[\)\]]
 
 
 def twin_title(title: Any) -> str:
-    """The title for comparing: no "(m/f/d)" marks, accents or punctuation."""
-    return " ".join(tokens(_GENDER_RE.sub(" ", str(title or ""))))
+    """The title for comparing: no "(m/f/d)" marks, accents, HTML entities or punctuation."""
+    return " ".join(tokens(_GENDER_RE.sub(" ", html.unescape(str(title or "")))))
 
 
 def twin_city(location: Any) -> str:
@@ -253,11 +275,23 @@ class TwinIndex:
                    for other, exact in self._by_company.get(key[0], []))
 
 
-KEPT_STATUSES = frozenset({"Submitted", "Deleted", "Skipped-LowFit"})  # decided jobs: their twins never come back
+TWIN_WINDOW_DAYS = 30  # a tracker row found this long ago (or as far back as recency_days looks, if longer) can have twins
+# Rows the user acted on or decided never expire from the twin check: an employer's repost is not a new job.
+KEPT_STATUSES = frozenset({"Submitted", "Pending Review", "Needs Attention", "Deleted", "Skipped-LowFit"})
 
 
-def recent_enough(found: Any, days: int, today: Optional[date] = None) -> bool:
+KEPT_STATUSES_FOLDED = frozenset(x.casefold() for x in KEPT_STATUSES)  # a hand-typed "submitted" counts too
+
+
+def twin_window(recency_days: int) -> Optional[int]:
+    """Days a tracker row counts for the twin check: as far as the scrape looks, 30 at least; None (every row) for 0."""
+    return None if recency_days == 0 else max(TWIN_WINDOW_DAYS, recency_days)
+
+
+def recent_enough(found: Any, days: Optional[int], today: Optional[date] = None) -> bool:
     """A tracker row's Date Found is within `days`; a date that cannot be read counts as recent."""
+    if days is None:
+        return True
     today = today or date.today()
     if isinstance(found, datetime):
         found = found.date()
@@ -294,20 +328,36 @@ def hours_old(recency_days: int) -> Optional[int]:
 
 # --------------------------------------------------------------------------- folder and job.md
 
-def slug(text: Any, limit: int, fallback: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
-    return re.sub(r"[^A-Za-z0-9]+", "-", ascii_text).strip("-")[:limit].strip("-") or fallback
+_MAX_FOLDER_NAME_BYTES = 200  # a path component is at most 255 bytes on macOS and Linux; the key prefix is short
+
+
+def _path_part(text: Any) -> str:
+    text = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", str(text or "").strip())
+    return re.sub(r"\s+", "-", text) or "Unknown"
 
 
 def folder_name(key: str, company: Any, title: Any) -> str:
     """<job_key>_<Company>_<Title>, like the folders the other tools read ("4399000001_Lumenfield-Logistics_Operations-Analyst")."""
-    return f"{key}_{slug(company, 40, 'Company')}_{slug(title, 60, 'Job')}"
+    prefix = f"{key}_"
+    rest = f"{_path_part(company)}_{_path_part(title)}".encode("utf-8")[: _MAX_FOLDER_NAME_BYTES - len(prefix)]
+    return prefix + rest.decode("utf-8", errors="ignore")
+
+
+_HEADING_RE = re.compile(r"(?m)^(#{1,4})(?=\s)")
+
+
+def demote_headings(markdown: str) -> str:
+    """Push every markdown heading two levels down.
+
+    The pipeline reads job.md's "## 2. Job Description" up to the next heading of level 1 or 2 (aa_lib.md_section_body),
+    so a description with its own "## Requirements" would reach the screening and resume workers cut off there. Lines
+    are first split the way that reader splits them (str.splitlines: also \\r, \\x0b, \\x0c, \\x85, \\u2028 ...).
+    """
+    return _HEADING_RE.sub(r"##\1", "\n".join(markdown.splitlines()))
 
 
 def _description(text: Any) -> str:
-    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or "")).strip()
-    # a "# ..." line inside the posting would start a new section of job.md
-    return "\n".join(re.sub(r"^(\s{0,3})(#{1,6})(\s)", r"\1\\\2\3", line) for line in text.splitlines())
+    return demote_headings(re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or "")).strip())
 
 
 def job_md(job: dict) -> str:
@@ -326,12 +376,13 @@ def job_md(job: dict) -> str:
         lines.append(f"- Apply URL: {job['apply_url']}")
     lines += [
         f"- Source: {job['source']}",
+        *([f"- Listed via: {one_line(job['listed_via'])}"] if job.get("listed_via") else []),
         f"- Date Found: {job['found']}",
-        f"- Date Posted: {job.get('posted', '')}",
-        f"- Location: {one_line(job.get('location'))}",
-        f"- Employment type: {job.get('employment', '')}",
+        f"- Date Posted: {job.get('posted') or 'Not available'}",
+        f"- Location: {one_line(job.get('location')) or 'Not specified'}",
+        f"- Employment type: {job.get('employment') or 'Not specified'}",
         "- Match Score:", "- Matched Resume:", "",
-        "## 2. Job Description", "", _description(job.get("description")) or "(the board gave no description)", "",
+        "## 2. Job Description", "", _description(job.get("description")) or "No description available.", "",
         "## 3. Match Reasoning and Discussions", "", "### Why Matched?", "", "### Gaps?", "",
     ]
     return "\n".join(lines)

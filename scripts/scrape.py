@@ -6,7 +6,8 @@ title matches a term, its employment type and company pass the filters, it is no
 the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job
 gets Applications/<key>_<Company>_<Title>/job.md and a tracker row at "Found". The next step is /ohmyjob:prep-jobs.
 
-Output: one line per board, one total line, `WARNING ...` lines, and `FATAL ...` when the run cannot continue (exit 1).
+Output: one line per board, one total line, `WARNING ...` lines, and `FATAL: ...` when the run cannot continue (exit 1;
+exit 2: the run finished but a board failed).
 """
 from __future__ import annotations
 
@@ -15,16 +16,17 @@ import math
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
+import freehire_source
 import scrape_core as C
 import workspace as W
 from job_key import job_key, strip_tracking
 from tracker import Tracker, TrackerError
 
-TWIN_DAYS = 30  # tracker rows found within this many days count for the twin check
 FOLDER_ROOTS = ("Applications", "Pending-Review", "Needs-Attention", "Submitted")
 KEY_RE = re.compile(r"^(\d+)_")
 
@@ -63,18 +65,31 @@ def normalize(record: dict, board: str) -> dict:
         "title": C.one_line(cell(record.get("title"))), "company": C.one_line(cell(record.get("company"))),
         "url": url, "apply_url": apply_url, "source": board, "location": cell(record.get("location")),
         "posted": cell(record.get("date_posted")), "job_type": cell(record.get("job_type")),
-        "job_level": cell(record.get("job_level")), "description": cell(record.get("description")),
+        "job_level": cell(record.get("job_level")), "description": cell(record.get("description")), "note": "",
     }
 
 
-def scrape_board(board: str, search: dict) -> tuple[list[dict], Optional[str], list[str]]:
+MAX_SCRAPE_WORKERS = 10  # terms of one board run at once: a scrape is almost all network wait (LinkedIn pauses between pages)
+
+
+class Scraped(NamedTuple):
+    rows: list
+    error: Optional[str]
+    warnings: list
+    unusable: int = 0  # results the source returned but cannot track (freehire)
+
+
+def scrape_board(board: str, search: dict) -> Scraped:
     """All rows of one board for every search term, its error text and its warnings (JobSpy reports both in attrs)."""
+    if board == "freehire":
+        found = freehire_source.search_freehire_jobs(
+            search["search_query"], search["location"], search["country"],
+            search["recency_days"], search["uk_sponsor_only"],
+        )
+        return Scraped(found.rows, found.error, found.warnings, found.fetched - len(found.rows))
     import jobspy  # looked up at call time: the tests replace jobspy.scrape_jobs
 
-    rows: list[dict] = []
-    errors: list[str] = []
-    warnings: list[str] = []
-    for term in search["search_query"]:
+    def one_term(term: str):
         args: dict[str, Any] = dict(
             site_name=[board], search_term=term, location=search["location"] or None,
             results_wanted=search["results_per_term"], hours_old=C.hours_old(search["recency_days"]),
@@ -85,15 +100,26 @@ def scrape_board(board: str, search: dict) -> tuple[list[dict], Optional[str], l
         if board == "google":
             args["google_search_term"] = C.google_search_term(term, search["location"], search["recency_days"])
         try:
-            frame = jobspy.scrape_jobs(**args)
+            return term, jobspy.scrape_jobs(**args), None
         except Exception as exc:  # noqa: BLE001  (JobSpy raises ValueError for bad arguments; a network library may raise anything)
-            errors.append(f"{term!r}: {exc}")
+            return term, None, str(exc)
+
+    terms = search["search_query"]
+    with ThreadPoolExecutor(max_workers=max(1, min(len(terms), MAX_SCRAPE_WORKERS))) as pool:
+        results = list(pool.map(one_term, terms))  # map keeps the order of the terms: the first copy of a job wins
+    rows: list[dict] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    for term, frame, failure in results:
+        if failure is not None:
+            errors.append(f"{term!r}: {failure}")
             continue
-        errors += [f"{term!r}: {text}" for text in (getattr(frame, "attrs", None) or {}).get("errors", {}).values()]
-        for text in (getattr(frame, "attrs", None) or {}).get("warnings", {}).values():
+        attrs = getattr(frame, "attrs", None) or {}
+        errors += [f"{term!r}: {text}" for text in attrs.get("errors", {}).values()]
+        for text in attrs.get("warnings", {}).values():
             warnings += [w for w in (text if isinstance(text, list) else [text]) if w not in warnings]
         rows += [normalize(rec, board) for rec in frame.to_dict("records")]
-    return rows, "; ".join(errors) or None, warnings
+    return Scraped(rows, "; ".join(errors) or None, warnings)
 
 
 def known_keys(root: Path) -> set[str]:
@@ -127,14 +153,7 @@ def snapshot(root: Path) -> None:
 def run(root: Path, search: dict, dry_run: bool = False) -> int:
     if not search["search_query"]:
         raise Stop('search.search_query is empty in ohmyjob.json. Add search terms, for example ["Data Analyst"].')
-    boards = []
-    for source in search["sources"]:
-        if source == "freehire":
-            say("WARNING freehire: no client in this version; skipped (uk_sponsor_only has no effect yet)")
-        else:
-            boards.append(source)
-    if not boards:
-        raise Stop("none of search.sources can run in this version (freehire is skipped); add a JobSpy board such as linkedin")
+    boards = list(search["sources"])
 
     open_tracker(root)  # fail before the long scrape if there is no usable tracker
     lemmas = C.Lemmas(search["languages"])
@@ -149,22 +168,26 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
     tracker = open_tracker(root)  # a short load, change, save
     rows = tracker.rows()
     seen_keys = {r["_key"] for r in rows} | known_keys(root)
+    window = C.twin_window(search["recency_days"])
     twins = C.TwinIndex()
     for row in rows:
-        if (row["Status"] or "").strip() in C.KEPT_STATUSES or C.recent_enough(row["Date Found"], TWIN_DAYS):
+        if (row["Status"] or "").strip().casefold() in C.KEPT_STATUSES_FOLDED or C.recent_enough(row["Date Found"], window):
             twins.add(row["Company"], row["Job Title"], row["Location"], exact=True)
 
     found = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_jobs: list[dict] = []
     failed = 0
-    totals = {"scraped": 0, "new": 0}
+    totals = {"scraped": 0, "new": 0, "excluded": 0}
+    run_ids: set[str] = set()  # keys met earlier in this run (another term or board)
+    run_titles: set[tuple[str, str]] = set()  # (title, company) as written, of the jobs kept so far
     for board in boards:
-        got, error, warnings = scraped[board]
+        got, error, warnings, unusable = scraped[board]
         for text in warnings:
             say(f"WARNING {board}: {text}")
         if error:
             failed += 1
-        count = {"title": 0, "excluded": 0, "type": 0, "known": 0, "twin": 0, "bad": 0}
+        count = {"bad": unusable, "known": 0, "dup id": 0, "failed": 0, "type": 0, "level": 0, "term": 0, "title": 0,
+                 "duplicate": 0, "twin": 0}
         kept: list[dict] = []
         known: list[dict] = []
         for job in got:
@@ -174,35 +197,55 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
             elif key in seen_keys:
                 count["known"] += 1
                 known.append(job)
-            elif filters.reason(job):
-                count["excluded"] += 1
-            elif not matcher.matches(job["title"]):
-                count["title"] += 1
+            elif key in run_ids:
+                count["dup id"] += 1
+            elif not job["job_type"] and board == "linkedin" and search["employment_types"]:
+                # JobSpy gets the type from the job's own page; none means that page did not load (throttling)
+                count["failed"] += 1
             elif not C.employment_ok(job["job_type"], search["employment_types"]):
                 count["type"] += 1
+            elif (why := filters.reason(job)) is not None:
+                count[why] += 1
+            elif not matcher.matches(job["title"]):
+                count["title"] += 1
+            elif (job["title"], job["company"]) in run_titles:
+                count["duplicate"] += 1  # the same title and company under another id: the first one stays
             elif twins.find(job["company"], job["title"], job["location"]):
                 count["twin"] += 1
             else:
-                seen_keys.add(key)
-                job.update(key=key, found=found, employment=C.employment_label(job["job_type"]))
+                run_ids.add(key)
+                run_titles.add((job["title"], job["company"]))
+                job.update(key=key, found=found, employment=C.employment_label(job["job_type"]),
+                           excluded=filters.excluded_company(job["company"]))
                 kept.append(job)
         for job in kept + known:  # a board's own postings are compared with the earlier boards only
             twins.add(job["company"], job["title"], job["location"])
         new_jobs += kept
-        totals["scraped"] += len(got)
-        totals["new"] += len(kept)
+        excluded = sum(1 for job in kept if job["excluded"] is not None)
+        totals["scraped"] += len(got) + unusable
+        totals["new"] += len(kept) - excluded
+        totals["excluded"] += excluded
         dropped = ", ".join(f"{n} {why}" for why, n in count.items() if n)
-        say(f"{board}: {len(got)} scraped, {len(kept)} new" + (f" ({dropped} dropped)" if dropped else "")
-            + (f" ERROR {error}" if error else ""))
+        say(f"{board}: {len(got) + unusable} scraped, {len(kept) - excluded} new"
+            + (f", {excluded} auto-excluded" if excluded else "")
+            + (f" ({dropped} dropped)" if dropped else "") + (f" ERROR {error}" if error else ""))
 
     if failed == len(boards) and not totals["scraped"]:
         raise Stop("every board failed; see the ERROR lines above")
     if dry_run:
-        say(f"total: {totals['scraped']} scraped, {totals['new']} would be new (dry run, nothing written)")
+        say(f"total: {totals['scraped']} scraped, {totals['new']} would be new, {totals['excluded']} auto-excluded "
+            "(dry run, nothing written)")
         return EXIT_BOARD_FAILED if failed else EXIT_OK
 
-    written = 0
+    written = excluded_rows = 0
     for job in new_jobs:
+        row = {"Job URL": job["url"], "Company": job["company"], "Job Title": job["title"], "Date Found": found,
+               "Location": job["location"], "Source": job["source"]}
+        if job["excluded"] is not None:  # recorded as Deleted, so it is not met again; no folder
+            tracker.add_row({**row, "Status": "Deleted",
+                             "Notes": f"Auto-excluded: company matches excluded entry '{job['excluded']}'"})
+            excluded_rows += 1
+            continue
         folder = root / "Applications" / C.folder_name(job["key"], job["company"], job["title"])
         try:
             folder.mkdir(parents=True)  # never into an existing folder
@@ -210,15 +253,15 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
             say(f"WARNING {folder.name}: folder exists; skipped")
             continue
         (folder / "job.md").write_text(C.job_md(job), encoding="utf-8")
-        tracker.add_row({"Job URL": job["url"], "Status": "Found", "Company": job["company"], "Job Title": job["title"],
-                         "Date Found": found, "Location": job["location"], "Source": job["source"]})
+        tracker.add_row({**row, "Status": "Found", "Notes": job["note"]})
         written += 1
-    if written:
+    if written or excluded_rows:
         try:
             tracker.save()
         except TrackerError as exc:
             raise Stop(f"{exc} The {written} new folders are in Applications/; /ohmyjob:prep-jobs adds their rows at Found.") from exc
-    say(f"total: {totals['scraped']} scraped, {written} new jobs at Found" + ("; run /ohmyjob:prep-jobs" if written else ""))
+    say(f"total: {totals['scraped']} scraped, {written} new jobs at Found, {excluded_rows} auto-excluded"
+        + ("; run /ohmyjob:prep-jobs" if written else ""))
     return EXIT_BOARD_FAILED if failed else EXIT_OK
 
 

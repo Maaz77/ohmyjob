@@ -29,7 +29,7 @@ Create a folder for the search and install the plugin there at project scope (th
 
 ```
 mkdir ~/JobSearch && cd ~/JobSearch
-claude plugin marketplace add <github-owner>/ohmyjob --scope project
+claude plugin marketplace add Maaz77/ohmyjob --scope project
 claude plugin install ohmyjob@ohmyjob --scope project
 ```
 
@@ -76,7 +76,7 @@ Created by setup and filled in by the profile interview. Unknown keys and bad va
 | `title_aliases` | `{}` | Extra words that count as a match, applied to both the term and the title, for example `{"ops": "operations"}`. |
 | `title_only_aliases` | `{}` | Aliases applied to the posting title only. |
 | `languages` | `["en"]` | Languages of the postings, for word-form matching. |
-| `uk_sponsor_only` | `false` | Applies to `freehire` only (see below). |
+| `uk_sponsor_only` | `false` | `freehire` only: keep only jobs from UK sponsor-licensed employers (see below). |
 | `git_snapshot` | `false` | Commit the tracker and `Applications/` before a scrape; skipped if the folder is not a git repository. **It force-adds them even though the workspace `.gitignore` lists them**: keep such a repository private and never push it to a public remote. |
 
 `pipeline`:
@@ -92,7 +92,7 @@ Per-board notes:
 - **Indeed and Glassdoor** search one country at a time; set `country`.
 - **ZipRecruiter** covers the US and Canada only.
 - **Google** needs a city in `location`; the search text is built as "`<term>` jobs near `<location>`" plus the recency.
-- **freehire** has no client in this version. It is accepted in `sources` but skipped with one warning line; the other boards still run, and `uk_sponsor_only` has no effect yet.
+- **freehire** (opt-in, mostly tech jobs): add `"freehire"` to `sources`. With `uk_sponsor_only: true` it keeps only jobs from UK sponsor-licensed employers. Its seniority labels work with `exclude_seniority_level`, and the tracker Notes name the site that listed the job.
 - The same posting found twice on one board gets the same job id and is added once. Copies of one posting on different boards get different ids; the twin check (company, title and city) drops the later copy.
 
 ## Safety

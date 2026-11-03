@@ -97,12 +97,14 @@ def test_jobspy_arguments(setup):
 def test_employment_type_filter_runs_for_every_board(setup):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/1", job_type=["internship"]),
-                               post(url="https://www.linkedin.com/jobs/view/2", job_type=None),
-                               post(url="https://www.linkedin.com/jobs/view/3", job_type=["contract", "fulltime"]))
-    boards["google"] = frame(post(title="Operations Analyst", company="G Co", url="https://jobs.g.example/1", job_type=["parttime"]))
+                               post(url="https://www.linkedin.com/jobs/view/2", company="B", job_type=None),
+                               post(url="https://www.linkedin.com/jobs/view/3", company="C", job_type=["contract", "fulltime"]))
+    boards["google"] = frame(post(title="Operations Analyst", company="G Co", url="https://jobs.g.example/1", job_type=["parttime"]),
+                             post(title="Operations Analyst", company="H Co", url="https://jobs.g.example/2", job_type=None))
     scrape.run(root, configure(sources=["linkedin", "google"], employment_types=["fulltime", "contract"]))
-    assert sorted(r["_key"] for r in rows(root) if r["Source"] == "linkedin") == ["2", "3"]
-    assert [r for r in rows(root) if r["Source"] == "google"] == []
+    # LinkedIn without a type means its detail page did not load (dropped, not tracked); another board may leave it out
+    assert sorted(r["_key"] for r in rows(root) if r["Source"] == "linkedin") == ["3"]
+    assert [r["Company"] for r in rows(root) if r["Source"] == "google"] == ["H Co"]
 
 
 def test_title_filter_and_off(setup, capsys):
@@ -114,16 +116,25 @@ def test_title_filter_and_off(setup, capsys):
     assert [r["_key"] for r in rows(root)] == ["5"]
 
 
-def test_excludes_are_applied(setup):
+def test_excludes_are_applied(setup, capsys):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(
         post(url="https://www.linkedin.com/jobs/view/1", company="Example Staffing Ltd"),
-        post(title="Director Operations Analyst", url="https://www.linkedin.com/jobs/view/2"),
-        post(title="Sales Operations Analyst", url="https://www.linkedin.com/jobs/view/3"),
-        post(url="https://www.linkedin.com/jobs/view/4"))
+        post(title="Director Operations Analyst", url="https://www.linkedin.com/jobs/view/2", company="B"),
+        post(title="Sales Operations Analyst", url="https://www.linkedin.com/jobs/view/3", company="C"),
+        post(url="https://www.linkedin.com/jobs/view/4", company="D"))
     scrape.run(root, configure(exclude_companies=["Example Staffing"], exclude_seniority_level=["director"],
                                filter_title_terms=["sales"]))
-    assert [r["_key"] for r in rows(root)] == ["4"]
+    out = capsys.readouterr().out
+    assert "1 level, 1 term" in out and "1 auto-excluded" in out
+    got = {r["_key"]: r for r in rows(root)}
+    assert sorted(got) == ["1", "4"]
+    # an excluded company is recorded as Deleted with a note, and gets no folder
+    assert got["1"]["Status"] == "Deleted" and "excluded entry 'Example Staffing'" in got["1"]["Notes"]
+    assert got["4"]["Status"] == "Found"
+    assert not list((root / "Applications").glob("1_*")) and list((root / "Applications").glob("4_*"))
+    scrape.run(root, configure(exclude_companies=["Example Staffing"]))
+    assert "2 known dropped" in capsys.readouterr().out  # keys 1 and 4 are met again: known, not added twice
 
 
 def test_twin_from_later_source_is_dropped_and_order_decides(setup, capsys):
@@ -182,17 +193,6 @@ def test_same_posting_twice_keeps_one_key(setup, capsys):
     scrape.run(root, configure(sources=["google"]))
     assert len(rows(root)) == 1 and len(list((root / "Applications").glob("9*_Acme-GmbH_*"))) == 1
     assert "1 known dropped" in capsys.readouterr().out.splitlines()[-2]
-
-
-def test_freehire_is_skipped_with_one_warning(setup, capsys):
-    root, boards, calls, configure = setup
-    boards["linkedin"] = frame(post())
-    assert scrape.run(root, configure(sources=["freehire", "linkedin"], uk_sponsor_only=True)) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert len([line for line in out if "freehire" in line]) == 1 and out[0].startswith("WARNING freehire")
-    assert [c["site_name"] for c in calls] == [["linkedin"]] and len(rows(root)) == 1
-    with pytest.raises(scrape.Stop, match="freehire"):
-        scrape.run(root, configure(sources=["freehire"]))
 
 
 def test_board_error_is_reported_and_all_failing_is_fatal(setup, capsys):
@@ -314,10 +314,10 @@ def test_board_warnings_are_printed(setup, capsys):
 def test_job_level_is_a_whole_value_and_aliases_apply(setup):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(
-        post(url="https://www.linkedin.com/jobs/view/1", job_level="Mid-Senior level"),
-        post(title="Sr. Operations Analyst", url="https://www.linkedin.com/jobs/view/2"),
-        post(url="https://www.linkedin.com/jobs/view/3", job_level="Senior"),
-        post(url="https://www.linkedin.com/jobs/view/4", job_level="Director"))
+        post(url="https://www.linkedin.com/jobs/view/1", company="A", job_level="Mid-Senior level"),
+        post(title="Sr. Operations Analyst", url="https://www.linkedin.com/jobs/view/2", company="B"),
+        post(url="https://www.linkedin.com/jobs/view/3", company="C", job_level="Senior"),
+        post(url="https://www.linkedin.com/jobs/view/4", company="D", job_level="Director"))
     scrape.run(root, configure(exclude_seniority_level=["senior"], title_aliases={"sr": "senior"}))
     assert sorted(r["_key"] for r in rows(root)) == ["1", "4"]
 
@@ -366,3 +366,194 @@ def test_unexpected_errors_are_one_fatal_line(workspace, capsys, monkeypatch):
     monkeypatch.setattr(scrape, "run", broken)
     assert scrape.main([]) == scrape.EXIT_FATAL
     assert capsys.readouterr().out == "FATAL: unexpected PermissionError: denied: Applications\n"
+
+
+# --------------------------------------------------------------------------- freehire as a source
+
+import freehire_source  # noqa: E402
+
+
+def fh_item(n=1, **more):
+    base = {"public_slug": f"slug-{n}", "source": "greenhouse", "url": f"https://boards.example.org/acme/jobs/{n}?utm_source=freehire.me",
+            "title": "Operations Analyst", "company": "Freehire Co", "location": "Berlin, Germany",
+            "description": "## About\nKeep it running.", "collections": [], "posted_at": "2026-11-01T00:00:00Z",
+            "enrichment": {"employment_type": "full_time"}}
+    base.update(more)
+    return base
+
+
+@pytest.fixture
+def freehire(monkeypatch):
+    class Api:
+        calls = []
+        items = []
+
+    api = Api()
+    api.calls = []
+    monkeypatch.setattr(freehire_source.time, "sleep", lambda s: None)
+
+    def fetch(params, probe=False):
+        if params["limit"] != 1:  # a one-result request only explains an empty search
+            api.calls.append(dict(params))
+        return {"data": list(api.items) if params["offset"] == 0 and params["limit"] != 1 else [],
+                "meta": {"total": len(api.items) if params["limit"] != 1 else 0}}
+
+    monkeypatch.setattr(freehire_source, "_fetch", fetch)
+    return api
+
+
+def test_freehire_rows_get_a_folder_a_source_and_a_note(setup, freehire, capsys):
+    root, boards, calls, configure = setup
+    freehire.items = [fh_item(1), fh_item(2, title="Operations Analyst II", company="Other Co", source="reed",
+                                          url="https://www.reed.example/jobs/22?gclid=zz")]
+    assert scrape.run(root, configure(sources=["freehire"], recency_days=3)) == 0
+    assert calls == [] and freehire.calls[0]["open_within_days"] == 3 and freehire.calls[0]["countries"] == "DE"
+    assert "freehire: 2 scraped, 2 new" in capsys.readouterr().out
+    got = sorted(rows(root), key=lambda r: r["Company"])
+    assert [r["Source"] for r in got] == ["freehire", "freehire"]
+    assert got[0]["Notes"] == "Source: freehire/greenhouse" and got[1]["Job URL"] == "https://www.reed.example/jobs/22"
+    folder = next(p for p in (root / "Applications").iterdir() if p.name.startswith(got[0]["_key"] + "_"))
+    assert folder.name.endswith("_Freehire-Co_Operations-Analyst")
+    text = (folder / "job.md").read_text(encoding="utf-8")
+    ov = L.job_overview(text)
+    assert ov["Source"] == "freehire" and ov["Listed via"] == "greenhouse" and ov["Job URL"] == got[0]["Job URL"]
+    assert "#### About" in text and "Apply URL" not in ov
+
+
+def test_uk_sponsor_only_drives_the_collection_parameter(setup, freehire):
+    root, boards, calls, configure = setup
+    scrape.run(root, configure(sources=["freehire"], country="uk", location="London, UK"))
+    scrape.run(root, configure(sources=["freehire"], country="uk", location="London, UK", uk_sponsor_only=True))
+    assert "collections" not in freehire.calls[0] and freehire.calls[1]["collections"] == "uk-skilled-worker-sponsor"
+
+
+def test_freehire_seniority_label_feeds_exclude_seniority_level(setup, freehire):
+    root, boards, calls, configure = setup
+    level = lambda label: {"employment_type": "full_time", "seniority": label}  # noqa: E731
+    freehire.items = [fh_item(1, company="A", enrichment=level("lead")), fh_item(2, company="B", enrichment=level("senior")),
+                      fh_item(3, company="C", enrichment=level(None)), fh_item(4, company="D", enrichment=level("c_level"))]
+    scrape.run(root, configure(sources=["freehire"], exclude_seniority_level=["lead", "c_level"]))
+    assert sorted(r["Company"] for r in rows(root)) == ["B", "C"]
+
+
+def test_freehire_without_a_country_warns_and_the_other_boards_run(setup, freehire, capsys):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post())
+    assert scrape.run(root, configure(sources=["freehire", "linkedin"], location="Atlantis", country="")) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("WARNING freehire: no country found") and freehire.calls == []
+    assert len(rows(root)) == 1
+
+
+def test_freehire_twin_of_a_linkedin_job_is_dropped_and_freehire_first_wins_if_listed_first(setup, freehire):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post(company="Freehire Co"))
+    freehire.items = [fh_item(1)]
+    scrape.run(root, configure(sources=["linkedin", "freehire"]))
+    assert [r["Source"] for r in rows(root)] == ["linkedin"]
+    root2 = root  # a second run in the other order: the tracker already holds the LinkedIn copy (known twin)
+    freehire.items = [fh_item(2)]
+    scrape.run(root2, configure(sources=["freehire", "linkedin"]))
+    assert [r["Source"] for r in rows(root2)] == ["linkedin"]
+
+
+def test_freehire_failure_is_an_error_line_and_exit_2(setup, freehire, monkeypatch, capsys):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post())
+
+    def boom(params, probe=False):
+        raise OSError("down")
+
+    monkeypatch.setattr(freehire_source, "_fetch", boom)
+    monkeypatch.setattr(freehire_source.time, "sleep", lambda s: None)
+    assert scrape.run(root, configure(sources=["linkedin", "freehire"])) == scrape.EXIT_BOARD_FAILED
+    assert "freehire: 0 scraped, 0 new ERROR" in capsys.readouterr().out and len(rows(root)) == 1
+
+
+# --------------------------------------------------------------------------- behaviour kept from the first finder
+
+
+def test_same_title_and_company_under_another_id_is_one_job(setup, capsys):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/1"), post(url="https://www.linkedin.com/jobs/view/2"),
+                               post(url="https://www.linkedin.com/jobs/view/3", company="Other"),
+                               post(url="https://www.linkedin.com/jobs/view/4", title="Operations Analyst II"))
+    scrape.run(root, configure())
+    assert "1 duplicate dropped" in capsys.readouterr().out
+    assert sorted(r["_key"] for r in rows(root)) == ["1", "3", "4"]
+
+
+def test_the_same_job_met_under_two_terms_is_kept_once_in_term_order(setup, capsys):
+    root, boards, calls, configure = setup
+
+    def by_term(kwargs):
+        title = {"Operations Analyst": "Operations Analyst", "Project Coordinator": "Project Coordinator"}[kwargs["search_term"]]
+        return frame(post(title=title, url="https://www.linkedin.com/jobs/view/9"))
+
+    boards["linkedin"] = by_term
+    scrape.run(root, configure(sources=["linkedin"], search_query=["Operations Analyst", "Project Coordinator"]))
+    assert "linkedin: 2 scraped, 1 new (1 dup id dropped)" in capsys.readouterr().out
+    assert [r["Job Title"] for r in rows(root)] == ["Operations Analyst"]  # the first term's copy
+    assert sorted(c["search_term"] for c in calls) == ["Operations Analyst", "Project Coordinator"]
+
+
+def test_terms_run_at_once_but_never_more_than_the_cap(setup, monkeypatch):
+    import threading
+    import time
+
+    root, boards, calls, configure = setup
+    live, peak, lock = [0], [0], threading.Lock()
+
+    def slow(kwargs):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.05)
+        with lock:
+            live[0] -= 1
+        return frame()
+
+    boards["linkedin"] = slow
+    monkeypatch.setattr(scrape, "MAX_SCRAPE_WORKERS", 3)
+    scrape.run(root, configure(sources=["linkedin"], search_query=[f"term {n}" for n in range(8)], title_filter="off"))
+    assert 2 <= peak[0] <= 3 and len(calls) == 8
+
+
+def test_twin_window_and_acted_rows(setup):
+    root, boards, calls, configure = setup
+    tracker = Tracker(root / "Job_Tracker.xlsx")
+    forty_days_ago = (date.today() - timedelta(days=40)).isoformat() + " 08:00"
+    for n, (status, company) in enumerate([("Found", "Old Found"), ("Pending Review", "Old Pending"),
+                                           ("needs attention", "Old Attention")]):
+        tracker.add_row({"Job URL": f"https://o.example/{n}", "Status": status if status != "needs attention" else "Needs Attention",
+                         "Company": company, "Job Title": "Operations Analyst", "Date Found": forty_days_ago, "Location": "Berlin"})
+    tracker.save()
+    boards["linkedin"] = frame(*[post(company=c, url=f"https://www.linkedin.com/jobs/view/{n}")
+                                 for n, c in enumerate(["Old Found", "Old Pending", "Old Attention"], 1)])
+    # recency_days 2: the window is 30 days, so a 40-day-old "Found" row is out of it; acted rows never expire
+    scrape.run(root, configure(recency_days=2))
+    assert sorted(r["Company"] for r in rows(root) if r["Source"] == "linkedin") == ["Old Found"]
+
+
+def test_recency_zero_checks_every_tracker_row(setup):
+    root, boards, calls, configure = setup
+    tracker = Tracker(root / "Job_Tracker.xlsx")
+    tracker.add_row({"Job URL": "https://o.example/1", "Status": "Found", "Company": "Acme GmbH", "Job Title": "Operations Analyst",
+                     "Date Found": "2020-01-01 08:00", "Location": "Berlin"})
+    tracker.save()
+    boards["linkedin"] = frame(post())
+    scrape.run(root, configure(recency_days=0))
+    assert [r["Company"] for r in rows(root)] == ["Acme GmbH"]  # only the old row: the new posting is its twin
+    assert calls[0]["hours_old"] is None
+
+
+def test_a_job_the_board_gave_no_details_for_gets_neutral_placeholders(setup):
+    root, boards, calls, configure = setup
+    boards["indeed"] = frame(post(url="https://de.indeed.com/viewjob?jk=aa", description=None, location=None,
+                                  date_posted=None, job_type=None))
+    scrape.run(root, configure(sources=["indeed"]))
+    folder = next(p for p in (root / "Applications").iterdir() if "Acme" in p.name)
+    text = (folder / "job.md").read_text(encoding="utf-8")
+    ov = L.job_overview(text)
+    assert (ov["Date Posted"], ov["Location"], ov["Employment type"]) == ("Not available", "Not specified", "Not specified")
+    assert "No description available." in text

@@ -24,7 +24,10 @@
     "frontend": "front end",
     "backend": "back end",
     "fullstack": "full stack",
-    "devops": "dev ops"
+    "devops": "dev ops",
+    "nlp": "natural language processing",
+    "cv": "computer vision",
+    "genai": "generative artificial intelligence"
   },
   "title_only_aliases": {
     "developer": [
@@ -36,6 +39,108 @@
     "programmer": [
       "developer",
       "engineer"
+    ],
+    "scientist": [
+      "engineer"
+    ],
+    "researcher": [
+      "engineer"
+    ],
+    "expert": [
+      "engineer"
+    ],
+    "architect": [
+      "engineer"
+    ],
+    "builder": [
+      "engineer"
+    ],
+    "consultant": [
+      "engineer"
+    ],
+    "designer": [
+      "engineer"
+    ],
+    "engineering": [
+      "engineer"
+    ],
+    "prototype": [
+      "engineer"
+    ],
+    "prototyping": [
+      "engineer"
+    ],
+    "web": [
+      "software"
+    ],
+    "fullstack": [
+      "software"
+    ],
+    "full stack": [
+      "software"
+    ],
+    "computer science": [
+      "software"
+    ],
+    "computer": [
+      "software"
+    ],
+    "backend": [
+      "software"
+    ],
+    "frontend": [
+      "software"
+    ],
+    "python": [
+      "software"
+    ],
+    "algorithm": [
+      "software"
+    ],
+    "algorithms": [
+      "software"
+    ],
+    "foundation": [
+      "software"
+    ],
+    "model": [
+      "software"
+    ],
+    "forward": [
+      "software"
+    ],
+    "deployed": [
+      "software"
+    ],
+    "deploy": [
+      "software"
+    ],
+    "llm": [
+      "software"
+    ],
+    "llms": [
+      "software"
+    ],
+    "agentic": [
+      "software"
+    ],
+    "generative": [
+      "software"
+    ],
+    "neural": [
+      "software"
+    ],
+    "deep": [
+      "software"
+    ],
+    "inference": [
+      "software"
+    ],
+    "mlops": [
+      "software"
+    ],
+    "vision": [
+      "software"
     ]
   }
 }
