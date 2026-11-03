@@ -2,7 +2,7 @@
 name: setup
 description: Set up or repair the ohmyjob workspace in the current folder - install the Python environment and LaTeX, create the tracker, folders and settings, give the Chrome extension steps, then run the profile interview and build the resumes. Safe to run again as a health check. Use only when the user types /ohmyjob:setup.
 disable-model-invocation: true
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh *), Bash(claude plugin list*), Bash(ohmyjob *), Read
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" *), Bash(claude plugin list*), Bash(ohmyjob *), Read
 ---
 
 # Set up the job-search workspace
@@ -24,7 +24,7 @@ Stop here if the answer is no.
 
 ## 3. Run bootstrap
 Run exactly:
-`bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh --data ${CLAUDE_PLUGIN_DATA}`
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" --data "${CLAUDE_PLUGIN_DATA}"`
 Run it with a long timeout (the first run downloads packages).
 
 If it ends with an `ohmyjob: ` line:
@@ -44,12 +44,12 @@ Print this for the user, with the real path from the `extension:` line:
 3. Open the Claude extension's settings in Chrome and allow it on the sites you will apply on (the job boards and the company career sites). Per-site permissions live in the extension; nothing here can set them.
 4. Sign in to LinkedIn (and any board you use) in that same Chrome profile.
 
-## 6. Launch line
-Tell the user: close this session, then start Claude in the workspace root (this folder; project settings and hooks load only from the folder Claude starts in) with:
-`claude --setting-sources project,local --strict-mcp-config --chrome`
-Then the daily loop is `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs`, fix the tabs in "Needs Attention", `/ohmyjob:continue-applying`, submit by hand, `/ohmyjob:reconcile`.
-
-## 7. Profile and resumes
+## 6. Profile and resumes
 - If `Profile.md` or `Default_Resume_Files/base.yaml` is missing, call the Skill tool with skill `ohmyjob:profile` and wait for it to finish.
 - Then, if `Default_Resume_Files/` holds no `.pdf`, call the Skill tool with skill `ohmyjob:resumes`.
-- When both exist, say setup is complete and show the launch line again.
+- When both exist, setup is complete.
+
+## 7. Launch line (say this last)
+Tell the user: setup is complete. Close this session, then start Claude in the workspace root (this folder; project settings and hooks load only from the folder Claude starts in) with:
+`claude --setting-sources project,local --strict-mcp-config --chrome`
+Then the daily loop is `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs`, fix the tabs in "Needs Attention", `/ohmyjob:continue-applying`, submit by hand, `/ohmyjob:reconcile`.

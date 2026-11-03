@@ -15,8 +15,8 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS="$PLUGIN_ROOT/scripts"
 TEMPLATES="$PLUGIN_ROOT/templates"
 MIN_CLAUDE="2.1.306"
-# plan 7.6: what the Awesome-CV class needs on top of a bare TinyTeX
-TEX_PACKAGES="fontawesome6 sourcesans roboto tcolorbox unicode-math xifthen ifmtarg xstring enumitem ragged2e setspace parskip"
+# What the Awesome-CV class needs on top of a bare TinyTeX-1: one package per line (the CI job installs the same list)
+TEX_PACKAGES_FILE="$SCRIPTS/tex-packages.txt"
 
 fatal() { echo "ohmyjob: $*"; exit 3; }
 say() { echo "bootstrap: $*"; }
@@ -70,7 +70,7 @@ if [ -z "$UV" ]; then
   [ "$INSTALL_UV" = 1 ] || fatal "uv is not installed. Ask the user, then run bootstrap again with --install-uv"
   say "installing uv into $DATA/bin"
   mkdir -p "$DATA/bin"
-  curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR="$DATA/bin" UV_NO_MODIFY_PATH=1 sh >&2 \
+  curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL="$DATA/bin" sh >&2 \
     || fatal "the uv installer failed"
   UV="$DATA/bin/uv"
   [ -x "$UV" ] || fatal "the uv installer did not create $UV"
@@ -105,7 +105,7 @@ fi
 # workspace. The build also fills the luaotfload font cache, so parallel builds start warm.
 warmup() {
   local lua="$1" tmp out rc
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "$WORKSPACE/.ohmyjob/w.XXXXXX")" || return 1
   mkdir -p "$tmp/Default_Resume_Files"
   cp "$TEMPLATES/ohmyjob.json" "$tmp/ohmyjob.json"
   cp "$TEMPLATES/base.yaml" "$tmp/Default_Resume_Files/base.yaml"
@@ -144,19 +144,23 @@ else
   else
     [ "$INSTALL_TINYTEX" = 1 ] || fatal "no working lualatex for the resume. Ask the user, then run bootstrap again with --install-tinytex (installs TinyTeX into $DATA/tinytex, no admin rights)"
     if [ -z "$bin" ]; then
+      # the installer uses $TINYTEX_DIR unquoted (rm -rf $TEXDIR)
+      case "$DATA" in *[[:space:]\'\"\\\$\`]*) fatal "the TinyTeX installer cannot use a data folder whose path has a space or quote ($DATA); install TeX Live with lualatex yourself, or use a plugin data folder without spaces" ;; esac
       say "installing TinyTeX into $DATA/tinytex"
       mkdir -p "$DATA/tinytex"
       curl -fsSL https://yihui.org/tinytex/install-bin-unix.sh \
-        | TINYTEX_DIR="$DATA/tinytex" sh >&2 || fatal "the TinyTeX installer failed"
+        | TINYTEX_DIR="$DATA/tinytex" sh -s - "" --no-path >&2 || fatal "the TinyTeX installer failed"
       bin="$(tinytex_bin || true)"
       [ -n "$bin" ] || fatal "TinyTeX was installed but no lualatex was found under $DATA/tinytex"
     fi
     # tlmgr of OUR TinyTeX only (never a system tree)
     case "$bin" in "$DATA"/tinytex/*) ;; *) fatal "refusing to run tlmgr outside $DATA/tinytex" ;; esac
     [ -x "$bin/tlmgr" ] || fatal "no tlmgr in $bin"
-    say "tlmgr install $TEX_PACKAGES"
+    pkgs="$(grep -v '^[[:space:]]*\(#\|$\)' "$TEX_PACKAGES_FILE" | tr -d '\r' | tr '\n' ' ')"
+    [ -n "$pkgs" ] || fatal "$TEX_PACKAGES_FILE is empty"
+    say "tlmgr install $pkgs"
     # shellcheck disable=SC2086
-    PATH="$bin:$PATH" "$bin/tlmgr" install $TEX_PACKAGES >&2 || fatal "tlmgr install failed"
+    PATH="$bin:$PATH" "$bin/tlmgr" install $pkgs >&2 || fatal "tlmgr install failed"
     warmup "$bin/lualatex" || fatal "the sample resume does not build with TinyTeX either; see the warm-up line above"
     LUALATEX="$bin/lualatex"
     say "LaTeX: TinyTeX ready ($LUALATEX)"
@@ -177,6 +181,11 @@ fi
 
 # --- 6. env.sh (rewritten on every run) -------------------------------------------------------------------------------
 ENV_FILE="$WORKSPACE/.ohmyjob/env.sh"
+for value in "$PY" "$UV" "$DATA" "$LUALATEX"; do
+  case "$value" in
+    *\'*|*$'\n'*|*$'\r'*) fatal "a path with a quote or a line break cannot go into env.sh: $value" ;;
+  esac
+done
 {
   echo "# Written by /ohmyjob:setup on every run. Parsed by bin/ohmyjob, never sourced. Do not edit."
   echo "OHMYJOB_PY='$PY'"

@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = ROOT / "scripts" / "bootstrap.sh"
 REAL_LUALATEX = shutil.which("lualatex")
-SYSTEM_PATH = "/usr/bin:/bin"
+SYSTEM_PATH = ":".join(dict.fromkeys(["/usr/bin", "/bin", *([str(Path(REAL_LUALATEX).parent)] if REAL_LUALATEX else [])]))
 
 
 def _texmfhome() -> str:
@@ -68,10 +68,10 @@ def write_exe(path: Path, text: str) -> Path:
 class Env:
     """A temp workspace + data dir + fake tool dir, and a way to run bootstrap in them."""
 
-    def __init__(self, tmp: Path, home: Path | None = None):
+    def __init__(self, tmp: Path, home: Path | None = None, data_name: str = "data dir"):
         self.tmp = tmp
         self.ws = tmp / "ws"
-        self.data = tmp / "data dir"  # a space on purpose
+        self.data = tmp / data_name  # a space by default: only the TinyTeX installer cannot take one
         self.fake = tmp / "fakebin"
         self.home = home or tmp / "home"  # shared between tests: keeps the font cache warm
         self.log = tmp / "fake.log"
@@ -127,18 +127,26 @@ def env(tmp_path, shared_home):
     return Env(tmp_path, shared_home).with_uv()
 
 
+@pytest.fixture
+def env_plain(tmp_path, shared_home):
+    """Like `env`, with a data folder without a space (the TinyTeX installer needs that)."""
+    return Env(tmp_path, shared_home, data_name="datadir").with_uv()
+
+
 def installer_scripts(env: Env) -> None:
     """Fake uv and TinyTeX installers, served by the fake curl."""
     uv_installer = env.tmp / "uv_installer.sh"
     uv_installer.write_text(
-        'mkdir -p "$UV_INSTALL_DIR"\n'
-        f"cp '{env.tmp / 'uv_source'}' \"$UV_INSTALL_DIR/uv\"\n"
-        'chmod +x "$UV_INSTALL_DIR/uv"\n'
+        '[ -n "$UV_UNMANAGED_INSTALL" ] || exit 9\n'  # the receipt / PATH-editing install is never used
+        'mkdir -p "$UV_UNMANAGED_INSTALL"\n'
+        f"cp '{env.tmp / 'uv_source'}' \"$UV_UNMANAGED_INSTALL/uv\"\n"
+        'chmod +x "$UV_UNMANAGED_INSTALL/uv"\n'
     )
     write_exe(env.tmp / "uv_source", FAKE_UV)
     tex_bin = '"$TINYTEX_DIR/.TinyTeX/bin/x86_64-linux"'
     tinytex_installer = env.tmp / "tinytex_installer.sh"
     tinytex_installer.write_text(
+        '[ "$1" = "" ] && [ "$2" = "--no-path" ] || exit 9\n'  # no symlinks into ~/bin, /usr/local/bin, /etc/paths.d
         f"mkdir -p {tex_bin}\n"
         f"printf '#!/bin/sh\\nexec {REAL_LUALATEX} \"$@\"\\n' > {tex_bin}/lualatex\n"
         f"cp '{env.tmp / 'tlmgr_source'}' {tex_bin}/tlmgr\n"
@@ -250,6 +258,22 @@ def test_uv_install_with_flag(tmp_path, shared_home):
     assert len(e.calls("curl")) == 1
 
 
+def test_uv_sync_arguments(env):
+    ok(env.run())
+    syncs = env.calls("uv sync")
+    assert syncs == [f"uv sync --frozen --no-dev --quiet --project {ROOT}"]
+
+
+def test_quote_in_a_tool_path_is_refused_before_env_sh(tmp_path, shared_home):
+    e = Env(tmp_path, shared_home)
+    quirky = tmp_path / "it's"
+    quirky.mkdir()
+    write_exe(quirky / "uv", FAKE_UV)
+    e.env["PATH"] = f"{quirky}:{e.env['PATH']}"
+    assert "env.sh" in error_line(e.run())
+    assert not (e.ws / ".ohmyjob" / "env.sh").exists()
+
+
 def test_existing_uv_is_never_downloaded(env):
     installer_scripts(env)
     ok(env.run("--install-uv", "--install-tinytex"))
@@ -263,7 +287,8 @@ def test_tinytex_needs_consent_when_system_latex_fails(env):
     assert not (env.data / "tinytex").exists()
 
 
-def test_tinytex_install_with_flag(env):
+def test_tinytex_install_with_flag(env_plain):
+    env = env_plain
     installer_scripts(env)
     env.failing_lualatex()
     write_exe(env.tmp / "systex" / "tlmgr", FAKE_TLMGR.replace('echo "tlmgr', 'echo "SYSTEM tlmgr'))
@@ -272,14 +297,28 @@ def test_tinytex_install_with_flag(env):
     ok(result)
     tlmgr = env.calls("tlmgr")
     assert len(tlmgr) == 1
-    for pkg in ("fontawesome6", "sourcesans", "roboto", "tcolorbox", "unicode-math", "parskip"):
-        assert pkg in tlmgr[0]
+    listed = [l.strip() for l in (ROOT / "scripts" / "tex-packages.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
+    assert tlmgr[0] == "tlmgr install " + " ".join(listed)
+    for pkg in ("fancyhdr", "pgf", "tikzfill", "pdfcol", "environ", "trimspaces", "fontawesome6"):
+        assert pkg in listed
     assert not env.calls("SYSTEM")  # the tlmgr on PATH (a system tree) is never used
     lua = f"{env.data}/tinytex/.TinyTeX/bin/x86_64-linux/lualatex"
     assert f"OHMYJOB_LUALATEX='{lua}'" in (env.ws / ".ohmyjob" / "env.sh").read_text()
     # second run: TinyTeX is already there and works; nothing is downloaded or installed again
     ok(env.run("--install-tinytex"))
     assert len(env.calls("curl")) == 1 and len(env.calls("tlmgr")) == 1
+
+
+def test_tinytex_refuses_a_data_path_with_space_or_quote(tmp_path, shared_home):
+    for name in ("data dir", "it's"):
+        sub = tmp_path / name.replace(" ", "_").replace("'", "q")
+        sub.mkdir()
+        e = Env(sub, shared_home, data_name=name).with_uv()
+        installer_scripts(e)
+        e.failing_lualatex()
+        result = e.run("--install-tinytex")
+        assert "TinyTeX" in error_line(result) or "single quote" in error_line(result)
+        assert e.calls("curl") == [] and not (e.data / "tinytex").exists()
 
 
 def test_working_system_latex_means_no_tinytex(env):
