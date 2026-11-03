@@ -1,0 +1,6 @@
+Navigated to https://www.linkedin.com/jobs/view/4399000001
+
+Tab Context:
+- Executed on tabId: 501
+- Available tabs:
+  • tabId 501: "https://www.linkedin.com/jobs/view/4399000001" ("https://www.linkedin.com/jobs/view/4399000001")

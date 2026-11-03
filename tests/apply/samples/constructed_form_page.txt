@@ -1,0 +1,38 @@
+dialog "Apply to Example Co" [ref_40]
+ textbox "First name" [ref_41] type="text"
+ textbox "Email" [ref_42] type="email"
+ checkbox "I agree to the privacy notice" [ref_43] type="checkbox"
+ button "Upload resume" [ref_44] type="button"
+ textbox [ref_45] type="file"
+ button "Accept all cookies" [ref_46] type="button"
+ button "Reject all cookies" [ref_47] type="button"
+ button "Apply now" [ref_48] type="button"
+ button "Submit application" [ref_49] type="submit"
+ button [ref_50] type="submit"
+ radio "Yes" [ref_51] type="radio"
+ radio "No" [ref_52] type="radio"
+ generic "Job details" [ref_53]
+ generic "Location" [ref_54]
+ generic "Remote" [ref_55]
+ checkbox "yes" [ref_56] type="checkbox"
+ label "I certify the information is true" [ref_57]
+ generic "End of form" [ref_58]
+ generic "Contact" [ref_59]
+ generic "Questions" [ref_60]
+ checkbox "on" [ref_61] type="checkbox"
+ generic "Spacer one" [ref_62]
+ generic "Spacer two" [ref_63]
+ combobox "Consent to data use" [ref_64]
+ combobox "Country" [ref_65]
+ button "Next" [ref_66] type="submit"
+ dialog "Data Privacy Agreement" [ref_67]
+  generic "Read the agreement before you continue." [ref_68]
+  button "I Agree" [ref_69] type="button"
+  button "Allow" [ref_70] type="button"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Apply | Example Co" ("https://www.linkedin.com/jobs/view/1/apply/")

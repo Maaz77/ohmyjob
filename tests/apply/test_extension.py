@@ -1,0 +1,228 @@
+"""Browser test of the helper extension (chrome-extension/) in headless Chromium.
+
+It runs only where Playwright for Python and its Chromium are installed; else it is skipped.
+Two local web servers stand for a job site (127.0.0.1:8001) and a sign-in site (127.0.0.1:8002).
+"""
+from __future__ import annotations
+
+import functools
+import http.server
+import json
+import socketserver
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+EXTENSION = HERE.parents[1] / "chrome-extension"
+VERSION = json.loads((EXTENSION / "manifest.json").read_text())["version"]
+ON = f"[AA on {VERSION}] "  # the tag of the tab that registered the run group
+SITE = HERE / "extension_site"
+# The job page is served as https://www.linkedin.com/feed; newer Chromium blocks its iframe on 127.0.0.1 without this.
+NO_LNA = ["--disable-features=LocalNetworkAccessChecks"]
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:  # pragma: no cover
+    sync_playwright = None
+
+
+# Threads: Chromium keeps idle pre-connected sockets, and they stall a one-thread server (page loads time out).
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class Quiet(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+@unittest.skipIf(sync_playwright is None, "Playwright for Python is not installed")
+class TestPopupsAsTabs(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.servers = []
+        handler = functools.partial(Quiet, directory=str(SITE))
+        try:
+            for port in (8001, 8002):
+                server = Server(("127.0.0.1", port), handler)
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                cls.servers.append(server)
+        except OSError as exc:
+            cls.tearDownClass()
+            raise unittest.SkipTest(f"ports 8001 and 8002 are not free ({exc})")
+
+    @classmethod
+    def tearDownClass(cls):
+        for server in cls.servers:
+            server.shutdown()
+            server.server_close()
+
+    def test_popups_in_the_run_group_open_as_tabs(self):
+        with sync_playwright() as p:
+            try:
+                ctx = p.chromium.launch_persistent_context(
+                    tempfile.mkdtemp(), channel="chromium", headless=True,
+                    args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}", *NO_LNA],
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
+            try:
+                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                ev = sw.evaluate
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                gid = ev("async () => { const t = await chrome.tabs.query({}); "
+                         "return await chrome.tabs.group({tabIds: t.map(x => x.id)}); }")
+                # the extension takes the marker only from the LinkedIn feed or robots.txt
+                ctx.route("https://www.linkedin.com/feed/**", lambda route: route.fulfill(path=SITE / "job.html"))
+                page.goto("https://www.linkedin.com/feed/#aa-popups-as-tabs")
+                time.sleep(0.8)
+                self.assertTrue(page.title().startswith(ON), page.title())
+                job_tab = ev(f"async () => (await chrome.tabs.query({{groupId: {gid}}})).map(t => t.id)")[0]
+
+                # a pop-up of the page: a tab in the group, with its opener
+                with ctx.expect_page() as info:
+                    page.click("#pop")
+                child = info.value
+                child.wait_for_load_state()
+                time.sleep(0.8)
+                types = sorted(w["type"] for w in ev("async () => (await chrome.windows.getAll()).map(w => ({type: w.type}))"))
+                self.assertEqual(types, ["normal"])
+                self.assertEqual(ev(f"async () => (await chrome.tabs.query({{groupId: {gid}}})).length"), 2)
+                self.assertTrue(child.title().startswith(f"[AA from {job_tab}] "), child.title())
+                self.assertTrue(child.evaluate("!!window.opener"))
+                self.assertTrue(any(m.startswith("token-from-signin") for m in page.evaluate("window.__msgs")))
+                child.evaluate("window.close()")
+                time.sleep(0.5)
+                self.assertTrue(page.evaluate("window.__w.closed"))
+
+                # a pop-up of a cross-origin frame (as the Google button does)
+                with ctx.expect_page() as info:
+                    page.frame_locator("#fr").locator("#g").click()
+                child2 = info.value
+                child2.wait_for_load_state()
+                time.sleep(0.8)
+                self.assertTrue(child2.title().startswith(f"[AA from {job_tab}] "), child2.title())
+                types = sorted(w["type"] for w in ev("async () => (await chrome.windows.getAll()).map(w => ({type: w.type}))"))
+                self.assertEqual(types, ["normal"])
+                self.assertTrue(any("from=iframe" in m for m in page.frames[1].evaluate("window.__msgs")))
+                child2.close()
+
+                # outside the run group nothing changes
+                other = ctx.new_page()
+                other.goto("http://127.0.0.1:8001/job.html")
+                time.sleep(0.5)
+                with ctx.expect_page() as info:
+                    other.click("#pop")
+                info.value.wait_for_load_state()
+                time.sleep(0.5)
+                types = [w["type"] for w in ev("async () => (await chrome.windows.getAll()).map(w => ({type: w.type}))")]
+                self.assertIn("popup", types)
+                self.assertFalse(other.title().startswith("[AA"))
+            finally:
+                ctx.close()
+
+    def test_popup_of_a_background_tab_names_its_real_opener(self):
+        # Chrome's openerTabId is the tab that was active, not the tab that called window.open.
+        # Workers click in background tabs, so pop-ups were tagged "[AA from <another tab>]".
+        with sync_playwright() as p:
+            try:
+                ctx = p.chromium.launch_persistent_context(
+                    tempfile.mkdtemp(), channel="chromium", headless=True,
+                    args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}", *NO_LNA],
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
+            try:
+                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                ev = sw.evaluate
+                ctx.route("https://www.linkedin.com/feed/**", lambda route: route.fulfill(path=SITE / "job.html"))
+                home = ctx.pages[0] if ctx.pages else ctx.new_page()
+                job = ctx.new_page()
+                gid = ev("async () => { const t = await chrome.tabs.query({}); "
+                         "return await chrome.tabs.group({tabIds: t.map(x => x.id)}); }")
+                home.goto("https://www.linkedin.com/feed/#aa-popups-as-tabs")
+                job.goto("http://127.0.0.1:8001/job.html")
+                time.sleep(0.8)
+                home_id, job_id = ev(f"async () => (await chrome.tabs.query({{groupId: {gid}}})).map(t => t.id)")
+                ev(f"async () => chrome.tabs.update({home_id}, {{active: true}})")
+                time.sleep(0.3)
+                with ctx.expect_page() as info:
+                    job.evaluate("document.querySelector('#pop').click()")
+                child = info.value
+                child.wait_for_load_state()
+                time.sleep(1.5)
+                self.assertTrue(child.title().startswith(f"[AA from {job_id}] "), child.title())
+            finally:
+                ctx.close()
+
+
+    def test_robots_txt_marker_registers_the_group(self):
+        # a run with no LinkedIn job registers on the public page, not on the feed
+        with sync_playwright() as p:
+            try:
+                ctx = p.chromium.launch_persistent_context(
+                    tempfile.mkdtemp(), channel="chromium", headless=True,
+                    args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}", *NO_LNA],
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
+            try:
+                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                ev = sw.evaluate
+                ctx.route("https://www.linkedin.com/robots.txt**", lambda route: route.fulfill(path=SITE / "job.html"))
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                ev("async () => { const t = await chrome.tabs.query({}); "
+                   "return await chrome.tabs.group({tabIds: t.map(x => x.id)}); }")
+                page.goto("https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+                time.sleep(0.8)
+                self.assertTrue(page.title().startswith(ON), page.title())
+            finally:
+                ctx.close()
+
+    def test_icon_buttons_and_new_owner(self):
+        with sync_playwright() as p:
+            try:
+                ctx = p.chromium.launch_persistent_context(
+                    tempfile.mkdtemp(), channel="chromium", headless=True,
+                    args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}", *NO_LNA],
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.skipTest(f"Chromium cannot start here ({str(exc).splitlines()[0]})")
+            try:
+                sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+                ev = sw.evaluate
+                ctx.route("https://www.linkedin.com/feed/**", lambda route: route.fulfill(path=SITE / "job.html"))
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                gid = ev("async () => { const t = await chrome.tabs.query({}); "
+                         "return await chrome.tabs.group({tabIds: t.map(x => x.id)}); }")
+                page.goto("https://www.linkedin.com/feed/#aa-popups-as-tabs")
+                time.sleep(0.8)
+                self.assertTrue(page.title().startswith(ON), page.title())
+
+                # icon-only Google buttons get a name, also when they come late; other buttons do not
+                page.goto("http://127.0.0.1:8001/icons.html")
+                time.sleep(1.0)
+                names = page.evaluate("Object.fromEntries([...document.querySelectorAll('button')].map(b => [b.id, b.getAttribute('aria-label')]))")
+                self.assertEqual(names, {"github": None, "google": "Continue with Google", "text": None, "late": "Continue with Google"})
+                self.assertEqual(page.evaluate("document.querySelector('#google').closest('label').getAttribute('aria-label')"),
+                                 "Continue with Google")
+
+                # a new sign-in check page takes the group over: the home tab of a stopped run stays open in it
+                new_home = ctx.new_page()
+                new_id = ev("async () => (await chrome.tabs.query({})).map(t => t.id).sort((a, b) => b - a)[0]")
+                ev(f"async () => chrome.tabs.group({{groupId: {gid}, tabIds: [{new_id}]}})")
+                new_home.goto("https://www.linkedin.com/feed/#aa-popups-as-tabs")
+                time.sleep(0.8)
+                self.assertTrue(new_home.title().startswith(ON), new_home.title())
+                owners = ev("async () => (await chrome.storage.session.get('aaRunOwners')).aaRunOwners")
+                self.assertEqual(owners[str(gid)], new_id)
+            finally:
+                ctx.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

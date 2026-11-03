@@ -1,0 +1,27 @@
+dialog "Candidatura per Esempio Srl" [ref_140]
+ textbox "Nome" [ref_141] type="text"
+ checkbox "Accetto l'informativa sulla privacy" [ref_143] type="checkbox"
+ button "Accetta tutti i cookie" [ref_146] type="button"
+ button "Rifiuta tutti" [ref_147] type="button"
+ button "Candidati ora" [ref_148] type="button"
+ button "Invia candidatura" [ref_149] type="submit"
+ button "Avanti" [ref_150] type="button"
+ button "Crea un account" [ref_151] type="button"
+ button "Accedi con Google" [ref_152] type="button"
+ link "Elimina il mio profilo" [ref_153] href="#"
+ button "Procedi" [ref_154] type="button"
+ button "Trasmetti la domanda" [ref_155] type="button"
+ button "Fallisci" [ref_156] type="button"
+ link "Informativa privacy" [ref_157] href="https://esempio.it/privacy"
+ button "Consenti" [ref_158] type="button"
+ button "Bewerbung absenden" [ref_159] type="button"
+ button "応募する" [ref_160] type="button"
+ button "Weiter" [ref_161] type="button"
+ button "送信する" [ref_162] type="button"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Candidatura | Esempio" ("https://lavora.esempio.it/candidatura")

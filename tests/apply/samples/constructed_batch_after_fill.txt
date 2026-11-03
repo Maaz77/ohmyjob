@@ -1,0 +1,11 @@
+[form_input] Set text value to "test" (previous: "")[form_input] Checkbox checked (previous: false)[read_page] textbox "test" [ref_1]
+textbox [ref_2] type="tel"
+checkbox "extra" [ref_3] type="checkbox"
+button "Submit order" [ref_4]
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 501
+- Available tabs:
+  • tabId 501: "https://shop.example/form" ("https://shop.example/form")
