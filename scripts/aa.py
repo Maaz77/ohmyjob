@@ -168,7 +168,6 @@ def write_brief(run_dir: Path, job: dict) -> Path:
 - Facts about the candidate come only from Profile.md (with its "Follow Up Questions") and the tailored resume below.
   Copy values exactly. A question about the candidate that they do not answer goes to the candidate: never guess (see your rules).
 - The tailored resume is the text of the PDF that you upload. For this job, prefer its wording.
-- The Profile.md part "HELD IN RESERVE": use it only when a question asks for it directly.
 
 {continue_section(job_md) if job.get("continue") else ""}
 ## Job: Overview (from job.md)
@@ -888,6 +887,7 @@ def grouped_note(run_dir: Path, state: dict) -> Optional[str]:
 
 QUESTIONS_FILE = W.QUESTIONS_FILE
 FOLLOW_UP = "Follow Up Questions"
+ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")  # a list item: "1. ", "1) " or (old files) "- "
 MAX_QUESTION = 300  # characters: a question is copied from a web page, so it stays one short line
 
 
@@ -897,7 +897,7 @@ def question_key(text: str) -> str:
 
 def question_part(line: str) -> str:
     """The question of a "Follow Up Questions" line: up to its first "?" or ":" (the answer follows)."""
-    match = re.match(r"^\s*-\s*(.*?[?:？：])", line)
+    match = re.match(r"^\s*(?:[-*+]|\d+[.)])\s*(.*?[?:？：])", line)
     return match.group(1) if match else ""
 
 
@@ -935,10 +935,11 @@ def add_questions(questions: list, job: str) -> None:
 
 
 def save_answers(pairs: list[tuple[str, str]]) -> None:
-    """Add "- <question> <answer>" lines at the end of the list in the "Follow Up Questions" section of Profile.md
-    (the section is created at the end of the file if it is missing). Nothing else in Profile.md changes."""
+    """Add "<n>. <question> <answer>" lines (n continues the numbering) at the end of the list in the
+    "Follow Up Questions" section of Profile.md (the section is created at the end of the file if it is missing). Nothing else in Profile.md changes."""
     text = L.PROFILE.read_text(encoding="utf-8")
-    new = [f"- {q} {a}" if question_part(f"- {q}") else f"- {q}: {a}" for q, a in pairs]
+    texts = [f"{q} {a}" if question_part(f"- {q}") else f"{q}: {a}" for q, a in pairs]
+    new = [f"{k}. {t}" for k, t in enumerate(texts, 1)]  # the section is missing: numbering starts at 1
     body = text.rstrip("\n")
     tail = text[len(body):] or "\n"  # the file's own blank lines at the end stay
     lines = body.splitlines()
@@ -946,7 +947,9 @@ def save_answers(pairs: list[tuple[str, str]]) -> None:
         if level == 1 and title.strip().lower() == FOLLOW_UP.lower():
             # after the last list item of the section's own text (before any subsection)
             stop = next((i for i in range(start + 1, end) if lines[i].startswith("#")), end)
-            items = [i for i in range(start + 1, stop) if lines[i].lstrip().startswith("- ")]
+            items = [i for i in range(start + 1, stop) if ITEM_RE.match(lines[i])]
+            number = max([int(m.group(1)) for i in items if (m := re.match(r"^\s*(\d+)[.)]", lines[i]))] or [0])
+            new = [f"{number + k}. {t}" for k, t in enumerate(texts, 1)]
             at = items[-1] + 1 if items else start + 1
             while items and at < stop and lines[at].startswith((" ", "\t")) and lines[at].strip():
                 at += 1  # the indented continuation lines of the last item

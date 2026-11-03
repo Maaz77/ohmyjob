@@ -195,11 +195,38 @@ def test_the_template_is_the_defaults_with_mock_search_values_and_the_marker():
     template = json.loads(text)
     expected = copy.deepcopy(W.DEFAULTS)
     expected["search"].update(MOCK_SEARCH)
-    assert template == {"_template": TEMPLATE_LINE, **expected}
-    assert list(template)[0] == "_template"  # first: deleting its line leaves valid JSON
-    assert W.validate_config(template) == expected  # the mock template loads; "_template" is not a setting
+    assert template.pop("_template") == TEMPLATE_LINE
+    hints = {key: template[section].pop(key) for section in W.DEFAULTS for key in list(template[section]) if key.startswith("_")}
+    assert template == expected
+    assert set(hints) == {f"_{key}" for keys in W.DEFAULTS.values() for key in keys}
+    assert list(json.loads(text))[0] == "_template"  # first: deleting its line leaves valid JSON
+    assert not any(W.TEMPLATE_MARKER in hint for hint in hints.values())
+    assert W.validate_config(json.loads(text)) == expected  # the mock template loads; "_..." keys are not settings
     edited = "\n".join(line for line in text.splitlines() if W.TEMPLATE_MARKER not in line)
-    assert json.loads(edited) == expected
+    assert W.validate_config(json.loads(edited)) == expected
+
+
+def test_every_hint_is_right_before_its_field_and_lists_every_valid_value():
+    raw = json.loads((TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8"))
+    for section, keys in W.DEFAULTS.items():
+        order = list(raw[section])
+        for key in keys:
+            assert order.index(f"_{key}") == order.index(key) - 1  # the hint sits right before its field
+    search = {key: raw["search"][f"_{key}"] for key in W.DEFAULTS["search"]}
+    for key, values in {"sources": W.SOURCES, "country": W.COUNTRIES, "employment_types": W.EMPLOYMENT_TYPES,
+                        "languages": W.LANGUAGES, "title_filter": ("strict", "off")}.items():
+        for value in values:  # drift guard: a new constant value must reach the hint
+            assert re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", search[key]), (key, value)
+    assert "a4" in raw["pipeline"]["_resume_paper"] and "letter" in raw["pipeline"]["_resume_paper"]
+    assert "freehire" in search["uk_sponsor_only"]
+    assert "0 = no limit" in raw["pipeline"]["_resume_max_pages"]
+
+
+def test_hint_keys_are_ignored_by_validation():
+    config = W.validate_config({"_note": "x", "search": {"_sources": "x", "sources": ["linkedin"]}, "pipeline": {"_z": 1}})
+    assert config == W.DEFAULTS
+    with pytest.raises(W.ConfigError, match="search.bogus"):
+        W.validate_config({"search": {"bogus": 1}})
 
 
 def test_every_setting_has_a_check():
@@ -237,7 +264,7 @@ def test_the_template_key_is_the_one_extra_key_and_is_not_a_setting(tmp_path):
     for bad in (None, 1, True, ["OHMYJOB-TEMPLATE"], {"x": 1}):
         with pytest.raises(W.ConfigError, match='"_template" must be a string'):
             write_config(tmp_path, {"_template": bad})
-    for key in ("$schema", "_note", "_Template", "template"):
+    for key in ("$schema", "template", "Template"):
         with pytest.raises(W.ConfigError, match=f'"{re.escape(key)}" is not a known section'):
             write_config(tmp_path, {key: "x"})
 
@@ -386,7 +413,7 @@ def test_slots_is_the_worker_limit_below_the_subagent_cap_by_one(workspace, monk
 
 
 def write_profile(root, candidate_lines, before=""):
-    (root / "Profile.md").write_text(f"{before}# Candidate\n\n{candidate_lines}\n\n# Fit Preferences\n\n- x\n",
+    (root / "Profile.md").write_text(f"{before}# Resume\n\n{candidate_lines}\n\n# Fit Preferences\n\n- x\n",
                                      encoding="utf-8")
 
 
@@ -411,16 +438,16 @@ def test_file_prefix_reads_the_usual_ways_to_write_the_name_line(workspace, line
     assert W.file_prefix() == "Robin"
 
 
-def test_file_prefix_reads_only_the_candidate_section(workspace):
-    # a name line in another section does not count, a subsection of Candidate does, and the first name line wins
-    write_profile(workspace, "## Contact\n\n- Name: Robin Doe\n- Name: Kim Roe", before="# Resume\n\n- Name: Pat Poe\n\n")
+def test_file_prefix_reads_only_the_resume_section(workspace):
+    # a name line in another section does not count, a subsection of Resume does, and the first name line wins
+    write_profile(workspace, "## Contact\n\n- Name: Robin Doe\n- Name: Kim Roe", before="# Fit Preferences\n\n- Name: Pat Poe\n\n")
     assert W.file_prefix() == "Robin"
 
 
 @pytest.mark.parametrize("content", [
-    None, "", "just text", "- Name: Alex Example", "# Resume\n\n- Name: Alex Example\n",
-    "## Candidate\n\n- Name: Alex Example\n", "# Candidate\n\nAlex Example\n", "# Candidate\n\n- Names: Alex\n",
-    "# Candidate\n\n- Name:\n- Name: Alex\n", "# Fit Preferences\n- x\n# Candidates\n- Name: Alex\n",
+    None, "", "just text", "- Name: Alex Example", "# Candidate\n\n- Name: Alex Example\n",
+    "## Resume\n\n- Name: Alex Example\n", "# Resume\n\nAlex Example\n", "# Resume\n\n- Names: Alex\n",
+    "# Resume\n\n- Name:\n- Name: Alex\n", "# Fit Preferences\n- x\n# Resumes\n- Name: Alex\n",
 ])
 def test_file_prefix_falls_back_to_resume(workspace, content):
     profile = workspace / "Profile.md"
@@ -544,10 +571,10 @@ def test_an_unreadable_config_is_one_error_that_names_the_file(workspace, monkey
 
 def test_text_that_is_not_utf8_is_one_error_that_names_the_file(workspace):
     profile = workspace / "Profile.md"
-    profile.write_bytes(b"# Candidate\n\n- Name: Jos\xe9 Example\n")  # Latin-1, not UTF-8
+    profile.write_bytes(b"# Resume\n\n- Name: Jos\xe9 Example\n")  # Latin-1, not UTF-8
     with pytest.raises(W.FileReadError) as exc:
         W.file_prefix()
-    assert str(exc.value) == f"{profile} is not UTF-8 text (byte 24). Save it as UTF-8, then run the command again."
+    assert str(exc.value) == f"{profile} is not UTF-8 text (byte 21). Save it as UTF-8, then run the command again."
     assert W.has_template_marker(profile) is False  # the marker check reads bytes: nothing to decode
     profile.write_bytes(b"<!-- OHMYJOB-TEMPLATE -->\n- Name: Jos\xe9\n")
     assert W.has_template_marker(profile) is True

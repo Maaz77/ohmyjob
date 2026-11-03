@@ -354,7 +354,7 @@ class TestQuestionsFile(T.Base):
         subprocess.run([sys.executable, "-c", code], env=self.env, cwd=SCRIPTS, check=True)
         self.assertEqual(json.loads((self.root / ".ohmyjob" / "questions.json").read_text())[0]["q"], "Years of Rust?")
         self.assertEqual(self.aa_json("answer", "--json", json.dumps([{"q": "Years of Rust?", "a": "None."}]))["saved"], 1)
-        self.assertIn("- Years of Rust? None.", (self.root / "Profile.md").read_text())
+        self.assertIn("11. Years of Rust? None.", (self.root / "Profile.md").read_text())
 
 
 class TestJobMdWins(T.Base):
@@ -954,11 +954,11 @@ class TestMockGuard(T.Base):
             self.assertEqual(self.aa_json("answer", "--json", json.dumps([{"q": "Years of Rust?", "a": "None."}]))["saved"], 1)
             text = path.read_text(encoding="utf-8")
             self.assertTrue(text.startswith(MARKER_LINE))
-            self.assertIn("# Candidate", text)
+            self.assertNotIn("# Candidate", text)
             section = text[text.index("# Follow Up Questions"):]
-            self.assertIn("- Years of Rust? None.", section)
-            self.assertEqual(text.replace("- Years of Rust? None.\n", ""), MARKER_LINE + original)
-            # the first name from "# Candidate" is the file prefix: the tailored files are found by it
+            self.assertIn("11. Years of Rust? None.", section)
+            self.assertEqual(text.replace("11. Years of Rust? None.\n", ""), MARKER_LINE + original)
+            # the first name from "# Resume" is the file prefix: the tailored files are found by it
             code = ("import aa_lib as L, workspace as W; from pathlib import Path\n"
                     "print(W.file_prefix()); print(len(L.tailored_pdfs(Path(sys.argv[1]))), len(L.tailored_yamls(Path(sys.argv[1]))))")
             out = subprocess.run([sys.executable, "-c", "import sys\n" + code, str(self.root / "Applications" / LINKEDIN_JOB)],

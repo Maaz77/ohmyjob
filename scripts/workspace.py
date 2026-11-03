@@ -164,7 +164,7 @@ QUESTIONS_BLOCKER = "questions for the candidate"
 TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"
 TEMPLATE_KEY = "_template"  # the one extra top-level key ohmyjob.json may hold (a string)
 
-_LEVEL1_HEADING_RE = re.compile(r"^#\s+(.*?)\s*$")  # "# Candidate"; "## ..." is a subsection
+_LEVEL1_HEADING_RE = re.compile(r"^#\s+(.*?)\s*$")  # "# Resume"; "## ..." is a subsection
 _NAME_LINE_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*)?name(?:\s*:\s*\*\*|\*\*\s*:|\s*:)\s*(.*)$", re.IGNORECASE)
 
 
@@ -189,9 +189,9 @@ def template_files(root: Optional[Path] = None) -> list[Path]:
 def file_prefix(root: Optional[Path] = None) -> str:
     """The ASCII slug of the first name in Profile.md, else "Resume": tailored files are <prefix>_<Company>.pdf/.yaml.
 
-    The name is the line `- Name: <First> <Last>` (also `- **Name:** ...`) under the level-1 heading `# Candidate`; the
-    first word of it is the first name. No Profile.md: "Resume". A Profile.md that cannot be read or is not UTF-8 text
-    raises FileReadError (which names it): a silent "Resume" would name the files of one run differently.
+    The name is the line `- Name: <First> <Last>` (also `- **Name:** ...`) inside the level-1 section `# Resume` of
+    Profile.md; the first word of it is the first name. No Profile.md: "Resume". A Profile.md that cannot be read or is
+    not UTF-8 text raises FileReadError (which names it): a silent "Resume" would name the files of one run differently.
     """
     path = (root or find_root()) / "Profile.md"
     try:
@@ -206,7 +206,7 @@ def file_prefix(root: Optional[Path] = None) -> str:
         if heading:
             section = heading.group(1).strip().lower()
             continue
-        match = _NAME_LINE_RE.match(line) if section == "candidate" else None
+        match = _NAME_LINE_RE.match(line) if section == "resume" else None
         if match:
             words = match.group(1).split()
             if not words:
@@ -393,6 +393,8 @@ def validate_config(raw: Any) -> dict:
         if key == TEMPLATE_KEY:
             if not isinstance(raw[key], str):
                 _fail(key, "must be a string: it is the template marker line, delete the whole line after editing")
+        elif key.startswith("_"):
+            continue  # a hint key ("_<field>"): documentation only, ignored
         elif key not in DEFAULTS:
             _fail(key, f"is not a known section. Known sections: {', '.join(DEFAULTS)}")
     config = copy.deepcopy(DEFAULTS)
@@ -401,6 +403,8 @@ def validate_config(raw: Any) -> dict:
         if not isinstance(given, dict):
             _fail(section, "must be an object")
         for key, value in given.items():
+            if key.startswith("_"):
+                continue  # a hint key ("_<field>"): documentation only, ignored
             if key not in known:
                 _fail(f"{section}.{key}", f"is not a known setting. Known settings: {', '.join(known)}")
             config[section][key] = CHECKS[f"{section}.{key}"](f"{section}.{key}", value)

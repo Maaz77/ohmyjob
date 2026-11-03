@@ -88,16 +88,16 @@ Then open the Claude extension's settings in Chrome and allow it on the sites yo
 Work in `ohmyjob/`:
 
 1. **`Profile.md`**: replace the mock data, then delete the marker line (the first line). Sections:
-   - `# Candidate`: `- Name: First Last`. The first name becomes the prefix of your resume file names.
-   - `# Fit Preferences`: what a good job is for you (roles, level, places, work authorization, languages, dealbreakers). The screening workers read it.
-   - `# Resume`: your master resume, every true fact the tailored resumes may use, with numbers where you have them. Facts you want kept off the default resumes go under `### HELD IN RESERVE`; they are used only when a question asks for them.
-   - `# Follow Up Questions`: answers the application workers reuse. One line per item, `- Question? Answer.`, under the exact heading. Replace the mock answers; `/ohmyjob:apply-jobs` asks you any question it meets that is missing and saves the answer here.
+   - `# Fit Preferences`: exactly three fields, `**Seniority / experience level:**`, `**What I'm looking for:**` and `**Dealbreakers:**`. The screening workers judge every posting against them first: the section is printed at the top of each screening brief, a dealbreaker or a clear seniority mismatch gives a low score and a reject reason that quotes your words, and "What I'm looking for" is the main fit criterion.
+   - `# Resume`: your master resume, the only source of facts for tailored resumes, so write every true fact, with numbers where you have them. It starts with header lines (`- Name: First Last`, email, phone, address, links; the first name becomes the prefix of your resume file names) and has the sections of the two resume templates: Summary, Work Experience, Education, Skills, Honors & Awards, Certificates, Extracurricular Activity, Presentation, Writing, Program Committees. The template holds one guidance line per section; `/ohmyjob:master-resume` drafts the section from your resume files.
+   - `# Follow Up Questions`: answers the application workers reuse, including your work authorization and visa status per country. A numbered list, `1. Question? Answer.`, under the exact heading (`N)` and the old `- ` lists still work). Replace the mock answers; `/ohmyjob:apply-jobs` asks you any question it meets that is missing and saves the answer here with the next number.
 2. **`ohmyjob.json`**: set your boards, search terms, location and country, page limit and paper size (every key is below), then delete the `"_template"` line.
 3. **Resumes** in `Default_Resume_Files/`:
    - Copy `Template.yaml` (or `Template-CV.yaml` for a CV) once per role you apply for and **name each copy by field**, for example `Data-Analyst.yaml`. Replace the mock data and delete the marker line in each. One yaml is one complete resume; there is no shared base file.
    - Optionally add ready-made PDF resumes named by field (for example `Nurse-ICU.pdf`), with no yaml. They are used exactly as they are and never edited.
 4. **`/ohmyjob:build-resumes`** builds a PDF next to every yaml, with the same name (`Template.yaml` and `Template-CV.yaml` too). It prints one line per file, `<file>: OK`, `<file>: OVERFLOW <N> pages` (longer than `resume_max_pages`: shorten the yaml or raise the limit, then run it again) or `<file>: FAIL <reason>`, a `WARNING <file>: still has the template marker` line for a file you have not finished editing, and a last `SUMMARY <n> OK, <n> OVERFLOW, <n> FAIL` line. The exit code is 0 only when every file is OK. It never edits your files.
-5. Run the daily loop above.
+5. **`/ohmyjob:master-resume`** drafts the `# Resume` section of `Profile.md` from your resume files. A script (no model) merges every resume yaml (the same job, degree or award in several files becomes one entry; bullets and skills are united and near-duplicates keep the longer text) and turns every PDF without a yaml into text; Claude then adds the facts of those texts to the draft, and `ohmyjob resume master --apply` saves it into `Profile.md` after backing up the old file as `.ohmyjob/backup/Profile-<UTC timestamp>.md`. The script prints `DRAFT <path>`, one `PDF <path>` per PDF text and `SUMMARY <n> yaml, <m> pdf`. **Then revise the section by hand**: it is a draft, and tailoring uses it as its only source of facts.
+6. Run the daily loop above.
 
 During screening, the usable resumes are every `<name>.yaml` with a built `<name>.pdf` (tailored per job) and every `<name>.pdf` without a yaml (used as is). `Template.*` and any file that still holds the marker are never used. A job that matches a ready-made PDF gets a copy of it in its folder, named `<First>_<Company>_<Title>.pdf`, and goes straight to `Resume Built`; a job that matches a yaml gets a tailored copy (`.yaml` and `.pdf`) from a worker.
 
@@ -113,7 +113,7 @@ Until you delete the marker lines, the commands that would act on mock data refu
 
 ## Configuration: `ohmyjob.json`
 
-Created by setup with mock values; you edit it (see above). Unknown keys and bad values are refused with a message naming the key.
+Created by setup with mock values; you edit it (see above). Unknown keys and bad values are refused with a message naming the key. Every field has a hint key `"_<field>"` right before it in the file: one line with what it does, its type and default, and all valid values of a choice field. Keys that start with `_` are ignored, so leave the hints or delete them; setup ends by explaining every field from its hint.
 
 `search`:
 

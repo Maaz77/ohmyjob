@@ -731,8 +731,9 @@ class TestQuestions(Base):
         self.assertEqual((out["saved"], out["still_waiting"], len(out["jobs_that_can_continue"])), (1, 0, 2))
         profile = (self.root / "Profile.md").read_text()
         section = profile[profile.index("# Follow Up Questions"):]
-        self.assertIn(f"- {question} Less than 1 year (I don't use it at work).", section)
-        self.assertEqual(profile.replace(f"- {question} Less than 1 year (I don't use it at work).\n", ""), before)
+        number = len(re.findall(r"^\d+\. ", before.split("# Follow Up Questions")[1], re.M)) + 1  # the next number
+        self.assertIn(f"{number}. {question} Less than 1 year (I don't use it at work).", section)
+        self.assertEqual(profile.replace(f"{number}. {question} Less than 1 year (I don't use it at work).\n", ""), before)
         self.assertEqual(self.aa_json("questions")["questions"], [])
 
     def test_question_details(self):
@@ -768,10 +769,23 @@ class TestQuestions(Base):
                                                  {"q": "Start date?", "a": "In 3 months"}]))
         self.assertEqual((out["saved"], out["jobs_that_can_continue"]), (2, ["Beta | Dev"]))
         profile = (self.root / "Profile.md").read_text()
-        self.assertEqual(profile.count("- Phone Device Type: Mobile"), 1)
-        self.assertIn("- Start date? In 3 months", profile)
+        self.assertEqual(profile.count(". Phone Device Type: Mobile"), 1)
+        self.assertIn("13. Start date? In 3 months", profile)  # numbered on: the fixture list ends at 10 + the C++ answer 11, Phone 12
+        self.assertIn("10. Needs adjustments for a disability? No.", profile)
         add(["Phone Device Type"], "Gamma | Dev")  # answered now: not asked again
         self.assertEqual([q["q"] for q in run("questions")["questions"]], ["Years of C# experience?"])
+
+
+class TestNumberedAnswers(Base):
+    def test_numbered_list_parses_and_old_dash_lists_still_count(self):
+        code = ("import aa, workspace as W; from pathlib import Path\n"
+                "p = W.PROFILE; p.write_text('# Follow Up Questions\\n\\n- Old one? A.\\n3) Paren one? B.\\n7. Dot one? C.\\n')\n"
+                "print(sorted(aa.answered_questions()))\n"
+                "aa.save_answers([('New one?', 'D.'), ('Other', 'E.')])\n"
+                "print(p.read_text())")
+        out = subprocess.run([sys.executable, "-c", code], env=self.env, cwd=SCRIPTS, capture_output=True, text=True, check=True).stdout
+        self.assertIn("['dot one', 'old one', 'paren one']", out)
+        self.assertTrue(out.rstrip().endswith("7. Dot one? C.\n8. New one? D.\n9. Other: E."), out)
 
 
 class TestStagger(Base):

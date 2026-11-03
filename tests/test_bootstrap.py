@@ -585,15 +585,23 @@ def test_profile_template_shape_and_privacy():
     text = (ROOT / "templates" / "Profile.md").read_text()
     assert text.splitlines()[0] == "<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->"
     headings = [l for l in text.splitlines() if l.startswith("# ")]
-    assert headings == ["# Candidate", "# Fit Preferences", "# Resume", "# Follow Up Questions"]
-    assert "- Name: Alex Example" in text and "### HELD IN RESERVE" in text
+    assert headings == ["# Fit Preferences", "# Resume", "# Follow Up Questions"]
+    assert "HELD IN RESERVE" not in text and "# Candidate" not in text
+    for field in ("Seniority / experience level", "What I'm looking for", "Dealbreakers"):
+        assert f"- **{field}:**" in text
+    resume = text.split("# Resume", 1)[1].split("# Follow Up Questions", 1)[0]
+    for heading in ("Summary", "Work Experience", "Education", "Skills", "Honors & Awards", "Certificates",
+                    "Extracurricular Activity", "Presentation", "Writing", "Program Committees"):
+        assert f"## {heading}\n" in resume
+    assert "/ohmyjob:master-resume" in resume
     questions = text.split("# Follow Up Questions", 1)[1]
-    items = [l for l in questions.splitlines() if l.startswith("- ")]
+    items = [l for l in questions.splitlines() if re.match(r"\d+\. ", l)]
+    assert [int(l.split(".")[0]) for l in items] == list(range(1, len(items) + 1))
     assert len(items) >= 40 and all("?" in l for l in items)
     placeholders = " ".join(items)
     for token in ("<company>", "<country>", "<job site>"):
         assert token in placeholders
-    assert all(re.fullmatch(r"- [^?]+\? \S.*", line) for line in items)
+    assert all(re.fullmatch(r"\d+\. [^?]+\? \S.*", line) for line in items)
     # the owner's own list never reaches the repo: given its path, no answer of it appears here
     private = os.environ.get("OHMYJOB_PRIVATE_QUESTIONS")
     if private and Path(private).exists():

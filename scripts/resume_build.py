@@ -2,7 +2,7 @@
 """Build a resume PDF: read ONE full resume yaml, render the Awesome-CV LaTeX template, compile with LuaLaTeX.
 
 CLI: `ohmyjob resume build <resume.yaml> [--out <pdf>]` prints one line: `OK <pdf>`, `OVERFLOW <N> pages` or
-`FAIL <reason>`. `ohmyjob resume build-all [--dir <dir>]` builds every *.yaml of the dir (default
+`FAIL <reason>`. `ohmyjob resume master [--apply]` drafts the Resume section of Profile.md (master_resume.py). `ohmyjob resume build-all [--dir <dir>]` builds every *.yaml of the dir (default
 Default_Resume_Files) next to itself and prints one line per file. Import API (used by pj.py): `build()`, `render()`, `ignored_keys()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
 
 Everything in the yaml is data from a model: `tex()` escapes every LaTeX special, so yaml text never reaches LaTeX as a
@@ -508,7 +508,13 @@ def main(argv=None) -> int:
     b.add_argument("--out", type=Path, default=None, help="PDF path (default: the yaml path with .pdf)")
     a = sub.add_parser("build-all", help="build every *.yaml of a folder into a PDF next to it")
     a.add_argument("--dir", type=Path, default=None, help="folder (default: Default_Resume_Files)")
+    m = sub.add_parser("master", help="draft the # Resume section of Profile.md from the resume files (no model)")
+    m.add_argument("--apply", action="store_true", help="replace the # Resume section of Profile.md with the draft")
     args = ap.parse_args(argv)
+    if args.cmd == "master":
+        import master_resume
+
+        return master_resume.run(args.apply)
     if args.cmd == "build-all":
         try:
             return build_all(args.dir or W.DEFAULT_RESUMES)

@@ -558,6 +558,11 @@ def process_report(agent_id: Optional[str], message: str) -> tuple[str, str, dic
 # --------------------------------------------------------------------------- briefs
 
 
+def fit_preferences() -> str:
+    """The `# Fit Preferences` section of Profile.md, verbatim (without its heading)."""
+    return (L.md_section_body(W.PROFILE.read_text(encoding="utf-8"), "Fit Preferences", 1) or "").strip()
+
+
 def write_screen_brief(run_dir: Path, key: str, job: dict) -> Path:
     md = (W.APPLICATIONS / job["folder"] / "job.md").read_text(encoding="utf-8")
     overview = L.md_section_body(md, r"(1\.\s*)?Overview", 2) or ""
@@ -566,6 +571,9 @@ def write_screen_brief(run_dir: Path, key: str, job: dict) -> Path:
     text = f"""# Screening brief: {job['company']} | {job['title']}
 
 - job: {key}
+
+## CANDIDATE FIT PREFERENCES (judge the posting against these FIRST)
+{fit_preferences() or '(Profile.md has no "Fit Preferences" section)'}
 
 ## Profile.md (full text)
 {W.PROFILE.read_text(encoding='utf-8').strip()}

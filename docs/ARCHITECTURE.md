@@ -15,6 +15,7 @@ How ohmyjob is put together. Exact names, formats and conventions that scripts, 
 | Skill | Role |
 |---|---|
 | `setup` | Idempotent preparation and health check: version gate, plugin-scope and Chrome checks (Chrome is a warning only), bootstrap (scoped installs, the `ohmyjob/` skeleton, mock templates, `Template.pdf`), extension steps, then it prints what the user fills in. It never interviews and never writes the user's data. |
+| `master-resume` | Runs `ohmyjob resume master`: a script merges the resume yamls and extracts PDF text into a draft of `# Resume`; Claude adds the PDF facts; `--apply` saves it into Profile.md after a backup. |
 | `build-resumes` | Runs `ohmyjob resume build-all`: a PDF next to every yaml in `Default_Resume_Files/`; reports `OK`, `OVERFLOW` or `FAIL` per file. Never edits a yaml. |
 | `find-jobs` | Runs `ohmyjob scrape` in the background and summarizes (also usable from a scheduled `claude -p`). |
 | `prep-jobs` | Forks the `prep-master` agent. |
@@ -124,7 +125,7 @@ The workspace is the `ohmyjob/` folder inside the project folder (the folder Cla
 | Path | Content |
 |---|---|
 | `ohmyjob.json` | Config and the workspace marker; hooks do nothing without it. Its `_template` key (the only extra key accepted) means "not edited yet". |
-| `Profile.md` | `# Candidate` (the first name gives the file prefix), `# Fit Preferences`, `# Resume` (optional `### HELD IN RESERVE`), `# Follow Up Questions`. A first line with `OHMYJOB-TEMPLATE` means mock data. |
+| `Profile.md` | `# Fit Preferences` (three fields, screened against first), `# Resume` (the master resume; its `- Name:` line gives the file prefix), `# Follow Up Questions` (numbered). A first line with `OHMYJOB-TEMPLATE` means mock data. |
 | `Job_Tracker.xlsx` | One row per job: Job URL, Status, Company, Job Title, Date Found, Location, Source, Match Score, Notes. Statuses: `Found`, `Matched`, `Skipped-LowFit`, `Resume Built`, `Resume Failed`, `Pending Review`, `Needs Attention`, `Submitted`, `Deleted`. |
 | `Default_Resume_Files/` | `Template.yaml` and `Template.pdf` (never used for jobs); one complete `<Field>.yaml` per resume with its built `<Field>.pdf`; optional ready-made `<Field>.pdf` without a yaml. Named by field by the user; never edited by the pipeline. |
 | `Applications/`, `Pending-Review/`, `Needs-Attention/`, `Submitted/` | One folder per job named `<job_key>_<Company>_<Title>`, holding `job.md`, the tailored yaml and PDF. |

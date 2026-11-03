@@ -44,13 +44,20 @@ Print for the user, with the real path from the `extension:` line (only needed f
 2. Open the Claude extension's settings in Chrome and allow it on the sites you will apply on (the job boards and the company career sites). Per-site permissions live in the extension; nothing here can set them.
 3. Sign in to LinkedIn (and any board you use) in that same Chrome profile.
 
-## 6. Next steps (print this, then stop)
+## 6. Next steps (print this, then go to step 7)
 Tell the user, with the real `workspace:` path:
-1. Open `ohmyjob/Profile.md` and replace the mock data with yours: `# Candidate`, `# Fit Preferences`, `# Resume` (everything true about you; tailored resumes use only this and your resume files) and `# Follow Up Questions` (answers to the questions forms ask). Then delete the first line, the `OHMYJOB-TEMPLATE` marker line.
-2. Open `ohmyjob/ohmyjob.json` and set your job boards, search titles, location and country (a country is required while `indeed` or `glassdoor` is a source), the page limit and the paper size. Then delete the `"_template"` line. Every key is documented in the README.
+1. Open `ohmyjob/Profile.md` and replace the mock data with yours: `# Fit Preferences` (three fields: seniority / experience level, what you are looking for, dealbreakers; the screening judges every posting against them first), `# Resume` (the guidance lines only say what goes where; step 5 drafts it for you) and `# Follow Up Questions` (a numbered list of the questions forms ask, with your answers, work authorization included). Then delete the first line, the `OHMYJOB-TEMPLATE` marker line.
+2. Open `ohmyjob/ohmyjob.json` and set your job boards, search titles, location and country (a country is required while `indeed` or `glassdoor` is a source), the page limit and the paper size. Then delete the `"_template"` line. Every key has a hint line (`"_<field>"`) above it; step 7 lists them all.
 3. In `ohmyjob/Default_Resume_Files/`, copy `Template.yaml` (or `Template-CV.yaml`) to one file per role you apply for, named by field (for example `Data-Analyst.yaml`), replace the mock data and delete the marker line in each. Optionally add ready-made PDF resumes there, also named by field (for example `Nurse-ICU.pdf`); they are used as they are.
 4. Run `/ohmyjob:build-resumes` to build a PDF next to every resume yaml. Fix any OVERFLOW it reports (the resume is longer than your page limit) and run it again.
-5. Close this session, then start Claude in the project folder (the folder that holds `.claude/` and `ohmyjob/`; project settings and hooks load only from the folder Claude starts in) with:
+5. Run `/ohmyjob:master-resume`: it drafts the `# Resume` section of `Profile.md` from your resume files (yamls and PDFs; the old `Profile.md` is saved first). Then revise that section by hand: tailored resumes use it as their only source of facts.
+6. Close this session, then start Claude in the project folder (the folder that holds `.claude/` and `ohmyjob/`; project settings and hooks load only from the folder Claude starts in) with:
 `claude --setting-sources project,local --strict-mcp-config --chrome`
-6. The daily loop: `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs`, fix the tabs in "Needs Attention", `/ohmyjob:continue-applying`, submit by hand, `/ohmyjob:reconcile`.
+7. The daily loop: `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs`, fix the tabs in "Needs Attention", `/ohmyjob:continue-applying`, submit by hand, `/ohmyjob:reconcile`.
 Until the marker lines are deleted, the commands refuse to run: that is intended.
+
+## 7. Explain `ohmyjob.json` (last, after the list above)
+Read `ohmyjob/ohmyjob.json` (Read tool). Every field has a hint key `"_<field>"` right before it. Print a compact table, one row per field of `search` and `pipeline`, with the columns Field, What it does, Type and default, Valid values, taken from the hints: list ALL valid values of a choice field (sources, country, employment_types, languages, title_filter, resume_paper), do not shorten them. Note the freehire-only `uk_sponsor_only` and that `resume_max_pages` 0 means no limit. Then explain how to edit the JSON safely:
+- Edit only the values; keep the quotes, the commas between entries and no comma after the last entry of a block. A list is `["a", "b"]`, a flag is `true` or `false` without quotes, a number has no quotes.
+- Keys that start with `_` are hints: they are ignored, so leave them or delete them; do not rename a real field.
+- Delete the `"_template"` line when the values are yours. A wrong value or a typo in a key is refused with a message that names the key; fix it and run the command again.

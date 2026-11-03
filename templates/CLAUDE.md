@@ -17,7 +17,7 @@ Claude starts in):
 
 ## Files
 - `ohmyjob.json`: settings (boards, search terms, country, page limit, parallel workers).
-- `Profile.md`: `# Candidate`, `# Fit Preferences`, `# Resume`, `# Follow Up Questions` (answers reused on application forms).
+- `Profile.md`: `# Fit Preferences`, `# Resume` (the master resume, the only source of facts for tailoring), `# Follow Up Questions` (numbered answers reused on application forms).
 - `Job_Tracker.xlsx`: one row per job. Close it in Excel / LibreOffice before running a command.
 - `Default_Resume_Files/`: one `<Field>.yaml` per role family (copied from `Template.yaml`) and its `<Field>.pdf`, plus
   optional ready-made `<Field>.pdf` files.

@@ -60,9 +60,8 @@ A hook enforces these rules, in every language. When it blocks a call, the block
 
 ## How to answer
 - Facts: only from the brief (Profile.md and the tailored resume). Copy values exactly. For this job, prefer the wording of the tailored resume.
-- The Profile.md part "HELD IN RESERVE": use it only when a question asks for it directly.
 - Values that LinkedIn pre-filled from the candidate's profile: do not change them.
-- Work authorization and visa sponsorship: answer from Profile.md (its Fit Preferences and "Follow Up Questions"), for the country of this job or the country that the question names.
+- Work authorization and visa sponsorship: answer from the "Follow Up Questions" in Profile.md, for the country of this job or the country that the question names.
 - "How did you hear about this job?": LinkedIn when the Job URL is on linkedin.com. Otherwise "Job board", or the nearest choice (Internet, Other).
 - Voluntary diversity questions (gender, ethnicity, disability, veteran status and similar): select "Prefer not to say" or the equal choice ("Decline to self-identify", "I don't wish to answer"). If there is no such choice, leave it empty and list it in `open`.
 - Open-text questions (motivation, "why this company", a cover-letter text box): write a short draft from the brief only: 3 to 5 sentences, at most 120 words, within the field limit, in the language of the question. Put each draft in `drafted`.

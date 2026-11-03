@@ -216,6 +216,18 @@ def test_bold_job_md_and_missing_row_are_handled(pe):
     assert "- **Match Score:** 8\n- **Matched Resume:** Operations-Analyst.pdf\n" in md
 
 
+def test_screen_brief_puts_the_fit_preferences_first(pe):
+    pe.folder("1001", "Acme", "Operations Analyst")
+    pe.pj("start")
+    [(job, brief)] = pe.workers(pe.pj("assign-screen"))
+    text = Path(brief).read_text(encoding="utf-8")
+    prefs = (pe.root / "Profile.md").read_text(encoding="utf-8").split("# Fit Preferences", 1)[1].split("# Resume", 1)[0]
+    head = text.split("## Profile.md (full text)", 1)[0]
+    assert "CANDIDATE FIT PREFERENCES" in head and prefs.strip() in head
+    assert "Seniority / experience level" in head and "Dealbreakers" in head
+    assert text.index("CANDIDATE FIT PREFERENCES") < text.index("## Job: Overview")
+
+
 def test_next_fills_a_free_slot_at_once(pe):
     for job_id, company in [("1001", "Acme"), ("1002", "Beta"), ("1003", "Gamma")]:
         pe.folder(job_id, company, "Analyst")

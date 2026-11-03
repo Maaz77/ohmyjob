@@ -23,18 +23,21 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - `load_config(root=None)`, `validate_config(raw)`: defaults filled in, `ConfigError` names the bad key. Unknown keys are
   errors: a new setting needs `DEFAULTS`, `CHECKS` and `templates/ohmyjob.json`. The one other top-level key accepted
   is `_template` (`TEMPLATE_KEY`, a string): it is not in the returned config, and `template_files()` reports it.
+  Every other key that starts with `_` (top level or inside `search`/`pipeline`) is a hint and is ignored.
   Validation also rejects what the tools would fail on later: `languages` must be in `W.LANGUAGES` (simplemma's
   tuple, pinned by test; `ja`, `zh`, `xx` are refused), and `country` is required while `indeed` or `glassdoor` is in
   `sources` (JobSpy would search the USA). `DEFAULTS` has `sources: ["linkedin"]`, so `{}` loads.
 - `templates/ohmyjob.json` is the mock template (test-pinned): `_template` as its FIRST key (deleting that line leaves
-  valid JSON), then `DEFAULTS` with the mock search values `sources ["linkedin", "indeed"]`, `search_query ["Operations
+  valid JSON), then `DEFAULTS`, each field preceded by a hint key `"_<field>"` (one line: what it does, type and
+  default, and ALL valid values of a choice field; no hint holds the marker string; a test checks every constant of
+  `W.SOURCES/COUNTRIES/EMPLOYMENT_TYPES/LANGUAGES` appears in its hint) with the mock search values `sources ["linkedin", "indeed"]`, `search_query ["Operations
   Analyst"]`, `location "Berlin, Germany"`, `country "germany"`. It loads as it is.
 - Template marker: `TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"`. `has_template_marker(path) -> bool`: a raw text search of the
   whole file, nothing parsed or decoded; False when the file is missing.
   `template_files(root=None) -> list[Path]`: those of `ohmyjob.json` and `Profile.md` (in that order) that still hold it.
 - `slots(config=None) -> int`: `min(max_parallel_workers, subagent cap - 1)`; call it late, not at import.
   `file_prefix(root=None) -> str`: ASCII slug of the first word of the `- Name: <First> <Last>` line (also
-  `- **Name:** ...`) under the level-1 heading `# Candidate` of `Profile.md`, else `Resume`; tailored files are
+  `- **Name:** ...`) inside the level-1 section `# Resume` of `Profile.md`, else `Resume`; tailored files are
   `<prefix>_<Company>.pdf/.yaml`. No resume yaml is read; a missing `Profile.md` gives `Resume`.
 - Unreadable files: `has_template_marker`, `template_files` and `file_prefix` raise `W.FileReadError` (a `WorkspaceError`
   and an `OSError`) for a file that exists but cannot be read (no permission, a symlink loop) or, where text is
@@ -57,8 +60,21 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   `W.template_files()` is not empty; `prep` refuses while `Profile.md` holds the marker, never uses `Template.*` or a
   resume file that holds it, and refuses when no usable resume is left; `apply` (also `--continue`) refuses while
   `Profile.md` holds it. Check with `has_template_marker()` / `template_files()` only, never with your own parsing.
-- `Profile.md` sections: `# Candidate` (`- Name: ...`), `# Fit Preferences`, `# Resume` (the master pool, optional
-  `### HELD IN RESERVE`), `# Follow Up Questions`.
+- `Profile.md` sections: `# Fit Preferences` (exactly three fields: `**Seniority / experience level:**`, `**What I'm
+  looking for:**`, `**Dealbreakers:**`; `pj.py` puts the section verbatim at the top of every screen brief under
+  `CANDIDATE FIT PREFERENCES`, and the screen-worker judges against it first), `# Resume` (the master resume and the only
+  source of facts for tailoring: header lines `- Name: <First> <Last>`, email, phone, address, links, then `##`
+  sections Summary, Work Experience, Education, Skills, Honors & Awards, Certificates, Extracurricular Activity,
+  Presentation, Writing, Program Committees (and Projects); entries `### <Role> | <Company> | <Location> | <Dates>` +
+  `- bullet`, skills `- **<Label>:** items`), `# Follow Up Questions` (a NUMBERED list `1. Question? Answer.`; the parser
+  accepts `N.`, `N)` and `- `; `aa.py answer` appends with the next number; work authorization lives only here).
+- `ohmyjob resume master` (`scripts/master_resume.py`, dispatched from `resume_build.py`; no model): merges every usable yaml
+  of `Default_Resume_Files` (not `Template*`, not a marked file) and writes the draft of `# Resume` to
+  `.ohmyjob/master-resume.md`, the text of every usable PDF without a yaml to `.ohmyjob/master-resume-pdf/<name>.txt`;
+  prints `DRAFT <path>`, `PDF <path>` per text, `SUMMARY <n> yaml, <m> pdf`, or `FATAL: ...`. `--apply` replaces only
+  the `# Resume` section (up to the next level-1 heading) after saving `.ohmyjob/backup/Profile-<UTC timestamp>.md`;
+  prints `OK <backup path>`. Same job = normalized company + role + dates; near-duplicate lines (rapidfuzz ratio >= 90)
+  keep the longer.
 
 ## Resume yaml (one full file per resume)
 - Each resume is ONE complete yaml, never merged with another file: `Default_Resume_Files/Template.yaml`, the user's
@@ -202,7 +218,7 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 
 ## Tests
 - `tests/fixtures/workspace/` (fictional persona Alex Example, an edited workspace: no template marker): `ohmyjob.json`,
-  `Profile.md` (`# Candidate` with `- Name: Alex Example`, then Fit Preferences, Resume, Follow Up Questions),
+  `Profile.md` (Fit Preferences, then Resume with `- Name: Alex Example`, then a numbered Follow Up Questions),
   `Default_Resume_Files/{Operations-Analyst,Project-Coordinator}.yaml` (full resumes: the first with a grouped employer,
   `show_interests: yes`, `education_details: yes`; the second with `projects: []` and both flags `no`),
   `Applications/4399000001_Lumenfield-Logistics_Operations-Analyst/job.md` (LinkedIn id, `- Key: value`) and
