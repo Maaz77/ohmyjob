@@ -629,3 +629,22 @@ def test_git_snapshot_respects_gitignore(setup, capsys, monkeypatch):
     scrape.run(root, configure(git_snapshot=True))
     shown = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format=%s"], capture_output=True, text=True).stdout
     assert "ohmyjob snapshot" in shown and "Job_Tracker.xlsx" in shown and "Applications" not in shown
+
+
+@pytest.mark.parametrize("name,text", [("ohmyjob.json", None), ("Profile.md", "<!-- OHMYJOB-TEMPLATE: edit me -->\n# Candidate\n")])
+def test_mock_guard_refuses_while_a_template_marker_is_left(setup, capsys, name, text):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post())
+    search = configure()
+    if text is None:
+        raw = json.loads((root / name).read_text(encoding="utf-8"))
+        raw["_template"] = "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line"
+        (root / name).write_text(json.dumps(raw), encoding="utf-8")
+    else:
+        (root / name).write_text(text, encoding="utf-8")
+    assert scrape.main([]) == scrape.EXIT_FATAL
+    out = capsys.readouterr().out.splitlines()
+    assert len(out) == 1 and out[0].startswith("FATAL: ") and name in out[0]
+    assert calls == [] and rows(root) == []
+    with pytest.raises(scrape.Stop, match="template marker"):
+        scrape.run(root, search)

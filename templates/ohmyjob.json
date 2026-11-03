@@ -1,9 +1,10 @@
 {
+  "_template": "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line",
   "search": {
-    "sources": ["linkedin"],
-    "search_query": [],
-    "location": "",
-    "country": "",
+    "sources": ["linkedin", "indeed"],
+    "search_query": ["Operations Analyst"],
+    "location": "Berlin, Germany",
+    "country": "germany",
     "recency_days": 1,
     "results_per_term": 30,
     "employment_types": ["fulltime", "parttime", "contract"],

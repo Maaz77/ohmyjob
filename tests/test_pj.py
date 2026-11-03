@@ -66,6 +66,23 @@ def job_md(url: str, company: str, title: str, location: str = "Berlin, Germany"
         "## 3. Match Reasoning and Discussions", "", "### Why Matched?", "", "### Gaps?", ""])
 
 
+def make_pdf(text: str) -> bytes:
+    """A one-page PDF whose text pypdf can read back (no LaTeX)."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    return out + b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+
+
 class Env:
     def __init__(self, root: Path, tmp: Path):
         self.root, self.tmp = root, tmp
@@ -532,7 +549,8 @@ def test_empty_catalog_stops_screening(pe):
         p.unlink()
     pe.folder("2001", "Acme", "Analyst")
     pe.row("2001", "Acme", "Analyst", "Found")
-    assert "FATAL" in pe.pj("start") and "/ohmyjob:resumes" in pe.pj("start")
+    out = pe.pj("start")
+    assert out.startswith("FATAL") and "/ohmyjob:build-resumes" in out and "marker" in out
 
 
 def test_no_build_report_leaves_matched(pe):
@@ -787,3 +805,128 @@ def test_a_fake_cwd_in_tool_input_does_not_pick_the_workspace(pe, tmp_path):
     proc = subprocess.run([sys.executable, str(SCRIPTS / "pj_hooks.py"), "guard"], input=json.dumps(payload),
                           capture_output=True, text=True, env=env, cwd=elsewhere)
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+# --------------------------------------------------------------------------- v2: catalog, ready-made PDFs, mock guard
+
+
+def test_the_mock_guard_refuses_while_profile_has_the_marker(pe):
+    prof = pe.root / "Profile.md"
+    prof.write_text("<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->\n" + prof.read_text())
+    out = pe.pj("start")
+    assert out.count("\n") == 0 and out.startswith("FATAL") and "Profile.md" in out
+    assert not (pe.root / ".ohmyjob" / "run" / "prep").exists()
+
+
+def test_catalog_lists_yaml_and_ready_made_resumes_but_never_templates(pe):
+    d = pe.root / "Default_Resume_Files"
+    (d / "Nurse-ICU.pdf").write_bytes(make_pdf("Registered nurse, ICU, ten years of ward experience"))
+    (d / "Template.yaml").write_text((d / "Operations-Analyst.yaml").read_text())
+    (d / "Template.pdf").write_bytes(b"%PDF")
+    (d / "Marked.yaml").write_text("# OHMYJOB-TEMPLATE: copy me\n" + (d / "Operations-Analyst.yaml").read_text())
+    (d / "Marked.pdf").write_bytes(b"%PDF")
+    (d / "Marked-Only.pdf").write_bytes(b"%PDF OHMYJOB-TEMPLATE")
+    (d / "Unbuilt.yaml").write_text((d / "Operations-Analyst.yaml").read_text())  # no PDF: not usable
+    pe.folder("1001", "Acme", "Analyst")
+    pe.row("1001", "Acme", "Analyst", "Found")
+    pe.pj("start")
+    index = json.loads((pe.root / ".ohmyjob" / "catalog" / "index.json").read_text())
+    assert index == {OPS: "tailorable", COORD: "tailorable", "Nurse-ICU.pdf": "ready-made"}
+    text = (pe.root / ".ohmyjob" / "catalog" / "catalog.md").read_text()
+    assert "registered nurse" in text.lower() and "ten years of ward experience" in text
+    assert "Operations analyst with six years" in text and "Template" not in text and "Marked" not in text
+    [(job, brief)] = pe.workers(pe.pj("assign-screen"))
+    body = Path(brief).read_text()
+    assert "- Nurse-ICU.pdf (ready-made)" in body and f"- {OPS} (tailorable)" in body
+    # the screener may read its brief and the catalog text, nothing else (no PDF)
+    pe.bind(SCREEN, "s1", brief)
+    cat = str(pe.root / ".ohmyjob" / "catalog" / "catalog.md")
+    assert pe.guard(SCREEN, "s1", "Read", {"file_path": cat}).returncode == 0
+    assert pe.guard(SCREEN, "s1", "Read", {"file_path": str(pe.root / "Default_Resume_Files" / "Nurse-ICU.pdf")}).returncode == 2
+    assert pe.guard(MASTER, "m", "Read", {"file_path": cat}).returncode == 2
+    other = pe.hook("guard", {"agent_type": BUILDER, "agent_id": "r9", "tool_name": "Read", "tool_input": {"file_path": cat}})
+    assert other.returncode == 2
+
+
+def test_only_template_files_means_no_usable_resume(pe):
+    d = pe.root / "Default_Resume_Files"
+    for p in list(d.glob("*")):
+        p.unlink()
+    (d / "Template.yaml").write_text("# OHMYJOB-TEMPLATE: x\ntitle: T\n")
+    (d / "Template.pdf").write_bytes(b"%PDF")
+    out = pe.pj("start")
+    assert out.startswith("FATAL") and "build-resumes" in out and "marker" in out
+
+
+def test_a_ready_made_match_is_copied_and_set_to_resume_built(pe):
+    (pe.root / "Default_Resume_Files" / "Nurse-ICU.pdf").write_bytes(make_pdf("Registered nurse ICU"))
+    folder = pe.folder("1001", "Acme", "ICU Nurse")
+    pe.row("1001", "Acme", "ICU Nurse", "Found")
+    assert json.loads(pe.pj("start"))["screen"] == 1
+    [(job, brief)] = pe.workers(pe.pj("assign-screen"))
+    pe.bind(SCREEN, "s1", brief)
+    bad = pe.report(SCREEN, "s1", {"job": job, "score": 9, **{**MATCH, "matched_resume": "Missing.pdf"}})
+    assert bad.returncode == 2  # only catalog names are accepted
+    ok = pe.report(SCREEN, "s1", {"job": job, "score": 9, **{**MATCH, "matched_resume": "Nurse-ICU.pdf"}})
+    assert ok.returncode == 0, ok.stderr
+    assert pe.pj("record").startswith("OK recorded: 1 Resume Built")
+    row = pe.rows()[job]
+    assert (row["Status"], row["Match Score"]) == ("Resume Built", 9)
+    assert (folder / "Alex_Acme_ICU-Nurse.pdf").read_bytes() == (pe.root / "Default_Resume_Files" / "Nurse-ICU.pdf").read_bytes()
+    assert not list(folder.glob("*.yaml"))
+    md = (folder / "job.md").read_text()
+    assert "- Matched Resume: Nurse-ICU.pdf" in md and "# Resume Preparation" in md and "Ready-made resume used as it is" in md
+    assert json.loads(pe.pj("next")) == {"done": True}  # no build job, no resume-worker
+    summary = pe.pj("end")
+    assert "Resumes built: 1 (1 ready-made)" in summary and "Folder check OK" in summary
+
+
+def test_a_ready_made_copy_is_undone_when_the_tracker_is_stale(pe):
+    (pe.root / "Default_Resume_Files" / "Nurse-ICU.pdf").write_bytes(make_pdf("Registered nurse ICU"))
+    folder = pe.folder("1001", "Acme", "ICU Nurse")
+    pe.row("1001", "Acme", "ICU Nurse", "Found")
+    pe.pj("start")
+    [(job, brief)] = pe.workers(pe.pj("assign-screen"))
+    pe.bind(SCREEN, "s1", brief)
+    assert pe.report(SCREEN, "s1", {"job": job, "score": 9, **{**MATCH, "matched_resume": "Nurse-ICU.pdf"}}).returncode == 0
+    code = ("import pj, tracker\nreal = tracker.Tracker.save\n"
+            "def save(self):\n    t = tracker.Tracker(self.path); t.set_cell(1, 'Notes', 'by hand'); real(t)\n    real(self)\n"
+            "tracker.Tracker.save = save\npj.main(['record'])\n")
+    assert "FATAL" in pe.run(code).stdout
+    assert not list(folder.glob("*.pdf")) and pe.rows()[job]["Status"] == "Found"
+
+
+def test_a_yaml_match_still_goes_to_the_resume_worker(pe):
+    pe.folder("1001", "Acme", "Analyst")
+    pe.row("1001", "Acme", "Analyst", "Found")
+    pe.pj("start")
+    [(job, brief)] = pe.workers(pe.pj("assign-screen"))
+    pe.bind(SCREEN, "s1", brief)
+    assert pe.report(SCREEN, "s1", {"job": job, "score": 8, **MATCH}).returncode == 0
+    assert pe.pj("record").startswith("OK recorded: 1 Matched")
+    assert pe.rows()[job]["Status"] == "Matched"
+    out = json.loads(pe.pj("assign-build"))
+    assert out["subagent_type"] == BUILDER and len(out["workers"]) == 1
+
+
+def test_pdf_text_is_extracted_with_pypdf(pj, workspace):
+    path = workspace / "x.pdf"
+    path.write_bytes(make_pdf("Hello catalog"))
+    assert "Hello catalog" in pj.pdf_text(path)
+    path.write_bytes(b"not a pdf")
+    assert "could not be read" in pj.pdf_text(path)
+
+
+def test_header_and_education_are_frozen_in_the_one_file_yaml(pj, workspace):
+    src = load(workspace, "Operations-Analyst")
+    assert pj.check_yaml(copy(src), src, False, "") == []
+    for key, value in (("name", {"first": "Sam", "last": "Other"}), ("email", "sam@example.com"), ("phone", "1"),
+                       ("address", "Elsewhere 1"), ("linkedin", "sam"), ("sections", {"skills": "Other"}),
+                       ("education", [{"degree": "PhD", "school": "X", "location": "Y", "dates": "1", "details": []}]),
+                       ("education_details", "no")):
+        new = copy(src)
+        new[key] = value
+        assert any(f"'{key}' must stay unchanged" in e for e in pj.check_yaml(new, src, False, "")), key
+    new = copy(src)
+    del new["education"]
+    assert any("top-level keys changed" in e for e in pj.check_yaml(new, src, False, ""))

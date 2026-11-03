@@ -73,10 +73,14 @@ ALLOW = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecisi
 def load_modules() -> None:
     """Import the ohmyjob modules (they fix their paths at import, so OHMYJOB_WORKSPACE must be set first)."""
     global L, J, X, W
+    import importlib
+
+    import workspace
+
+    importlib.reload(workspace)  # find_workspace() imported it while OHMYJOB_WORKSPACE named hook.sh's candidate
     import aa_lib
     import judge
     import lexicon
-    import workspace
 
     L, J, X, W = aa_lib, judge, lexicon, workspace
 
@@ -1246,16 +1250,16 @@ def report(inp: dict) -> None:
 
 
 def find_workspace(inp: dict) -> Optional[Path]:
-    """The workspace: the nearest folder with ohmyjob.json at or above the PARSED top-level cwd, else above
-    $CLAUDE_PROJECT_DIR; none: not a workspace. (The workspace that hook.sh exports is not used: it can come from a "cwd"
-    text inside tool_input.)"""
+    """The workspace: workspace.find_workspace() of the PARSED top-level cwd, else of $CLAUDE_PROJECT_DIR; none: not a
+    workspace. (The workspace that hook.sh exports is not used: it can come from a "cwd" text inside tool_input.)"""
+    import workspace  # light (standard library only); load_modules() reloads it for the workspace found here
+
     cwd = inp.get("cwd")
     for start in (cwd if isinstance(cwd, str) else None, os.environ.get("CLAUDE_PROJECT_DIR")):
         if start and os.path.isabs(start):
-            here = Path(start).resolve()
-            for folder in (here, *here.parents):
-                if (folder / "ohmyjob.json").is_file():
-                    return folder
+            root = workspace.find_workspace(start)
+            if root is not None:
+                return root
     return None
 
 

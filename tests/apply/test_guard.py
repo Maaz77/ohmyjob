@@ -916,6 +916,59 @@ class TestJobBoardApply(T.Base):
         self.assertDenied(self.click(102, "ref_1", "A2"), "final control")
 
 
+MARKER_LINE = "<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->\n"
+
+
+class TestMockGuard(T.Base):
+    """The template Profile.md (marker line first, # Candidate section) is mock data: no apply run starts on it."""
+
+    def with_marker(self):
+        path = self.root / "Profile.md"
+        original = path.read_text(encoding="utf-8")
+        path.write_text(MARKER_LINE + original, encoding="utf-8")
+        return path, original
+
+    def test_start_refuses_while_profile_has_the_marker(self):
+        path, original = self.with_marker()
+        try:
+            for args in (("start",), ("start", "--continue")):
+                proc = self.run_aa(*args)
+                self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+                lines = proc.stdout.strip().splitlines()
+                self.assertEqual(len(lines), 1, proc.stdout)
+                self.assertTrue(lines[0].startswith("FATAL: ") and "Profile.md" in lines[0], lines[0])
+                self.assertNotIn("Traceback", proc.stderr)
+            self.assertFalse((self.root / ".ohmyjob" / "run" / "apply" / "CURRENT").exists())  # no run was made
+        finally:
+            path.write_text(original, encoding="utf-8")
+        self.assertEqual(self.aa_json("start")["count"], 2)  # the marker line deleted: the run starts
+
+    def test_questions_names_and_prefix_work_with_the_marker_and_candidate_section(self):
+        path, original = self.with_marker()
+        try:
+            self.assertEqual(self.aa_json("questions"), {"questions": []})
+            code = "import aa; aa.add_questions(['Years of Rust?', 'Notice period?'], 'Acme | Dev')"
+            subprocess.run([sys.executable, "-c", code], env=self.env, cwd=SCRIPTS, check=True)
+            waiting = self.aa_json("questions")["questions"]
+            self.assertEqual([q["q"] for q in waiting], ["Years of Rust?"])  # "Notice period?" is answered in the file
+            self.assertEqual(self.aa_json("answer", "--json", json.dumps([{"q": "Years of Rust?", "a": "None."}]))["saved"], 1)
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith(MARKER_LINE))
+            self.assertIn("# Candidate", text)
+            section = text[text.index("# Follow Up Questions"):]
+            self.assertIn("- Years of Rust? None.", section)
+            self.assertEqual(text.replace("- Years of Rust? None.\n", ""), MARKER_LINE + original)
+            # the first name from "# Candidate" is the file prefix: the tailored files are found by it
+            code = ("import aa_lib as L, workspace as W; from pathlib import Path\n"
+                    "print(W.file_prefix()); print(len(L.tailored_pdfs(Path(sys.argv[1]))), len(L.tailored_yamls(Path(sys.argv[1]))))")
+            out = subprocess.run([sys.executable, "-c", "import sys\n" + code, str(self.root / "Applications" / LINKEDIN_JOB)],
+                                 env=self.env, cwd=SCRIPTS, capture_output=True, text=True, check=True).stdout.split()
+            self.assertEqual(out, ["Alex", "1", "1"])
+        finally:
+            path.write_text(original, encoding="utf-8")
+            (self.root / ".ohmyjob" / "questions.json").unlink(missing_ok=True)
+
+
 class TestSlots(T.Base):
     def test_slots_follow_the_config_and_the_subagent_cap(self):
         code = "import aa_lib as L; print(L.SLOTS)"

@@ -36,6 +36,7 @@ TEXMFHOME = _texmfhome()
 FAKE_UV = """#!/bin/sh
 # fake uv: `uv sync` makes $UV_PROJECT_ENVIRONMENT/bin/python, a wrapper around the test interpreter
 echo "uv $*" >> "$FAKE_LOG"
+echo "uvenv env=$UV_PROJECT_ENVIRONMENT python=$UV_PYTHON_INSTALL_DIR cache=$UV_CACHE_DIR" >> "$FAKE_LOG"
 [ "$1" = sync ] || exit 0
 mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"
 printf '#!/bin/sh\\nexec %s "$@"\\n' "$FAKE_PYTHON" > "$UV_PROJECT_ENVIRONMENT/bin/python"
@@ -81,7 +82,8 @@ class Env:
 
     def __init__(self, tmp: Path, home: Path | None = None, data_name: str = "data dir"):
         self.tmp = tmp
-        self.ws = tmp / "ws"
+        self.proj = tmp / "proj"  # the project folder: --workspace
+        self.ws = self.proj / "ohmyjob"  # the workspace bootstrap creates
         self.data = tmp / data_name  # a space by default: only the TinyTeX installer cannot take one
         self.fake = tmp / "fakebin"
         self.home = home or tmp / "home"  # shared between tests: keeps the font cache warm
@@ -112,7 +114,7 @@ class Env:
         cmd = ["bash", str(BOOTSTRAP)]
         if data:
             cmd += ["--data", str(self.data)]
-        cmd += ["--workspace", str(self.ws), *args]
+        cmd += ["--workspace", str(self.proj), *args]
         env = {**self.env, **(extra_env or {})}
         return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=self.tmp, timeout=600)
 
@@ -211,6 +213,14 @@ def test_real_run_builds_everything(real):
     assert json.loads((e.ws / "ohmyjob.json").read_text()) == json.loads((ROOT / "templates" / "ohmyjob.json").read_text())
     assert (e.ws / "CLAUDE.md").read_text() == (ROOT / "templates" / "CLAUDE.md").read_text()
     assert (e.ws / ".gitignore").read_text() == (ROOT / "templates" / "gitignore").read_text()
+    assert (e.ws / "Profile.md").read_text() == (ROOT / "templates" / "Profile.md").read_text()
+    assert (e.ws / "Default_Resume_Files" / "Template.yaml").read_text() == (ROOT / "templates" / "Template.yaml").read_text()
+    pdf = (e.ws / "Default_Resume_Files" / "Template.pdf").read_bytes()
+    assert pdf.startswith(b"%PDF")  # built from the template: the warm-up build is the template build
+    assert not (e.ws / ".ohmyjob" / "Template.warm.pdf").exists()
+    assert (e.data / "texmf-var").is_dir()  # font caches stay in the data folder
+    assert not (e.proj / "ohmyjob.json").exists()  # nothing in the project folder but .claude and ohmyjob/
+    assert sorted(p.name for p in e.proj.iterdir()) == [".claude", "ohmyjob"]
 
 
 def test_real_run_tracker_and_dispatcher(real):
@@ -274,10 +284,11 @@ def test_uv_install_with_flag(tmp_path, shared_home):
     assert len(e.calls("curl")) == 1
 
 
-def test_uv_sync_arguments(env):
+def test_uv_sync_arguments_and_scoped_variables(env):
     ok(env.run())
     syncs = env.calls("uv sync")
     assert syncs == [f"uv sync --frozen --no-dev --quiet --project {ROOT}"]
+    assert env.calls("uvenv") == [f"uvenv env={env.data}/venv python={env.data}/python cache={env.data}/uv-cache"]
 
 
 def test_quote_in_a_tool_path_is_refused_before_env_sh(tmp_path, shared_home):
@@ -374,14 +385,14 @@ def test_missing_claude_only_warns(env):
 def test_arguments(env):
     assert "--data" in error_line(env.run(data=False))
     assert "absolute" in error_line(subprocess.run(
-        ["bash", str(BOOTSTRAP), "--data", "rel", "--workspace", str(env.ws)], capture_output=True, text=True, env=env.env))
+        ["bash", str(BOOTSTRAP), "--data", "rel", "--workspace", str(env.proj)], capture_output=True, text=True, env=env.env))
     assert "unknown option" in error_line(env.run("--nope"))
 
 
 # --------------------------------------------------------------------------- settings merge
 
 def read_settings(env: Env) -> dict:
-    return json.loads((env.ws / ".claude" / "settings.json").read_text())
+    return json.loads((env.proj / ".claude" / "settings.json").read_text())
 
 
 def test_settings_created_from_template(env):
@@ -394,7 +405,7 @@ def test_settings_created_from_template(env):
 
 
 def test_settings_merge_keeps_user_keys(env):
-    (env.ws / ".claude").mkdir(parents=True)
+    (env.proj / ".claude").mkdir(parents=True)
     mine = {
         "model": "opus",
         "autoMemoryEnabled": True,
@@ -403,7 +414,7 @@ def test_settings_merge_keeps_user_keys(env):
         "permissions": {"allow": ["Bash(git status)"], "deny": ["Read(./secrets/**)"], "defaultMode": "plan"},
         "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]},
     }
-    (env.ws / ".claude" / "settings.json").write_text(json.dumps(mine))
+    (env.proj / ".claude" / "settings.json").write_text(json.dumps(mine))
     ok(env.run())
     merged = read_settings(env)
     assert merged["model"] == "opus"
@@ -418,14 +429,14 @@ def test_settings_merge_keeps_user_keys(env):
     assert merged["permissions"]["defaultMode"] == "plan"
     assert "ohmyjob" in merged["extraKnownMarketplaces"]
     # a second run changes nothing
-    before = (env.ws / ".claude" / "settings.json").read_bytes()
+    before = (env.proj / ".claude" / "settings.json").read_bytes()
     ok(env.run())
-    assert (env.ws / ".claude" / "settings.json").read_bytes() == before
+    assert (env.proj / ".claude" / "settings.json").read_bytes() == before
 
 
 def test_settings_left_alone_when_nothing_to_merge(env):
     ok(env.run())
-    path = env.ws / ".claude" / "settings.json"
+    path = env.proj / ".claude" / "settings.json"
     data = read_settings(env)
     path.write_text(json.dumps(data))  # same content, other formatting
     before = path.read_bytes()
@@ -434,8 +445,8 @@ def test_settings_left_alone_when_nothing_to_merge(env):
 
 
 def test_invalid_settings_json_is_not_overwritten(env):
-    (env.ws / ".claude").mkdir(parents=True)
-    path = env.ws / ".claude" / "settings.json"
+    (env.proj / ".claude").mkdir(parents=True)
+    path = env.proj / ".claude" / "settings.json"
     path.write_text("{ not json")
     result = env.run()
     assert "settings.json" in error_line(result)
@@ -493,3 +504,96 @@ def test_workspace_cannot_be_the_plugin_folder(env):
     result = subprocess.run(["bash", str(BOOTSTRAP), "--data", str(env.data), "--workspace", str(ROOT)],
                             capture_output=True, text=True, env=env.env)
     assert "plugin folder" in error_line(result)
+
+
+# --------------------------------------------------------------------------- v2 layout: project folder + ohmyjob/
+
+def test_layout_in_the_project_folder(env):
+    result = env.run()
+    ok(result)
+    assert f"workspace: {env.ws}" in result.stdout
+    assert sorted(p.name for p in env.proj.iterdir()) == [".claude", "ohmyjob"]
+    names = {p.name for p in env.ws.iterdir()}
+    assert names == {"ohmyjob.json", "Profile.md", "CLAUDE.md", ".gitignore", "Job_Tracker.xlsx", "Default_Resume_Files",
+                     "Applications", "Pending-Review", "Needs-Attention", "Submitted", ".ohmyjob"}
+    assert sorted(p.name for p in (env.ws / "Default_Resume_Files").iterdir()) == ["Template.pdf", "Template.yaml"]
+    assert (env.ws / "Profile.md").read_text().startswith("<!-- OHMYJOB-TEMPLATE:")
+    assert (env.ws / "Default_Resume_Files" / "Template.yaml").read_text().startswith("# OHMYJOB-TEMPLATE:")
+    assert json.loads((env.ws / "ohmyjob.json").read_text())["_template"].startswith("OHMYJOB-TEMPLATE")
+    assert (env.proj / ".claude" / "settings.json").exists() and not (env.ws / ".claude").exists()
+    # the warm-up build used the plugin's Template.yaml
+    assert env.calls("lualatex")
+
+
+def test_warmup_failure_is_not_hidden_by_an_existing_template_pdf(env):
+    ok(env.run())
+    env.failing_lualatex()
+    (env.ws / "Default_Resume_Files" / "Template.pdf").write_bytes(b"old")
+    assert "--install-tinytex" in error_line(env.run())
+
+
+def test_template_files_are_never_overwritten(env):
+    (env.ws / "Default_Resume_Files").mkdir(parents=True)
+    (env.ws / "Default_Resume_Files" / "Template.yaml").write_text("# mine\n")
+    (env.ws / "Default_Resume_Files" / "Template.pdf").write_bytes(b"mine")
+    (env.ws / "Profile.md").write_text("# Candidate\n- Name: Real Person\n")
+    ok(env.run())
+    assert (env.ws / "Default_Resume_Files" / "Template.yaml").read_text() == "# mine\n"
+    assert (env.ws / "Default_Resume_Files" / "Template.pdf").read_bytes() == b"mine"
+    assert (env.ws / "Profile.md").read_text() == "# Candidate\n- Name: Real Person\n"
+    assert not (env.ws / ".ohmyjob" / "Template.warm.pdf").exists()
+
+
+def test_running_inside_the_workspace_is_refused(env):
+    ok(env.run())
+    result = subprocess.run(["bash", str(BOOTSTRAP), "--data", str(env.data), "--workspace", str(env.ws)],
+                            capture_output=True, text=True, env=env.env)
+    assert "parent folder" in error_line(result)
+    assert not (env.ws / "ohmyjob").exists()
+
+
+def test_settings_are_merged_in_the_project_folder_only(env):
+    (env.proj / ".claude").mkdir(parents=True)
+    (env.proj / ".claude" / "settings.json").write_text(json.dumps({"model": "opus"}))
+    ok(env.run())
+    assert read_settings(env)["model"] == "opus"
+    assert read_settings(env)["permissions"]["allow"] == ["Bash(ohmyjob *)"]
+    assert not (env.ws / ".claude").exists()
+
+
+def test_the_discovery_rule_finds_the_workspace_from_the_project_folder(env):
+    ok(env.run())
+    import importlib
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        W = importlib.import_module("workspace")
+        assert W.find_workspace(env.proj) == env.ws
+        assert W.find_workspace(env.ws / "Applications") == env.ws
+        assert sorted(p.name for p in W.template_files(env.ws)) == ["Profile.md", "ohmyjob.json"]
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+
+
+def test_profile_template_shape_and_privacy():
+    text = (ROOT / "templates" / "Profile.md").read_text()
+    assert text.splitlines()[0] == "<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->"
+    headings = [l for l in text.splitlines() if l.startswith("# ")]
+    assert headings == ["# Candidate", "# Fit Preferences", "# Resume", "# Follow Up Questions"]
+    assert "- Name: Alex Example" in text and "### HELD IN RESERVE" in text
+    questions = text.split("# Follow Up Questions", 1)[1]
+    items = [l for l in questions.splitlines() if l.startswith("- ")]
+    assert len(items) >= 40 and all("?" in l for l in items)
+    # the owner's own list never reaches the repo: no answer of it appears here (read only when the file exists)
+    private = Path("/home/user/tmpfiles/questions.txt")
+    if private.exists():
+        def norm(t):
+            return " ".join(t.casefold().replace("\u2014", "-").strip(" .").split())
+
+        mine = {norm(l.split("? ", 1)[1]) for l in items if "? " in l}
+        for line in private.read_text(encoding="utf-8").splitlines():
+            for sep in ("? ", "] ", ": "):
+                if sep in line:
+                    answer = norm(line.rsplit(sep, 1)[1])
+                    assert len(answer) < 5 or answer not in mine, "a private answer is in templates/Profile.md"
+        assert not re.search(r"@(?!example\.com)[\w.-]+\.\w+", text)  # only the mock address domain

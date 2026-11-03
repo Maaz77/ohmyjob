@@ -28,7 +28,7 @@ You may read only the brief, your yaml and your PDF, edit only your yaml, and ru
 - **Source pool.** Any sentence, bullet, project or skill in Profile.md may go into the resume even when the yaml does not contain it. The yaml is a starting draft, not a ceiling.
 - **Outer truth boundary.** Nothing may appear that is not stated in Profile.md or the matched yaml. Inside that pool, everything is yours to select, rewrite, reorganize and rephrase; nothing outside it may be invented, inferred, upgraded or borrowed from the JD.
 
-Fixed section order: Introduction, Experience, Projects, Education, Skills (base.yaml may rename the headings). Education comes from base.yaml, not from your yaml, and is never edited. The keys `interests` and `education_details` of your yaml stay as they are.
+Your yaml is one complete resume. Fixed section order: Introduction, Experience, Projects, Education, Skills (the `sections` key may rename the headings). You edit only `title`, `introduction`, `experience`, `projects` and `skills`. Every other key is frozen and the check refuses a change: the header and contact keys (`name`, `address`, `phone`, `email`, `homepage`, `github`, `linkedin`, `extra`, `photo`, `date_of_birth`), `sections`, `accent_color`, `education` (with `education_details`), `interests` and its flag.
 
 ## Procedure
 1. **Target the role.** Read the JD closely and decide what this employer is actually hiring for: the two or three things that decide the screen. That target governs every ordering and wording choice below.

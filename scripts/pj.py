@@ -200,24 +200,71 @@ def rendered(text: Any) -> str:
     return " ".join(str(text or "").replace("**", "").split())
 
 
-def catalog() -> list[dict]:
-    """The pre-made resumes (a role yaml with a PDF next to it; not base.yaml): file name, title, introduction, roles, projects, skills."""
+CATALOG_FILE_CAP = 6000  # characters of one ready-made PDF's text in the catalog
+
+
+def is_template(path: Path) -> bool:
+    """Template.* and any resume file that still holds the template marker are never used."""
+    return path.stem.casefold() == "template" or W.has_template_marker(path)
+
+
+def usable_resumes() -> list[dict]:
+    """The resumes the screener may choose from: a <name>.yaml with a <name>.pdf (tailorable) and a <name>.pdf with no
+    yaml (ready-made, used as is). Never Template.* nor a file that holds the template marker."""
     out = []
-    for path in sorted(DEFAULT_RESUMES.glob("*.yaml")):
-        if path.name == "base.yaml" or not path.with_suffix(".pdf").exists():
-            continue
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        skills = [skills_line(line) for line in data.get("skills") or []]
-        out.append({
-            "file": path.with_suffix(".pdf").name,
-            "title": data.get("title"),
-            "introduction": rendered(data.get("introduction")),
-            "roles": [f"{r.get('role')} @ {e.get('company') or e.get('employer')}"
-                      for e in data.get("experience") or [] for r in roles_of(e)],
-            "projects": [p.get("title") for p in data.get("projects") or []],
-            "skills": skills,
-        })
+    folder = DEFAULT_RESUMES
+    if not folder.is_dir():
+        return out
+    for pdf in sorted(folder.glob("*.pdf")):
+        yml = pdf.with_suffix(".yaml")
+        if yml.is_file():
+            if not is_template(yml) and not is_template(pdf):
+                out.append({"file": pdf.name, "kind": "tailorable", "source": yml})
+        elif not is_template(pdf):
+            out.append({"file": pdf.name, "kind": "ready-made", "source": pdf})
     return out
+
+
+def pdf_text(path: Path) -> str:
+    """The text of a ready-made PDF (pypdf), cut to CATALOG_FILE_CAP characters."""
+    from pypdf import PdfReader
+
+    try:
+        text = "\n".join((page.extract_text() or "") for page in PdfReader(str(path)).pages)
+    except Exception as exc:  # noqa: BLE001  (a damaged PDF is still a usable file, only without text)
+        return f"(the text of this PDF could not be read: {exc})"
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    return text[:CATALOG_FILE_CAP] or "(this PDF holds no extractable text)"
+
+
+def write_catalog() -> list[dict]:
+    """Write the text of every usable resume to W.CATALOG_DIR (catalog.md for the screener, index.json for the
+    scripts) and return the entries. The screener reads the text, never the PDFs."""
+    entries = usable_resumes()
+    if W.CATALOG_DIR.exists():
+        shutil.rmtree(W.CATALOG_DIR)
+    blocks = []
+    for entry in entries:
+        if entry["kind"] == "tailorable":
+            data = yaml.safe_load(entry["source"].read_text(encoding="utf-8")) or {}
+            body = (f"- kind: tailorable (a worker adapts a copy of it to the job)\n- title: {data.get('title')}\n"
+                    f"- introduction: {rendered(data.get('introduction'))}\n"
+                    f"- skills: {' | '.join(skills_line(row) for row in data.get('skills') or [])}")
+        else:
+            body = f"- kind: ready-made (used as is, never edited)\n- text of the PDF:\n\n{pdf_text(entry['source'])}"
+        blocks.append(f"### {entry['file']}\n{body}")
+    L.write_text(W.CATALOG_DIR / "catalog.md", "# Resumes to choose from\n\n" + "\n\n".join(blocks) + "\n")
+    L.write_json(W.CATALOG_DIR / "index.json", {e["file"]: e["kind"] for e in entries})
+    return entries
+
+
+def catalog() -> dict[str, str]:
+    """{file name: "tailorable" | "ready-made"} as written by the last `start`."""
+    return L.read_json(W.CATALOG_DIR / "index.json", {})
+
+
+def catalog_path() -> Path:
+    return (W.CATALOG_DIR / "catalog.md").resolve()
 
 
 def resume_build() -> Any:
@@ -404,7 +451,7 @@ def screen_errors(obj: Optional[dict], key: str) -> list[str]:
     if obj["dealbreaker"] and score >= 6:
         errors.append("A dealbreaker caps the score below 6.")
     if score >= 6:
-        names = {c["file"] for c in catalog()}
+        names = set(catalog())
         if obj["matched_resume"] not in names:
             errors.append(f"'matched_resume' must be one of: {', '.join(sorted(names))}.")
         if not clean_items(obj["why"]) or not clean_items(obj["gaps"]):
@@ -482,11 +529,7 @@ def write_screen_brief(run_dir: Path, key: str, job: dict) -> Path:
     md = (W.APPLICATIONS / job["folder"] / "job.md").read_text(encoding="utf-8")
     overview = L.md_section_body(md, r"(1\.\s*)?Overview", 2) or ""
     overview = "\n".join(line for line in overview.splitlines() if not re.search(r"Match Score|Matched Resume", line))
-    resumes = []
-    for c in catalog():
-        resumes.append(f"### {c['file']}\n- title: {c['title']}\n- introduction: {c['introduction']}\n"
-                       f"- roles: {'; '.join(c['roles'])}\n- projects: {'; '.join(c['projects'])}\n"
-                       f"- skills: {' | '.join(c['skills'])}")
+    resumes = [f"- {name} ({kind})" for name, kind in sorted(catalog().items())]
     text = f"""# Screening brief: {job['company']} | {job['title']}
 
 - job: {key}
@@ -494,8 +537,10 @@ def write_screen_brief(run_dir: Path, key: str, job: dict) -> Path:
 ## Profile.md (full text)
 {W.PROFILE.read_text(encoding='utf-8').strip()}
 
-## Pre-made resumes (choose matched_resume from these file names)
+## Resumes (choose matched_resume from these file names; the names say the field)
 {chr(10).join(resumes)}
+
+Read the catalog text of these resumes (title, introduction, skills, or the text of a ready-made PDF) once, before you score: {catalog_path()}
 
 ## Job: Overview
 {overview.strip()}
@@ -604,14 +649,20 @@ def discard(state: dict, tracker: Tracker, plans: list[tuple]) -> None:
 
 def cmd_start(args: argparse.Namespace) -> None:
     # A run that stopped early leaves its folder. Its jobs are still at Found or Matched, so they are queued again.
+    if W.has_template_marker(W.PROFILE):  # the mock guard: Profile.md still holds the mock data
+        fatal(f"{W.PROFILE.name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with yours, then delete that line")
+    if not W.PROFILE.is_file():
+        fatal("Profile.md not found. Run /ohmyjob:setup")
+    if not usable_resumes():
+        fatal("no usable resume in Default_Resume_Files/: run /ohmyjob:build-resumes for a <Field>.yaml without its PDF, "
+              "delete the template marker line from a copy of Template.yaml, or add a ready-made <Field>.pdf")
     if RUN_BASE.exists():
         shutil.rmtree(RUN_BASE)
     try:
         tracker = Tracker(W.TRACKER)
     except TrackerError as exc:
         fatal(str(exc))
-    if not catalog() and any((r["Status"] or "").strip() == "Found" for r in tracker.rows()):
-        fatal("no pre-made resume to screen against (a role yaml with its PDF in Default_Resume_Files/). Run /ohmyjob:resumes first.")
+    write_catalog()
     today = L.today()
     rows = tracker.rows()
     by_key: dict[str, list[dict]] = {}
@@ -919,11 +970,25 @@ def record_screen(state: dict, tracker: Tracker, key: str, result: Optional[dict
     text = fill_section(text, r"Why Matched\??", clean_items(result["why"]))
     text = fill_section(text, r"Gaps\??", clean_items(result["gaps"]))
     row = row_for(tracker, key)
+    ready_made = catalog().get(result["matched_resume"]) == "ready-made"
+    if ready_made:
+        # no resume-worker: the PDF is copied as it is and the job goes straight to Resume Built
+        source = DEFAULT_RESUMES / result["matched_resume"]
+        target = W.APPLICATIONS / job["folder"] / f"{resume_name(job['folder'])}.pdf"
+        if not source.is_file():
+            raise JobError(f"the ready-made resume {result['matched_resume']} is gone from Default_Resume_Files/")
+        if target.exists():
+            raise JobError(f"{target.name} already exists in the job folder")
+        text = append_h1(text, "Resume Preparation",
+                         f"Ready-made resume used as it is: `{result['matched_resume']}` (copied to `{target.name}`). "
+                         "No resume-worker ran.\n")
+        shutil.copyfile(source, target)
+        writes.append((target, None))
     md_path.write_text(text, encoding="utf-8")
     writes.append((md_path, original))
     tracker.set_cell(row["_index"], "Match Score", score)
-    tracker.set_status(row["_index"], "Matched", None)
-    job.update({"outcome": "Matched", "score": score})
+    tracker.set_status(row["_index"], "Resume Built" if ready_made else "Matched", None)
+    job.update({"outcome": "Resume Built" if ready_made else "Matched", "score": score, "ready_made": ready_made})
 
 
 def record_build(state: dict, tracker: Tracker, key: str, result: Optional[dict], discards: list, writes: list) -> None:
@@ -996,7 +1061,10 @@ def record(run_dir: Path, ready_only: bool = False) -> str:
                 tracker.save()
         except Exception as exc:  # noqa: BLE001
             for md_path, original in writes:
-                md_path.write_text(original, encoding="utf-8")
+                if original is None:
+                    md_path.unlink(missing_ok=True)  # a copied ready-made PDF
+                else:
+                    md_path.write_text(original, encoding="utf-8")
             for key in recorded:
                 state["jobs"][key].pop("outcome", None)
             L.save_state(run_dir, state)
@@ -1034,7 +1102,7 @@ def summary(state: dict) -> str:
     lines = [f"Run {state['run_id']}",
              f"Screened: {len(screened)} | Matched: {len([j for j in jobs.values() if 'score' in j])} | "
              f"Skipped-LowFit: {len(by('Skipped-LowFit'))}",
-             f"Resumes built: {len(by('Resume Built'))} | failed: {len(by('Resume Failed'))} | rejected: "
+             f"Resumes built: {len(by('Resume Built'))} ({len([j for j in by('Resume Built') if j.get('ready_made')])} ready-made) | failed: {len(by('Resume Failed'))} | rejected: "
              f"{len([j for j in by('Deleted') if j.get('ground')])}"]
     for j in by("Resume Failed"):
         lines.append(f"- FAILED {j['folder']}: {j.get('note')}")
@@ -1150,9 +1218,9 @@ def hook_guard(inp: dict) -> None:
     brief = (job_path(run_dir, key) / "brief.md").resolve()
     own = [Path(job[f]).resolve() for f in ("yaml", "pdf") if agent == BUILDER and job.get(f)]
     if tool == "Read":
-        if target in [brief, *own]:
+        if target in [brief, *own] or (agent == SCREENER and target == catalog_path()):
             return allow()
-        deny("You may read only your brief" + (", your yaml and your PDF." if agent == BUILDER else "."))
+        deny("You may read only your brief" + (", your yaml and your PDF." if agent == BUILDER else " and the resume catalog it names."))
     if agent == BUILDER and tool == "Edit":
         if own and target == own[0]:
             return allow()

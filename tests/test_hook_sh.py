@@ -281,6 +281,103 @@ def test_claude_started_outside_the_workspace_is_found_by_the_stdin_cwd(plugin, 
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
 
 
+@pytest.fixture
+def project(tmp_path, workspace):
+    """A project folder as setup leaves it: the workspace is its subfolder ohmyjob/."""
+    folder = tmp_path / "project"
+    folder.mkdir()
+    workspace.rename(folder / "ohmyjob")
+    (folder / "notes").mkdir()
+    return folder
+
+
+INNER = ["ohmyjob", "ohmyjob/Applications", "ohmyjob/Applications/4399000001_Lumenfield-Logistics_Operations-Analyst"]
+
+
+@pytest.mark.parametrize("start", [".", "notes"] + INNER)
+def test_the_workspace_is_the_ohmyjob_folder_of_the_project(plugin, project, data, start):
+    """Claude starts in the project folder (or a folder in it); the stdin cwd can be inside ohmyjob/ too."""
+    payload = hook_input("ohmyjob:application-worker", tool=CHROME)
+    payload["cwd"] = str(project / start)
+    for project_dir in (project / start, None, project.parent):  # from CLAUDE_PROJECT_DIR, else from the stdin cwd
+        report = routed(call(plugin, "guard", payload, project_dir, data))
+        assert (report["script"], report["workspace"]) == ("hooks.py", str(project / "ohmyjob")), project_dir
+
+
+def test_a_report_waiting_in_the_ohmyjob_folder_is_shown_from_the_project_folder(plugin, project, data):
+    (project / "ohmyjob" / ".ohmyjob").mkdir()
+    (project / "ohmyjob" / ".ohmyjob" / "last_report.txt").write_text("table")
+    report = routed(call(plugin, "report", {"hook_event_name": "Stop", "cwd": str(project)}, project, data))
+    assert (report["script"], report["workspace"]) == ("hooks.py", str(project / "ohmyjob"))
+
+
+def test_a_project_folder_without_the_workspace_marker_is_no_workspace(plugin, data, tmp_path):
+    project = tmp_path / "project"
+    (project / "ohmyjob" / "Applications").mkdir(parents=True)  # an ohmyjob/ folder without ohmyjob.json
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ohmyjob").write_text("a file, not the folder")
+    for start in (project, project / "ohmyjob", project / "ohmyjob" / "Applications", other):
+        payload = hook_input("ohmyjob:prep-master")
+        payload["cwd"] = str(start)
+        for project_dir in (start, None):
+            proc = call(plugin, "guard", payload, project_dir, data)
+            assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", ""), (start, project_dir)
+
+
+def test_a_folder_with_its_own_marker_wins_over_its_ohmyjob_subfolder(plugin, data, tmp_path):
+    outer = tmp_path / "outer"
+    (outer / "ohmyjob").mkdir(parents=True)
+    (outer / "ohmyjob.json").write_text("{}")
+    (outer / "ohmyjob" / "ohmyjob.json").write_text("{}")
+    for start, expected in ((outer, outer), (outer / "ohmyjob", outer / "ohmyjob")):
+        report = routed(call(plugin, "guard", hook_input("ohmyjob:prep-master"), start, data))
+        assert report["workspace"] == str(expected)
+
+
+def test_the_python_hooks_find_the_workspace_by_the_same_rule(project, tmp_path, monkeypatch):
+    """hooks.py and pj_hooks.py re-derive the workspace from the PARSED top-level cwd (else CLAUDE_PROJECT_DIR) with
+    workspace.find_workspace; the workspace hook.sh exports is only a candidate."""
+    import hooks
+    import pj_hooks
+
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    expected = (project / "ohmyjob").resolve()
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    for find in (hooks.find_workspace, pj_hooks.workspace_for):
+        for start in [".", "notes"] + INNER:
+            assert find({"cwd": str(project / start)}) == expected, (find, start)
+        assert find({"cwd": str(plain)}) is None
+        assert find({"cwd": str(plain), "tool_input": {"cwd": str(project)}}) is None  # a nested cwd is no start
+        assert find({"cwd": "relative/path"}) is None
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / "notes"))
+        assert find({"cwd": str(plain)}) == expected
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR")
+
+
+def test_hooks_py_loads_its_modules_for_the_workspace_it_found(project, tmp_path):
+    """find_workspace() imports workspace while OHMYJOB_WORKSPACE still names hook.sh's candidate; load_modules() must
+    reload it, so the paths of every module point into the workspace of the parsed cwd."""
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "ohmyjob.json").write_text("{}")
+    code = (
+        "import json, os, sys\n"
+        "import hooks\n"
+        "root = hooks.find_workspace({'cwd': sys.argv[1]})\n"
+        "os.environ['OHMYJOB_WORKSPACE'] = str(root)\n"
+        "hooks.load_modules()\n"
+        "print(json.dumps([str(root), str(hooks.W.ROOT), str(hooks.L.PROFILE)]))\n"
+    )
+    env = {"PATH": "/usr/bin:/bin", "PYTHONPATH": str(REPO / "scripts"), "OHMYJOB_WORKSPACE": str(candidate)}
+    proc = subprocess.run([sys.executable, "-c", code, str(project / "notes")], capture_output=True, text=True,
+                          env=env, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    root = str((project / "ohmyjob").resolve())
+    assert json.loads(proc.stdout) == [root, root, str(Path(root) / "Profile.md")]
+
+
 def test_a_big_page_snapshot_arrives_whole(plugin, workspace, data):
     payload = hook_input("ohmyjob:application-worker", tool=CHROME)
     payload["tool_response"] = "line of page text\n" * 30000  # about 500 KB

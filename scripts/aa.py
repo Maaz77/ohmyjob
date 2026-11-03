@@ -307,6 +307,9 @@ ROBOTS_MARKER_URL = "https://www.linkedin.com/robots.txt#aa-popups-as-tabs"
 
 
 def cmd_start(args: argparse.Namespace) -> None:
+    if W.has_template_marker(W.PROFILE):
+        fatal("Profile.md still has the template marker (the mock data of the template): fill in your own details, then "
+              "delete the marker line, and run this again.")
     W.slots()  # reads ohmyjob.json now: a bad config stops the run here (main prints FATAL), not in the middle of it
     # A run that stopped early leaves its folder. Its jobs are still at "Resume Built", so they are queued again.
     delete_run_folders()

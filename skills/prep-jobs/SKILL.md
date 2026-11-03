@@ -9,3 +9,5 @@ background: false
 ---
 
 Run the job-prep queue now.
+
+The queue refuses to start while `Profile.md` still has the template marker, and when `Default_Resume_Files/` holds no usable resume (a `<Field>.yaml` with its PDF, or a ready-made `<Field>.pdf`; never `Template.*` nor a file with the marker). A job that matches a ready-made PDF gets that PDF copied into its folder and goes straight to Resume Built, with no resume-worker. If the queue prints a line that starts with FATAL or `ohmyjob: `, show it to the user and stop.

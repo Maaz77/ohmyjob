@@ -116,11 +116,57 @@ def test_a_cwd_that_is_not_inside_a_workspace_is_the_one_line_error(plugin, tmp_
     assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json")
 
 
-def test_a_claude_project_dir_that_is_not_inside_a_workspace_does_not_hang(plugin, tmp_path):
+def test_claude_project_dir_is_not_a_start_folder(plugin, workspace, tmp_path):
+    """The Bash tool never sets CLAUDE_PROJECT_DIR, so the walk starts from the cwd only; a stray value changes nothing."""
     (tmp_path / "plain").mkdir()
-    for project in ("relative", ".", "a/b", "/", "//", "/nonexistent/deep/folder/"):
+    for project in (str(workspace), "relative", "/", "//", "/nonexistent/deep/folder/"):
         proc = run(plugin, "prep", "next", cwd=tmp_path / "plain", CLAUDE_PROJECT_DIR=project)
-        assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json")
+        assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json"), project
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ohmyjob.json").write_text("{}")
+    out = report(run(plugin, "prep", "next", cwd=other, CLAUDE_PROJECT_DIR=str(workspace)))
+    assert Path(out["OHMYJOB_WORKSPACE"]).resolve() == other.resolve()
+
+
+@pytest.fixture
+def project(tmp_path, workspace):
+    """A project folder as setup leaves it: the workspace is its subfolder ohmyjob/."""
+    folder = tmp_path / "project"
+    folder.mkdir()
+    workspace.rename(folder / "ohmyjob")
+    (folder / "notes").mkdir()
+    return folder
+
+
+@pytest.mark.parametrize("start", [".", "notes", "ohmyjob", "ohmyjob/Applications",
+                                   "ohmyjob/Applications/4399000001_Lumenfield-Logistics_Operations-Analyst"])
+def test_the_workspace_is_the_ohmyjob_folder_of_the_project(plugin, project, start):
+    """Claude starts in the project folder; a shell can also be inside ohmyjob/ or any folder under it."""
+    out = report(run(plugin, "prep", "next", cwd=project / start))
+    assert Path(out["OHMYJOB_WORKSPACE"]).resolve() == (project / "ohmyjob").resolve()
+
+
+def test_a_project_folder_without_the_workspace_marker_is_no_workspace(plugin, tmp_path):
+    project = tmp_path / "project"
+    (project / "ohmyjob" / "Applications").mkdir(parents=True)  # an ohmyjob/ folder without ohmyjob.json
+    for cwd in (project, project / "ohmyjob", project / "ohmyjob" / "Applications"):
+        proc = run(plugin, "prep", "next", cwd=cwd)
+        assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json"), cwd
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ohmyjob").write_text("a file, not the folder")
+    assert run(plugin, "prep", "next", cwd=other).returncode == 3
+
+
+def test_a_folder_with_its_own_marker_wins_over_its_ohmyjob_subfolder(plugin, tmp_path):
+    outer = tmp_path / "outer"
+    (outer / "ohmyjob").mkdir(parents=True)
+    (outer / "ohmyjob.json").write_text("{}")
+    (outer / "ohmyjob" / "ohmyjob.json").write_text("{}")
+    assert Path(report(run(plugin, "prep", "next", cwd=outer))["OHMYJOB_WORKSPACE"]).resolve() == outer.resolve()
+    inner = outer / "ohmyjob"
+    assert Path(report(run(plugin, "prep", "next", cwd=inner))["OHMYJOB_WORKSPACE"]).resolve() == inner.resolve()
 
 
 def test_outside_a_workspace_it_is_fatal_with_the_hint(plugin, tmp_path):

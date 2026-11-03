@@ -1,8 +1,12 @@
-"""workspace.py: root discovery, path constants, config validation, agent names and guard command patterns."""
+"""workspace.py: root discovery, path constants, config validation, the template marker, agent names and guard
+command patterns."""
+import copy
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import re
 
 import pytest
 
@@ -71,31 +75,95 @@ def test_find_root_fails_with_a_hint_outside_a_workspace(tmp_path, monkeypatch):
         W.find_root()
 
 
+@pytest.fixture
+def project(tmp_path, workspace):
+    """A project folder as setup leaves it: the workspace is its subfolder ohmyjob/."""
+    folder = tmp_path / "project"
+    folder.mkdir()
+    workspace.rename(folder / "ohmyjob")
+    (folder / "notes").mkdir()
+    return folder
+
+
+INNER = ["ohmyjob", "ohmyjob/Applications", "ohmyjob/Applications/4399000001_Lumenfield-Logistics_Operations-Analyst"]
+
+
+@pytest.mark.parametrize("start", [".", "notes"] + INNER)
+def test_find_workspace_finds_the_ohmyjob_folder_of_the_project(project, start):
+    """The project folder holds ohmyjob/; a start inside ohmyjob/, under it or elsewhere in the project finds it."""
+    assert W.find_workspace(project / start) == (project / "ohmyjob").resolve()
+    assert W.find_workspace(str(project / start)) == (project / "ohmyjob").resolve()
+
+
+def test_find_workspace_finds_nothing_outside_a_workspace(tmp_path):
+    project = tmp_path / "project"
+    (project / "ohmyjob" / "Applications").mkdir(parents=True)  # an ohmyjob/ folder without ohmyjob.json
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ohmyjob").write_text("a file, not the folder")
+    (tmp_path / "file-start").write_text("x")
+    for start in (project, project / "ohmyjob", project / "ohmyjob" / "Applications", other, tmp_path / "file-start",
+                  tmp_path / "does" / "not" / "exist"):
+        assert W.find_workspace(start) is None, start
+    for start in (None, "", "relative", "ohmyjob", "."):
+        assert W.find_workspace(start) is None, start
+
+
+def test_find_workspace_prefers_a_folder_with_its_own_marker_to_its_ohmyjob_subfolder(tmp_path):
+    outer = tmp_path / "outer"
+    (outer / "ohmyjob" / "deep").mkdir(parents=True)
+    (outer / "ohmyjob.json").write_text("{}")
+    (outer / "ohmyjob" / "ohmyjob.json").write_text("{}")
+    assert W.find_workspace(outer) == outer.resolve()
+    assert W.find_workspace(outer / "ohmyjob" / "deep") == (outer / "ohmyjob").resolve()
+
+
+def test_find_root_uses_the_same_rule_from_the_claude_project_dir_and_the_cwd(project, tmp_path, monkeypatch):
+    monkeypatch.delenv("OHMYJOB_WORKSPACE")
+    expected = (project / "ohmyjob").resolve()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project))
+    monkeypatch.chdir(tmp_path)
+    assert W.find_root() == expected
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR")
+    for start in INNER + ["notes", "."]:
+        monkeypatch.chdir(project / start)
+        assert W.find_root() == expected, start
+
+
+def test_the_paths_follow_a_workspace_found_from_the_project_folder(project):
+    out = run_python("import workspace as W; print(W.ROOT); print(W.PROFILE)", cwd=project)
+    root = (project / "ohmyjob").resolve()
+    assert out.splitlines() == [str(root), str(root / "Profile.md")]
+
+
 def test_the_path_constants_follow_the_workspace(workspace):
     out = run_python(
         "import workspace as W, json\n"
-        "names = 'ROOT CONFIG_FILE PROFILE TRACKER DEFAULT_RESUMES BASE_YAML APPLICATIONS PENDING_REVIEW "
+        "names = 'ROOT CONFIG_FILE PROFILE TRACKER DEFAULT_RESUMES APPLICATIONS PENDING_REVIEW "
         "NEEDS_ATTENTION SUBMITTED CLAUDE_MD SETTINGS_FILE STATE_DIR ENV_FILE RUN_PREP RUN_APPLY BUILD_DIR "
-        "QUESTIONS_FILE REPORT_FILE PLUGIN_ROOT ATS_DIR'.split()\n"
-        "print(json.dumps({n: str(getattr(W, n)) for n in names}))",
+        "CATALOG_DIR QUESTIONS_FILE REPORT_FILE PLUGIN_ROOT ATS_DIR'.split()\n"
+        "print(json.dumps({**{n: str(getattr(W, n)) for n in names}, 'has_base': hasattr(W, 'BASE_YAML')}))",
         workspace=workspace,
     )
-    p = {name: Path(value) for name, value in json.loads(out).items()}
+    p = json.loads(out)
+    assert p.pop("has_base") is False  # one full yaml per resume: there is no base.yaml any more
+    p = {name: Path(value) for name, value in p.items()}
     root = workspace.resolve()
     assert p["ROOT"] == root
     assert {
         "CONFIG_FILE": root / "ohmyjob.json", "PROFILE": root / "Profile.md", "TRACKER": root / "Job_Tracker.xlsx",
-        "DEFAULT_RESUMES": root / "Default_Resume_Files", "BASE_YAML": root / "Default_Resume_Files" / "base.yaml",
+        "DEFAULT_RESUMES": root / "Default_Resume_Files",
         "APPLICATIONS": root / "Applications", "PENDING_REVIEW": root / "Pending-Review",
         "NEEDS_ATTENTION": root / "Needs-Attention", "SUBMITTED": root / "Submitted", "CLAUDE_MD": root / "CLAUDE.md",
         "SETTINGS_FILE": root / ".claude" / "settings.json", "STATE_DIR": root / ".ohmyjob",
         "ENV_FILE": root / ".ohmyjob" / "env.sh", "RUN_PREP": root / ".ohmyjob" / "run" / "prep",
         "RUN_APPLY": root / ".ohmyjob" / "run" / "apply", "BUILD_DIR": root / ".ohmyjob" / "build",
+        "CATALOG_DIR": root / ".ohmyjob" / "catalog",
         "QUESTIONS_FILE": root / ".ohmyjob" / "questions.json", "REPORT_FILE": root / ".ohmyjob" / "last_report.txt",
     } == {name: p[name] for name in (
-        "CONFIG_FILE", "PROFILE", "TRACKER", "DEFAULT_RESUMES", "BASE_YAML", "APPLICATIONS", "PENDING_REVIEW",
+        "CONFIG_FILE", "PROFILE", "TRACKER", "DEFAULT_RESUMES", "APPLICATIONS", "PENDING_REVIEW",
         "NEEDS_ATTENTION", "SUBMITTED", "CLAUDE_MD", "SETTINGS_FILE", "STATE_DIR", "ENV_FILE", "RUN_PREP",
-        "RUN_APPLY", "BUILD_DIR", "QUESTIONS_FILE", "REPORT_FILE")}
+        "RUN_APPLY", "BUILD_DIR", "CATALOG_DIR", "QUESTIONS_FILE", "REPORT_FILE")}
     assert p["PLUGIN_ROOT"] == SCRIPTS.parent
     assert p["ATS_DIR"] == SCRIPTS.parent / "ats"
 
@@ -117,8 +185,21 @@ def test_importing_workspace_loads_no_heavy_dependency():
 # --------------------------------------------------------------------------- config
 
 
-def test_the_template_is_the_defaults():
-    assert json.loads((TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8")) == W.DEFAULTS
+MOCK_SEARCH = {"sources": ["linkedin", "indeed"], "search_query": ["Operations Analyst"], "location": "Berlin, Germany",
+               "country": "germany"}
+TEMPLATE_LINE = "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line"
+
+
+def test_the_template_is_the_defaults_with_mock_search_values_and_the_marker():
+    text = (TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8")
+    template = json.loads(text)
+    expected = copy.deepcopy(W.DEFAULTS)
+    expected["search"].update(MOCK_SEARCH)
+    assert template == {"_template": TEMPLATE_LINE, **expected}
+    assert list(template)[0] == "_template"  # first: deleting its line leaves valid JSON
+    assert W.validate_config(template) == expected  # the mock template loads; "_template" is not a setting
+    edited = "\n".join(line for line in text.splitlines() if W.TEMPLATE_MARKER not in line)
+    assert json.loads(edited) == expected
 
 
 def test_every_setting_has_a_check():
@@ -128,9 +209,6 @@ def test_every_setting_has_a_check():
 def test_every_default_passes_its_own_check():
     assert W.validate_config(W.DEFAULTS) == W.DEFAULTS
     assert W.validate_config({}) == W.DEFAULTS
-    # the shipped template loads as it is
-    template = json.loads((Path(W.__file__).resolve().parents[1] / "templates" / "ohmyjob.json").read_text())
-    assert W.validate_config(template) == W.DEFAULTS
 
 
 def test_the_fixture_config_loads(workspace):
@@ -150,11 +228,18 @@ def test_missing_keys_take_their_defaults_and_defaults_are_not_shared(tmp_path):
     assert W.DEFAULTS["search"]["sources"] == ["linkedin"]
 
 
-def test_an_empty_object_and_ignored_schema_keys_are_fine(tmp_path):
+def test_the_template_key_is_the_one_extra_key_and_is_not_a_setting(tmp_path):
     only_linkedin = {"search": {"sources": ["linkedin"]}}
     expected = {**W.DEFAULTS, "search": {**W.DEFAULTS["search"], "sources": ["linkedin"]}}
     assert write_config(tmp_path, only_linkedin) == expected
-    assert write_config(tmp_path, {**only_linkedin, "$schema": "x", "_note": "y"}) == expected
+    assert write_config(tmp_path, {"_template": "OHMYJOB-TEMPLATE: x", **only_linkedin}) == expected
+    assert write_config(tmp_path, {"_template": ""}) == W.DEFAULTS
+    for bad in (None, 1, True, ["OHMYJOB-TEMPLATE"], {"x": 1}):
+        with pytest.raises(W.ConfigError, match='"_template" must be a string'):
+            write_config(tmp_path, {"_template": bad})
+    for key in ("$schema", "_note", "_Template", "template"):
+        with pytest.raises(W.ConfigError, match=f'"{re.escape(key)}" is not a known section'):
+            write_config(tmp_path, {key: "x"})
 
 
 def test_a_missing_or_broken_file_is_a_config_error(tmp_path):
@@ -300,29 +385,99 @@ def test_slots_is_the_worker_limit_below_the_subagent_cap_by_one(workspace, monk
 # --------------------------------------------------------------------------- file_prefix
 
 
-def test_file_prefix_is_the_first_name_of_base_yaml(workspace):
+def write_profile(root, candidate_lines, before=""):
+    (root / "Profile.md").write_text(f"{before}# Candidate\n\n{candidate_lines}\n\n# Fit Preferences\n\n- x\n",
+                                     encoding="utf-8")
+
+
+def test_file_prefix_is_the_first_name_of_the_candidate_in_profile_md(workspace):
     assert W.file_prefix() == "Alex"
     assert W.file_prefix(workspace) == "Alex"
 
 
-@pytest.mark.parametrize("first, prefix", [
-    ("José", "Jose"), ("Mary Ann", "Mary-Ann"), ("O'Neil", "O-Neil"), ("Zoë_Marie", "Zoe-Marie"),
-    ("李", "Resume"), ("", "Resume"), (None, "Resume"),
+@pytest.mark.parametrize("name, prefix", [
+    ("José Example", "Jose"), ("Mary-Ann Smith", "Mary-Ann"), ("O'Neil X", "O-Neil"), ("Zoë_Marie X", "Zoe-Marie"),
+    ("Alex", "Alex"), ("  Alex   Example  ", "Alex"), ("**Alex** Example", "Alex"), ("李 小龙", "Resume"), ("", "Resume"),
 ])
-def test_file_prefix_is_an_ascii_slug(workspace, first, prefix):
-    (workspace / "Default_Resume_Files" / "base.yaml").write_text(
-        json.dumps({"name": {"first": first, "last": "X"}}), encoding="utf-8")
+def test_file_prefix_is_an_ascii_slug_of_the_first_word(workspace, name, prefix):
+    write_profile(workspace, f"- Name: {name}")
     assert W.file_prefix() == prefix
 
 
-@pytest.mark.parametrize("content", [None, "", "just text", "name: Alex", "name: [a, b]", "name: {last: X}", "name: {first: ["])
+@pytest.mark.parametrize("line", ["- Name: Robin Doe", "- **Name:** Robin Doe", "- **Name**: Robin Doe", "* name : Robin Doe",
+                                  "  - NAME:Robin Doe"])
+def test_file_prefix_reads_the_usual_ways_to_write_the_name_line(workspace, line):
+    write_profile(workspace, f"- Email: robin@example.com\n{line}\n- Phone: 1")
+    assert W.file_prefix() == "Robin"
+
+
+def test_file_prefix_reads_only_the_candidate_section(workspace):
+    # a name line in another section does not count, a subsection of Candidate does, and the first name line wins
+    write_profile(workspace, "## Contact\n\n- Name: Robin Doe\n- Name: Kim Roe", before="# Resume\n\n- Name: Pat Poe\n\n")
+    assert W.file_prefix() == "Robin"
+
+
+@pytest.mark.parametrize("content", [
+    None, "", "just text", "- Name: Alex Example", "# Resume\n\n- Name: Alex Example\n",
+    "## Candidate\n\n- Name: Alex Example\n", "# Candidate\n\nAlex Example\n", "# Candidate\n\n- Names: Alex\n",
+    "# Candidate\n\n- Name:\n- Name: Alex\n", "# Fit Preferences\n- x\n# Candidates\n- Name: Alex\n",
+])
 def test_file_prefix_falls_back_to_resume(workspace, content):
-    base = workspace / "Default_Resume_Files" / "base.yaml"
+    profile = workspace / "Profile.md"
     if content is None:
-        base.unlink()
+        profile.unlink()
     else:
-        base.write_text(content, encoding="utf-8")
+        profile.write_text(content, encoding="utf-8")
     assert W.file_prefix() == "Resume"
+
+
+def test_file_prefix_does_not_read_any_resume_yaml(workspace):
+    for path in (workspace / "Default_Resume_Files").glob("*.yaml"):
+        path.write_text("name: {first: Someone, last: Else}\n", encoding="utf-8")
+    (workspace / "Default_Resume_Files" / "base.yaml").write_text("name: {first: Someone, last: Else}\n")
+    assert W.file_prefix() == "Alex"
+
+
+# --------------------------------------------------------------------------- the template marker
+
+
+def test_the_marker_string():
+    assert W.TEMPLATE_MARKER == "OHMYJOB-TEMPLATE"
+    assert W.TEMPLATE_KEY == "_template"
+
+
+def test_has_template_marker_is_a_raw_text_search(tmp_path):
+    path = tmp_path / "Profile.md"
+    assert W.has_template_marker(path) is False  # missing
+    assert W.has_template_marker(tmp_path / "no" / "such" / "dir" / "Profile.md") is False
+    assert W.has_template_marker(tmp_path) is False  # a folder is no file
+    for data in (b"<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->\n# Candidate\n",
+                 b"# Candidate\n- Name: Alex Example\n\nnote: OHMYJOB-TEMPLATE in the middle\n",
+                 b'{"_template": "OHMYJOB-TEMPLATE: x", "search": {}}', b"not text \xff\x00 OHMYJOB-TEMPLATE \xfe"):
+        path.write_bytes(data)
+        assert W.has_template_marker(path) is True, data
+        assert W.has_template_marker(str(path)) is True
+    for data in (b"# Candidate\n- Name: Alex Example\n", b"ohmyjob-template (other case)", b"OHMYJOB TEMPLATE", b""):
+        path.write_bytes(data)
+        assert W.has_template_marker(path) is False, data
+
+
+def test_template_files_names_the_files_that_still_hold_the_marker(workspace):
+    assert W.template_files() == [] and W.template_files(workspace) == []  # the fixture is an edited workspace
+    config = workspace / "ohmyjob.json"
+    profile = workspace / "Profile.md"
+    profile_text = profile.read_text(encoding="utf-8")
+    profile.write_text("<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->\n"
+                       + profile_text, encoding="utf-8")
+    assert W.template_files(workspace) == [profile]
+    config.write_text((TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8"), encoding="utf-8")
+    assert W.template_files(workspace) == [config, profile]
+    profile.write_text(profile_text, encoding="utf-8")
+    assert W.template_files() == [config]
+    profile.unlink()  # a missing file holds no marker
+    assert W.template_files() == [config]
+    # the marker does not stop the config from loading: the guards decide, per command
+    assert W.load_config(workspace)["search"]["search_query"] == ["Operations Analyst"]
 
 
 # --------------------------------------------------------------------------- names and guard patterns

@@ -164,6 +164,10 @@ def snapshot(root: Path) -> None:
 
 
 def run(root: Path, search: dict, dry_run: bool = False) -> int:
+    template = W.template_files(root)
+    if template:  # the mock values would be searched for and tracked as if they were yours
+        raise Stop(f"{template[0].name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with "
+                   "yours and delete the marker line (the _template key in ohmyjob.json), then run again")
     if not search["search_query"]:
         raise Stop('search.search_query is empty in ohmyjob.json. Add search terms, for example ["Data Analyst"].')
     boards = list(search["sources"])

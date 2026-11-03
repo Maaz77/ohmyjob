@@ -20,18 +20,20 @@ case "${1:-}" in
   *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume> <args>"; exit 2 ;;
 esac
 
-# The workspace, as workspace.find_root() finds it: $OHMYJOB_WORKSPACE, else the nearest folder with ohmyjob.json at or
-# above $CLAUDE_PROJECT_DIR, else at or above the current folder.
+# The workspace: $OHMYJOB_WORKSPACE, else the one discovery rule (workspace.find_workspace) from the current folder (the
+# Bash tool's cwd; it has no CLAUDE_PROJECT_DIR): walk up, and at each folder D it is D when D/ohmyjob.json exists, else
+# D/ohmyjob when D/ohmyjob/ohmyjob.json exists. So the project folder and any folder inside ohmyjob/ both work.
 root="${OHMYJOB_WORKSPACE:-}"
 if [ -z "$root" ]; then
-  for dir in "${CLAUDE_PROJECT_DIR:-}" "$PWD"; do
-    while [ -n "$dir" ] && [ ! -f "$dir/ohmyjob.json" ]; do
-      case "$dir" in /) dir="" ;; /*/*) dir="${dir%/*}" ;; /*) dir="/" ;; *) dir="" ;; esac
-    done
-    if [ -n "$dir" ]; then root="$dir"; break; fi
+  dir="$PWD"
+  while [ -n "$dir" ]; do
+    case "$dir" in /*) ;; *) break ;; esac
+    if [ -f "$dir/ohmyjob.json" ]; then root="$dir"; break; fi
+    if [ -f "${dir%/}/ohmyjob/ohmyjob.json" ]; then root="${dir%/}/ohmyjob"; break; fi
+    case "$dir" in /) dir="" ;; /*/*) dir="${dir%/*}" ;; *) dir="/" ;; esac
   done
 fi
-[ -n "$root" ] && [ -f "$root/ohmyjob.json" ] || fatal "no ohmyjob.json in $PWD or above. Start Claude in your job-search folder and run /ohmyjob:setup."
+[ -n "$root" ] && [ -f "$root/ohmyjob.json" ] || fatal "no ohmyjob.json in $PWD or above, nor in an ohmyjob/ folder there. Start Claude in your project folder and run /ohmyjob:setup."
 
 # Paths from setup. A caller that already set OHMYJOB_PY (tests) needs no env.sh. The file is parsed, never sourced:
 # it sits in a folder the agents can write, and Bash(ohmyjob *) is pre-allowed. Accepted: blank lines, # comments and
@@ -79,7 +81,7 @@ resync() {
   [ "$want" = "$(cat "$stamp" 2>/dev/null || true)" ] && return 0
   uv="${OHMYJOB_UV:-$(command -v uv || true)}"
   [ -n "$uv" ] && [ -x "$uv" ] || fatal "uv.lock changed but uv was not found, run /ohmyjob:setup"
-  UV_PROJECT_ENVIRONMENT="$OHMYJOB_DATA/venv" "$uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
+  UV_PROJECT_ENVIRONMENT="$OHMYJOB_DATA/venv" UV_PYTHON_INSTALL_DIR="$OHMYJOB_DATA/python" UV_CACHE_DIR="$OHMYJOB_DATA/uv-cache" "$uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
     || fatal "uv sync failed, run /ohmyjob:setup"
   echo "$want" > "$stamp"
 }

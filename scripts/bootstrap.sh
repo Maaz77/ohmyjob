@@ -6,6 +6,7 @@
 #   --install-tinytex  may download and run the TinyTeX installer when the system lualatex cannot build the sample resume
 # Without a flag, a missing piece is an error line ("ohmyjob: ...", exit 3) that names the flag.
 #
+# --workspace is the PROJECT folder (default: the current folder); the workspace is <project>/ohmyjob.
 # Steps: Claude Code version gate, uv, venv (uv sync --frozen --no-dev into <data>/venv), LaTeX warm-up build,
 # Chrome extension copy, .ohmyjob/env.sh, workspace .claude/settings.json (merged), scaffold (tracker, folders,
 # ohmyjob.json, CLAUDE.md, .gitignore). Idempotent: a second run rewrites only env.sh. Nothing existing is overwritten.
@@ -22,13 +23,13 @@ fatal() { echo "ohmyjob: $*"; exit 3; }
 say() { echo "bootstrap: $*"; }
 
 DATA=""
-WORKSPACE="$PWD"
+PROJECT="$PWD"
 INSTALL_UV=0
 INSTALL_TINYTEX=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --data) [ $# -ge 2 ] || fatal "--data needs a folder"; DATA="$2"; shift 2 ;;
-    --workspace) [ $# -ge 2 ] || fatal "--workspace needs a folder"; WORKSPACE="$2"; shift 2 ;;
+    --workspace) [ $# -ge 2 ] || fatal "--workspace needs a folder"; PROJECT="$2"; shift 2 ;;
     --install-uv) INSTALL_UV=1; shift ;;
     --install-tinytex) INSTALL_TINYTEX=1; shift ;;
     -h|--help) sed -n 2,9p "$0"; exit 0 ;;
@@ -37,11 +38,16 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$DATA" ] || fatal "--data <dir> is required (setup passes \${CLAUDE_PLUGIN_DATA})"
 case "$DATA" in /*) ;; *) fatal "--data must be an absolute path" ;; esac
-mkdir -p "$DATA" "$WORKSPACE"
+mkdir -p "$DATA" "$PROJECT"
 DATA="$(cd "$DATA" && pwd)"
-WORKSPACE="$(cd "$WORKSPACE" && pwd)"
-[ "$WORKSPACE" != "$PLUGIN_ROOT" ] || fatal "the workspace cannot be the plugin folder; start Claude in your job-search folder"
-case "$DATA$WORKSPACE" in *\'*) fatal "a folder name with a single quote is not supported" ;; esac
+PROJECT="$(cd "$PROJECT" && pwd)"
+[ "$PROJECT" != "$PLUGIN_ROOT" ] || fatal "the project folder cannot be the plugin folder; start Claude in your job-search folder"
+# the workspace is <project>/ohmyjob; never nest one inside another
+if [ -f "$PROJECT/ohmyjob.json" ] && [ "${PROJECT##*/}" = "ohmyjob" ]; then
+  fatal "this is the ohmyjob workspace itself; start Claude in its parent folder (the project folder) and run /ohmyjob:setup there"
+fi
+WORKSPACE="$PROJECT/ohmyjob"
+case "$DATA$PROJECT" in *\'*) fatal "a folder name with a single quote is not supported" ;; esac
 
 sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 
@@ -87,34 +93,35 @@ if [ -x "$PY" ] && [ "$(cat "$VENV/uv.lock.sha256" 2>/dev/null || true)" = "$wan
   say "venv is current"
 else
   say "uv sync into $VENV"
-  UV_PROJECT_ENVIRONMENT="$VENV" "$UV" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
+  UV_PROJECT_ENVIRONMENT="$VENV" UV_PYTHON_INSTALL_DIR="$DATA/python" UV_CACHE_DIR="$DATA/uv-cache" "$UV" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
     || fatal "uv sync failed"
   [ -x "$PY" ] || fatal "uv sync did not create $PY"
   echo "$want" > "$VENV/uv.lock.sha256"
 fi
 
 # --- workspace marker first: the warm-up build and the tracker need a workspace --------------------------------------
-mkdir -p "$WORKSPACE/.ohmyjob"
+mkdir -p "$WORKSPACE/.ohmyjob" "$WORKSPACE/Default_Resume_Files"
 if [ ! -e "$WORKSPACE/ohmyjob.json" ]; then
   cp "$TEMPLATES/ohmyjob.json" "$WORKSPACE/ohmyjob.json"
   say "created ohmyjob.json"
 fi
 
 # --- 4. LaTeX ---------------------------------------------------------------------------------------------------------
-# warmup <lualatex path or empty>: builds the sample resume (templates/base.yaml + role.yaml) in a throwaway
-# workspace. The build also fills the luaotfload font cache, so parallel builds start warm.
+# warmup <lualatex path or empty>: builds the plugin's templates/Template.yaml in a throwaway workspace. The build also
+# fills the luaotfload font cache (under $DATA/texmf-var), so parallel builds start warm. On success the PDF is kept
+# as .ohmyjob/Template.warm.pdf; it becomes Default_Resume_Files/Template.pdf when that is missing.
+WARM_PDF="$WORKSPACE/.ohmyjob/Template.warm.pdf"
 warmup() {
   local lua="$1" tmp out rc
   tmp="$(mktemp -d "$WORKSPACE/.ohmyjob/w.XXXXXX")" || return 1
   mkdir -p "$tmp/Default_Resume_Files"
   cp "$TEMPLATES/ohmyjob.json" "$tmp/ohmyjob.json"
-  cp "$TEMPLATES/base.yaml" "$tmp/Default_Resume_Files/base.yaml"
-  cp "$TEMPLATES/role.yaml" "$tmp/Default_Resume_Files/Warmup.yaml"
+  cp "$TEMPLATES/Template.yaml" "$tmp/Default_Resume_Files/Template.yaml"
   rc=0
-  out="$(OHMYJOB_WORKSPACE="$tmp" OHMYJOB_LUALATEX="$lua" "$PY" "$SCRIPTS/resume_build.py" build \
-         "$tmp/Default_Resume_Files/Warmup.yaml" --out "$tmp/warmup.pdf" 2>&1)" || rc=$?
+  out="$(OHMYJOB_WORKSPACE="$tmp" OHMYJOB_DATA="$DATA" OHMYJOB_LUALATEX="$lua" "$PY" "$SCRIPTS/resume_build.py" build \
+         "$tmp/Default_Resume_Files/Template.yaml" --out "$tmp/Template.pdf" 2>&1)" || rc=$?
+  case "$out" in "OK "*) mv "$tmp/Template.pdf" "$WARM_PDF"; rm -rf "$tmp"; return 0 ;; esac
   rm -rf "$tmp"
-  case "$out" in "OK "*) return 0 ;; esac
   say "warm-up build with ${lua:-lualatex}: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ')"
   return 1
 }
@@ -200,8 +207,8 @@ mv "$ENV_FILE.tmp" "$ENV_FILE"
 say "wrote $ENV_FILE"
 
 # --- 7. workspace .claude/settings.json (merge) -----------------------------------------------------------------------
-mkdir -p "$WORKSPACE/.claude"
-"$PY" -I - "$TEMPLATES/workspace-settings.json" "$WORKSPACE/.claude/settings.json" "$WORKSPACE/ohmyjob.json" <<'PYEOF' \
+mkdir -p "$PROJECT/.claude"
+"$PY" -I - "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json" "$WORKSPACE/ohmyjob.json" <<'PYEOF' \
   || fatal "could not merge .claude/settings.json (the file is left as it was)"
 import json, sys
 from pathlib import Path
@@ -266,11 +273,25 @@ if [ ! -e "$WORKSPACE/CLAUDE.md" ]; then
   cp "$TEMPLATES/CLAUDE.md" "$WORKSPACE/CLAUDE.md"
   say "created CLAUDE.md"
 fi
+if [ ! -e "$WORKSPACE/Profile.md" ]; then
+  cp "$TEMPLATES/Profile.md" "$WORKSPACE/Profile.md"
+  say "created Profile.md (mock data)"
+fi
+if [ ! -e "$WORKSPACE/Default_Resume_Files/Template.yaml" ]; then
+  cp "$TEMPLATES/Template.yaml" "$WORKSPACE/Default_Resume_Files/Template.yaml"
+  say "created Default_Resume_Files/Template.yaml (mock data)"
+fi
+if [ ! -e "$WORKSPACE/Default_Resume_Files/Template.pdf" ]; then
+  cp "$WARM_PDF" "$WORKSPACE/Default_Resume_Files/Template.pdf"
+  say "built Default_Resume_Files/Template.pdf"
+fi
+rm -f "$WARM_PDF"
 if [ ! -e "$WORKSPACE/.gitignore" ]; then
   cp "$TEMPLATES/gitignore" "$WORKSPACE/.gitignore"
   say "created .gitignore"
 fi
 
+echo "workspace: $WORKSPACE"
 echo "extension: $EXT"
 echo "lualatex: $LUALATEX"
 echo "bootstrap: OK"

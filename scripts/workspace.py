@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 CONFIG_NAME = "ohmyjob.json"  # config and workspace marker: the hooks do nothing without it
+WORKSPACE_DIR = "ohmyjob"  # the workspace folder setup creates in the project folder (the one Claude starts in)
 
 
 class WorkspaceError(Exception):
@@ -31,24 +32,44 @@ class ConfigError(WorkspaceError):
 # --------------------------------------------------------------------------- where things live
 
 
+def find_workspace(start: str | os.PathLike | None) -> Path | None:
+    """The workspace for a start folder, by the one discovery rule (hook.sh, bin/ohmyjob and the hooks use it too).
+
+    Walk up from `start` (symlinks resolved). At each folder D: D itself when D/ohmyjob.json exists, else D/ohmyjob when
+    D/ohmyjob/ohmyjob.json exists. So the project folder (which holds ohmyjob/), any folder inside ohmyjob/ and any
+    other subfolder of the project all lead to the same workspace. None when nothing is found, and for an empty start or
+    one that is not an absolute path.
+    """
+    if not start or not os.path.isabs(start):
+        return None
+    try:
+        here = Path(start).resolve()
+    except (OSError, RuntimeError):
+        return None
+    for folder in (here, *here.parents):
+        if os.path.isfile(folder / CONFIG_NAME):
+            return folder
+        if os.path.isfile(folder / WORKSPACE_DIR / CONFIG_NAME):
+            return folder / WORKSPACE_DIR
+    return None
+
+
 def find_root() -> Path:
     """The workspace folder.
 
-    $OHMYJOB_WORKSPACE (tests, bin/ohmyjob and hook.sh) is used as it is. Else the nearest folder holding ohmyjob.json
-    at or above $CLAUDE_PROJECT_DIR (Claude may have been started in a subfolder of the workspace), else at or above
-    the current folder.
+    $OHMYJOB_WORKSPACE (tests, bin/ohmyjob and the hooks) is used as it is. Else find_workspace() from
+    $CLAUDE_PROJECT_DIR (the folder Claude was started in), else from the current folder.
     """
     forced = os.environ.get("OHMYJOB_WORKSPACE")
     if forced:
         return Path(forced).resolve()
     for start in (os.environ.get("CLAUDE_PROJECT_DIR"), Path.cwd()):
-        if start:
-            here = Path(start).resolve()
-            for folder in (here, *here.parents):
-                if (folder / CONFIG_NAME).is_file():
-                    return folder
+        root = find_workspace(start)
+        if root is not None:
+            return root
     raise WorkspaceError(
-        f"No {CONFIG_NAME} in {Path.cwd()} or above. Start Claude in your job-search folder and run /ohmyjob:setup."
+        f"No {CONFIG_NAME} in {Path.cwd()} or above, nor in an {WORKSPACE_DIR}/ folder there. "
+        "Start Claude in your project folder and run /ohmyjob:setup."
     )
 
 
@@ -67,8 +88,9 @@ ROOT = _root_or_cwd()
 CONFIG_FILE = ROOT / CONFIG_NAME
 PROFILE = ROOT / "Profile.md"
 TRACKER = ROOT / "Job_Tracker.xlsx"
-DEFAULT_RESUMES = ROOT / "Default_Resume_Files"  # base.yaml + <Role>.yaml + <Role>.pdf; the pipeline never edits them
-BASE_YAML = DEFAULT_RESUMES / "base.yaml"
+# One full resume per file: Template.yaml/.pdf, <Field>.yaml + <Field>.pdf, ready-made <Field>.pdf; never edited by
+# the pipeline.
+DEFAULT_RESUMES = ROOT / "Default_Resume_Files"
 APPLICATIONS = ROOT / "Applications"
 PENDING_REVIEW = ROOT / "Pending-Review"
 NEEDS_ATTENTION = ROOT / "Needs-Attention"
@@ -80,6 +102,7 @@ ENV_FILE = STATE_DIR / "env.sh"  # written by setup: OHMYJOB_PY, OHMYJOB_UV, OHM
 RUN_PREP = STATE_DIR / "run" / "prep"
 RUN_APPLY = STATE_DIR / "run" / "apply"
 BUILD_DIR = STATE_DIR / "build"  # one folder per resume build
+CATALOG_DIR = STATE_DIR / "catalog"  # the screening catalog: the text of every usable resume (prep start writes it)
 QUESTIONS_FILE = STATE_DIR / "questions.json"
 REPORT_FILE = STATE_DIR / "last_report.txt"
 
@@ -114,19 +137,59 @@ APPLICATION_MASTER_CMD_RE = re.compile(
 QUESTIONS_BLOCKER = "questions for the candidate"
 
 
-def file_prefix(root: Optional[Path] = None) -> str:
-    """The ASCII slug of the first name in base.yaml, else "Resume": tailored files are <prefix>_<Company>.pdf/.yaml."""
-    import yaml  # not at module level: the hooks import this module on every call
+# --------------------------------------------------------------------------- Profile.md and the templates
 
-    path = (root or find_root()) / "Default_Resume_Files" / "base.yaml"
+# Setup writes the templates with mock data and this marker on a line the user deletes after editing: the first line
+# of Profile.md and of Template.yaml, and the "_template" key of ohmyjob.json. A file that still holds it is not the
+# user's own: the commands refuse to use it (docs/CONTRACTS.md, "Templates and the mock guard").
+TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"
+TEMPLATE_KEY = "_template"  # the one extra top-level key ohmyjob.json may hold (a string)
+
+_LEVEL1_HEADING_RE = re.compile(r"^#\s+(.*?)\s*$")  # "# Candidate"; "## ..." is a subsection
+_NAME_LINE_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*)?name(?:\s*:\s*\*\*|\*\*\s*:|\s*:)\s*(.*)$", re.IGNORECASE)
+
+
+def has_template_marker(path: str | os.PathLike) -> bool:
+    """True when the file holds TEMPLATE_MARKER anywhere (a raw text search, nothing is parsed); False when there is no
+    such file. A file that exists but cannot be read raises OSError."""
     try:
-        first = (yaml.safe_load(path.read_text(encoding="utf-8")) or {})["name"]["first"]
-    except (OSError, yaml.YAMLError, KeyError, TypeError):
+        return TEMPLATE_MARKER.encode("ascii") in Path(path).read_bytes()
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return False
+
+
+def template_files(root: Optional[Path] = None) -> list[Path]:
+    """The files of ohmyjob.json and Profile.md (in this order) of the workspace (`root`, else find_root()) that still
+    hold the template marker: an empty list when the user has edited both."""
+    root = root or find_root()
+    return [path for path in (root / CONFIG_NAME, root / "Profile.md") if has_template_marker(path)]
+
+
+def file_prefix(root: Optional[Path] = None) -> str:
+    """The ASCII slug of the first name in Profile.md, else "Resume": tailored files are <prefix>_<Company>.pdf/.yaml.
+
+    The name is the line `- Name: <First> <Last>` (also `- **Name:** ...`) under the level-1 heading `# Candidate`; the
+    first word of it is the first name.
+    """
+    path = (root or find_root()) / "Profile.md"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return "Resume"
-    if not isinstance(first, str):
-        return "Resume"
-    ascii_name = unicodedata.normalize("NFKD", first).encode("ascii", "ignore").decode()
-    return re.sub(r"[^A-Za-z0-9]+", "-", ascii_name).strip("-") or "Resume"
+    section = None
+    for line in text.splitlines():
+        heading = _LEVEL1_HEADING_RE.match(line)
+        if heading:
+            section = heading.group(1).strip().lower()
+            continue
+        match = _NAME_LINE_RE.match(line) if section == "candidate" else None
+        if match:
+            words = match.group(1).split()
+            if not words:
+                return "Resume"
+            ascii_name = unicodedata.normalize("NFKD", words[0]).encode("ascii", "ignore").decode()
+            return re.sub(r"[^A-Za-z0-9]+", "-", ascii_name).strip("-") or "Resume"
+    return "Resume"
 
 
 # --------------------------------------------------------------------------- config (ohmyjob.json)
@@ -297,12 +360,16 @@ CHECKS: dict[str, Callable] = {
 def validate_config(raw: Any) -> dict:
     """The config with every default filled in and every value checked; ConfigError names the first bad key.
 
-    Keys starting with "$" or "_" at the top level (for example "$schema") are ignored.
+    The one other top-level key accepted is "_template" (TEMPLATE_KEY, a string: the template marker line). It is not
+    part of the result; template_files() tells whether it is still there.
     """
     if not isinstance(raw, dict):
         raise ConfigError(f"{CONFIG_NAME}: the file must hold a JSON object")
     for key in raw:
-        if key not in DEFAULTS and not key.startswith(("$", "_")):
+        if key == TEMPLATE_KEY:
+            if not isinstance(raw[key], str):
+                _fail(key, "must be a string: it is the template marker line, delete the whole line after editing")
+        elif key not in DEFAULTS:
             _fail(key, f"is not a known section. Known sections: {', '.join(DEFAULTS)}")
     config = copy.deepcopy(DEFAULTS)
     for section, known in DEFAULTS.items():

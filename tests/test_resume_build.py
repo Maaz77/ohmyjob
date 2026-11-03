@@ -19,10 +19,9 @@ needs_tex = pytest.mark.skipif(not LUALATEX, reason="lualatex is not installed")
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """A tmp dir holding a copy of the fixture yamls; W.BASE_YAML and W.BUILD_DIR point into it."""
+    """A tmp dir holding a copy of the fixture yamls; W.BUILD_DIR points into it."""
     d = tmp_path / "Default_Resume_Files"
     shutil.copytree(FIXTURE, d)
-    monkeypatch.setattr(W, "BASE_YAML", d / "base.yaml")
     monkeypatch.setattr(W, "BUILD_DIR", tmp_path / "build")
     return d
 
@@ -90,11 +89,11 @@ def test_plain_has_no_markup():
 
 # --------------------------------------------------------------------------- merge and mapping
 
-def test_merge_and_mapping(env):
+def test_mapping(env):
     src = rb.render(env / "Operations-Analyst.yaml", paper="a4")
     assert r"\documentclass[11pt,a4paper]{awesome-cv}" in src
-    assert r"\name{Alex}{Example}" in src and r"\position{Operations Analyst}" in src          # base + role
-    assert r"\email{alex.example@example.com}" in src and r"\cvsection{Profile}" in src        # base heading override
+    assert r"\name{Alex}{Example}" in src and r"\position{Operations Analyst}" in src          # one full yaml
+    assert r"\email{alex.example@example.com}" in src and r"\cvsection{Profile}" in src        # heading override
     assert r"\cvsection{Core Skills}" in src and r"\cvsection{Experience}" in src
     # grouped employer: first role carries employer + location, the later role has an empty title and location
     assert r"\cventry{Senior Operations Analyst}{Harborline Freight Group}{Hamburg, Germany}{2022 - Present}" in src
@@ -107,10 +106,10 @@ def test_merge_and_mapping(env):
 
 
 def test_header_urls_and_plain_fields(env):
-    base = yaml.safe_load((env / "base.yaml").read_text())
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     base.update(homepage="example.com/~me_x", github="a_b", linkedin="**x**", phone="**1**", email="a_b@example.com",
                 date_of_birth="**d**", sections={"summary": "**S**", "skills": "A_B"})
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     src = rb.render(env / "Operations-Analyst.yaml", paper="a4")
     assert r"\homepage{https://example.com/\string~me\_x}" in src and r"\github{a\_b}" in src
     assert r"\linkedin{**x**}" in src and r"\mobile{**1**}" in src and r"\email{a\_b@example.com}" in src
@@ -119,9 +118,9 @@ def test_header_urls_and_plain_fields(env):
 
 @pytest.mark.parametrize("field, value", [("homepage", "run:x"), ("homepage", "file:///etc/passwd")])
 def test_bad_homepage_scheme_is_a_fail(env, field, value):
-    base = yaml.safe_load((env / "base.yaml").read_text())
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     base[field] = value
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     status, _, detail = rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="a4")
     assert status == "FAIL" and "homepage" in detail and "only http" in detail
 
@@ -178,12 +177,12 @@ def test_flags_and_empty_projects(env):
     assert r"\cventry{BSc Business Administration}{Rhein-Spree University of Applied Sciences}" in src
 
 
-def test_role_overrides_base_and_sections_merge(env):
-    base = yaml.safe_load((env / "base.yaml").read_text())
+def test_accent_color_and_section_headings(env):
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     base["accent_color"] = "#aa3311"
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     src = rb.render(role(env, sections={"skills": "Tools"}, title="Other Title"), paper="a4")
-    assert r"\position{Other Title}" in src and r"\cvsection{Tools}" in src and r"\cvsection{Profile}" in src
+    assert r"\position{Other Title}" in src and r"\cvsection{Tools}" in src and r"\cvsection{Summary}" in src
     assert r"\definecolor{acvaccent}{HTML}{AA3311}" in src
 
 
@@ -192,6 +191,12 @@ def test_role_overrides_base_and_sections_merge(env):
     ({"experience": "x"}, "experience must be a list"),
     ({"experience": [{"company": "X"}]}, "experience[0].role is missing"),
     ({"skills": [{"items": "a"}]}, "skills[0].label is missing"),
+    ({"email": ""}, "email is missing"),
+    ({"phone": ""}, "phone is missing"),
+    ({"name": {"first": "A"}}, "name.last is missing"),
+    ({"name": "Alex"}, "name must be a mapping"),
+    ({"interests": True}, "show_interests"),
+    ({"education": "x"}, "education must be a list"),
 ])
 def test_bad_role_yaml_is_a_fail(env, changes, message):
     status, pages, detail = rb.build(role(env, **changes), env / "out.pdf", max_pages=1, paper="a4")
@@ -199,10 +204,11 @@ def test_bad_role_yaml_is_a_fail(env, changes, message):
     assert not (env / "out.pdf").exists()
 
 
-def test_fail_without_base_or_with_bad_paper(env):
-    (env / "base.yaml").unlink()
-    assert rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="a4")[0:2] == ("FAIL", None)
-    shutil.copy(FIXTURE / "base.yaml", env / "base.yaml")
+def test_fail_without_yaml_or_with_bad_paper(env):
+    (env / "Operations-Analyst.yaml").unlink()
+    status, _, detail = rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="a4")
+    assert (status, detail[:16]) == ("FAIL", "cannot read resu")
+    shutil.copy(FIXTURE / "Operations-Analyst.yaml", env / "Operations-Analyst.yaml")
     status, _, detail = rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="legal")
     assert status == "FAIL" and "a4 or letter" in detail
 
@@ -215,9 +221,8 @@ def test_fail_without_lualatex(env, monkeypatch):
 
 
 def test_templates_are_valid_input(env):
-    shutil.copy(ROOT / "templates" / "base.yaml", env / "base.yaml")
-    src = rb.render(ROOT / "templates" / "role.yaml", paper="a4")
-    assert r"\name{Firstname}{Lastname}" in src and r"\cvsection{Experience}" in src
+    src = rb.render(ROOT / "templates" / "Template.yaml", paper="a4")
+    assert r"\name{Alex}{Example}" in src and r"\cvsection{Experience}" in src
 
 
 # --------------------------------------------------------------------------- real builds
@@ -256,10 +261,10 @@ needs_pdftotext = pytest.mark.skipif(not shutil.which("pdftotext"), reason="pdft
 @needs_pdftotext
 def test_special_characters_print_literally(env):
     text = r"\input{/etc/hostname} \write18{touch PWNED} {x} $y$ 100% a_b # ~ ^ & **bold** \\ ]"
-    base = yaml.safe_load((env / "base.yaml").read_text())
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     base.update(github="a_b-user", linkedin="x_y", address="1 A&B Str. #5", homepage="example.com/~x_y#top?a=1&b=2",
                 phone="**1** 23", date_of_birth="**1** May")
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     path = role(env, introduction=text, skills=[{"label": "Sk_ill", "items": text}])
     out = env / "special.pdf"
     assert rb.build(path, out, max_pages=1, paper="a4")[0] == "OK"
@@ -283,9 +288,9 @@ def test_unicode_text_and_plain_hyphens(env):
 
 @needs_tex
 def test_missing_glyph_is_a_fail(env):
-    base = yaml.safe_load((env / "base.yaml").read_text())
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     base["name"] = {"first": "\u674e", "last": "Example"}
-    (env / "base.yaml").write_text(yaml.safe_dump(base, allow_unicode=True))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base, allow_unicode=True))
     status, pages, detail = rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="a4")
     assert (status, pages) == ("FAIL", None) and "Missing character" in detail and not (env / "o.pdf").exists()
 
@@ -328,13 +333,13 @@ def test_photo_builds(env, tmp_path):
     png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0)) + \
         chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
     (env / "me.png").write_bytes(png)
-    base = yaml.safe_load((env / "base.yaml").read_text())
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     base["photo"] = "me.png"
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     assert rb.render(env / "Operations-Analyst.yaml", paper="a4", photo="photo.png").count(r"\photo[circle,edge,left]{photo.png}") == 1
     assert rb.build(env / "Operations-Analyst.yaml", env / "p.pdf", max_pages=1, paper="a4")[0] == "OK"
     base["photo"] = "missing.png"
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     status, _, detail = rb.build(env / "Operations-Analyst.yaml", env / "p2.pdf", max_pages=1, paper="a4")
     assert status == "FAIL" and "photo" in detail
 
@@ -379,7 +384,7 @@ def test_validation_fails_name_the_real_problem_without_lualatex(env, monkeypatc
     monkeypatch.delenv("OHMYJOB_LUALATEX", raising=False)
     monkeypatch.setenv("PATH", str(tmp_path))  # an empty dir: no lualatex
     good = env / "Operations-Analyst.yaml"
-    base = yaml.safe_load((env / "base.yaml").read_text())
+    base = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
     cases = [({"title": ""}, "title is missing"), ({"experience": "x"}, "experience must be a list"),
              ({"projects": [{"title": "P", "repo": "run://x", "bullets": []}]}, "projects[0].repo")]
     for changes, message in cases:
@@ -391,10 +396,91 @@ def test_validation_fails_name_the_real_problem_without_lualatex(env, monkeypatc
     bad.write_bytes(b"title: \xff\n")
     assert "UTF-8" in rb.build(bad, env / "o.pdf", max_pages=1, paper="a4")[2]
     base["homepage"] = "run:x"
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     assert "only http" in rb.build(good, env / "o.pdf", max_pages=1, paper="a4")[2]
-    (env / "base.yaml").unlink()
-    assert "base.yaml not found" in rb.build(good, env / "o.pdf", max_pages=1, paper="a4")[2]
     base["homepage"] = "example.com"
-    (env / "base.yaml").write_text(yaml.safe_dump(base))
+    (env / "Operations-Analyst.yaml").write_text(yaml.safe_dump(base))
     assert "lualatex not found" in rb.build(good, env / "o.pdf", max_pages=1, paper="a4")[2]
+
+
+# --------------------------------------------------------------------------- the new format, build-all, TEXMF
+
+def test_one_full_yaml_no_merge(env):
+    """Everything comes from the one file; a missing header key is an error, not filled in from another file."""
+    data = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
+    assert "show_interests" in data and "education_details" in data and isinstance(data["interests"], str)
+    src = rb.render(env / "Operations-Analyst.yaml", paper="a4")
+    assert "Trail running" in src and "Thesis: forecast error" in src
+    data["show_interests"] = False
+    data["education_details"] = "no"
+    (env / "x.yaml").write_text(yaml.safe_dump(data))
+    src = rb.render(env / "x.yaml", paper="a4")
+    assert "Trail running" not in src and "Thesis: forecast error" not in src
+    assert not hasattr(W, "BASE_YAML") and not hasattr(rb, "_merge")
+
+
+def test_texmf_variables_follow_ohmyjob_data(env, monkeypatch, tmp_path):
+    seen = tmp_path / "seen.txt"
+    fake = tmp_path / "lualatex"
+    fake.write_text(f'#!/bin/sh\necho "$TEXMFVAR|$TEXMFCACHE" > {seen}\nexit 1\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("OHMYJOB_LUALATEX", str(fake))
+    data = tmp_path / "data"
+    monkeypatch.setenv("OHMYJOB_DATA", str(data))
+    assert rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="a4")[0] == "FAIL"
+    want = str(data / "texmf-var")
+    assert seen.read_text().strip() == f"{want}|{want}" and (data / "texmf-var").is_dir()
+    monkeypatch.delenv("OHMYJOB_DATA")
+    monkeypatch.setenv("TEXMFVAR", "/keep/var")
+    rb.build(env / "Operations-Analyst.yaml", env / "o.pdf", max_pages=1, paper="a4")
+    assert seen.read_text().startswith("/keep/var|")
+
+
+@needs_tex
+@pytest.mark.parametrize("paper", ["a4", "letter"])
+def test_template_yaml_builds_on_one_page(env, paper):
+    src = ROOT / "templates" / "Template.yaml"
+    assert src.read_text().splitlines()[0] == (
+        "# OHMYJOB-TEMPLATE: copy this file to <Field>.yaml, replace the mock data, then delete this line")
+    out = env / f"t-{paper}.pdf"
+    assert rb.build(src, out, max_pages=1, paper=paper) == ("OK", 1, str(out))
+
+
+def cli(workspace, *args):
+    run = subprocess.run([sys.executable, str(ROOT / "scripts" / "resume_build.py"), *args],
+                         capture_output=True, text=True, cwd=workspace)
+    return run.returncode, run.stdout
+
+
+@needs_tex
+def test_build_all_lines_and_exit_codes(workspace):
+    d = workspace / "Default_Resume_Files"
+    (workspace / "ohmyjob.json").write_text('{"pipeline": {"resume_max_pages": 1, "resume_paper": "a4"}}')
+    # all OK: the two fixture resumes -> exit 0
+    code, out = cli(workspace, "build-all")
+    assert out.splitlines() == ["Operations-Analyst.yaml: OK", "Project-Coordinator.yaml: OK", "SUMMARY 2 OK, 0 OVERFLOW, 0 FAIL"]
+    assert code == 0 and (d / "Operations-Analyst.pdf").exists() and (d / "Project-Coordinator.pdf").exists()
+    # an OVERFLOW, a FAIL and a file that still has the marker -> exit 1, lines sorted by file name
+    long = yaml.safe_load((d / "Project-Coordinator.yaml").read_text())
+    long["experience"] = long["experience"] * 8
+    (d / "Project-Coordinator.yaml").write_text(yaml.safe_dump(long))
+    (d / "Broken.yaml").write_text("title: [")
+    shutil.copy(ROOT / "templates" / "Template.yaml", d / "Template.yaml")
+    code, out = cli(workspace, "build-all")
+    lines = out.splitlines()
+    assert lines[0].startswith("Broken.yaml: FAIL ") and lines[1] == "Operations-Analyst.yaml: OK"
+    assert lines[2] == "Project-Coordinator.yaml: OVERFLOW 2 pages"
+    assert lines[3:5] == ["Template.yaml: OK", "WARNING Template.yaml: still has the template marker"]
+    assert lines[5] == "SUMMARY 2 OK, 1 OVERFLOW, 1 FAIL" and len(lines) == 6 and code == 1
+    assert (d / "Template.pdf").exists() and not (d / "Broken.pdf").exists()
+    assert not (d / "Project-Coordinator.pdf").exists()                                  # OVERFLOW leaves no PDF
+    # --dir
+    other = workspace / "elsewhere"
+    other.mkdir()
+    shutil.copy(FIXTURE / "Operations-Analyst.yaml", other / "A.yaml")
+    assert cli(workspace, "build-all", "--dir", str(other)) == (0, "A.yaml: OK\nSUMMARY 1 OK, 0 OVERFLOW, 0 FAIL\n")
+
+
+def test_build_all_empty_dir(workspace, tmp_path):
+    code, out = cli(workspace, "build-all", "--dir", str(tmp_path))
+    assert code == 1 and out.startswith("FATAL: no resume yaml files") and out.count("\n") == 1

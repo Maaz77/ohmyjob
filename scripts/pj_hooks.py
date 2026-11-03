@@ -21,14 +21,15 @@ WORKERS = {"ohmyjob:screen-worker", "ohmyjob:resume-worker"}
 
 
 def workspace_for(inp: dict) -> Optional[Path]:
-    """The nearest folder with ohmyjob.json at or above the parsed top-level cwd, else $CLAUDE_PROJECT_DIR. The
-    workspace hook.sh exports is not trusted: it may come from a "cwd" text inside tool_input."""
+    """workspace.find_workspace() of the parsed top-level cwd, else of $CLAUDE_PROJECT_DIR. The workspace hook.sh
+    exports is not trusted: it may come from a "cwd" text inside tool_input."""
+    import workspace  # light (standard library only); main() reloads it for the workspace found here
+
     for start in (inp.get("cwd"), os.environ.get("CLAUDE_PROJECT_DIR")):
         if isinstance(start, str) and os.path.isabs(start):
-            here = Path(start)
-            for folder in (here, *here.parents):
-                if (folder / "ohmyjob.json").is_file():
-                    return folder
+            root = workspace.find_workspace(start)
+            if root is not None:
+                return root
     return None
 
 
@@ -55,7 +56,7 @@ def main() -> None:
     if root is None:
         sys.exit(0)
     os.environ["OHMYJOB_WORKSPACE"] = str(root)
-    if "workspace" in sys.modules:  # imported earlier (by hooks.py) for another candidate folder
+    if "workspace" in sys.modules:  # imported by workspace_for() or hooks.py before OHMYJOB_WORKSPACE named this one
         import importlib
 
         importlib.reload(sys.modules["workspace"])

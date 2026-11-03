@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Build a resume PDF: merge base.yaml with a role yaml, render the Awesome-CV LaTeX template, compile with LuaLaTeX.
+"""Build a resume PDF: read ONE full resume yaml, render the Awesome-CV LaTeX template, compile with LuaLaTeX.
 
-CLI (one output line): `ohmyjob resume build <role.yaml> [--out <pdf>]` prints `OK <pdf>`, `OVERFLOW <N> pages` or
-`FAIL <reason>`. Import API (used by pj.py): `build()`, `render()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
+CLI: `ohmyjob resume build <resume.yaml> [--out <pdf>]` prints one line: `OK <pdf>`, `OVERFLOW <N> pages` or
+`FAIL <reason>`. `ohmyjob resume build-all [--dir <dir>]` builds every *.yaml of the dir (default
+Default_Resume_Files) next to itself and prints one line per file. Import API (used by pj.py): `build()`, `render()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
 
 Everything in the yaml is data from a model: `tex()` escapes every LaTeX special, so yaml text never reaches LaTeX as a
 command. LuaLaTeX runs with shell escape off, in a throw-away dir under W.BUILD_DIR.
@@ -222,21 +223,22 @@ def _experience(raw) -> list:
     return entries
 
 
-def _context(base: dict, role: dict, paper: str, photo: str = "") -> dict:
+def _context(data: dict, paper: str, photo: str = "") -> dict:
     if paper not in PAPERS:
         raise BuildError(f"paper must be a4 or letter, not {paper!r}")
-    name = _dict(base.get("name"), "base.yaml name")
-    accent = _str(base.get("accent_color"), "accent_color").lstrip("#")
+    if isinstance(data.get("interests"), bool):
+        raise BuildError("interests must be text; the yes/no flag is show_interests")
+    name = _dict(data.get("name"), "name")
+    accent = _str(data.get("accent_color"), "accent_color").lstrip("#")
     accent_hex = accent.upper() if re.fullmatch(r"[0-9A-Fa-f]{6}", accent) else ""
     accent_name = "awesome-" + (accent if accent in ACCENT_NAMES else "skyblue")
     headings = dict(DEFAULT_HEADINGS)
-    for source in (base.get("sections"), role.get("sections")):
-        for key, val in _dict(source or {}, "sections").items():
-            if key in headings and _str(val, f"sections.{key}"):
-                headings[key] = _str(val, f"sections.{key}")
+    for key, val in _dict(data.get("sections") or {}, "sections").items():
+        if key in headings and _str(val, f"sections.{key}"):
+            headings[key] = _str(val, f"sections.{key}")
     education = []
-    show_details = _yes(role.get("education_details"))
-    for i, d in enumerate(_list(base.get("education"), "education")):
+    show_details = _yes(data.get("education_details"))
+    for i, d in enumerate(_list(data.get("education"), "education")):
         f = f"education[{i}]"
         d = _dict(d, f)
         education.append({
@@ -245,14 +247,14 @@ def _context(base: dict, role: dict, paper: str, photo: str = "") -> dict:
             "details": _bullets(d.get("details"), f"{f}.details") if show_details else [],
         })
     projects = []
-    for i, p in enumerate(_list(role.get("projects"), "projects")):
+    for i, p in enumerate(_list(data.get("projects"), "projects")):
         f = f"projects[{i}]"
         p = _dict(p, f)
         projects.append({"title": _str(p.get("title"), f"{f}.title", required=True),
                          "repo": link(_str(p.get("repo"), f"{f}.repo"), f"{f}.repo"),
                          "bullets": _bullets(p.get("bullets"), f"{f}.bullets")})
     skills = []
-    for i, s in enumerate(_list(role.get("skills"), "skills")):
+    for i, s in enumerate(_list(data.get("skills"), "skills")):
         f = f"skills[{i}]"
         s = _dict(s, f)
         items = s.get("items")
@@ -263,17 +265,17 @@ def _context(base: dict, role: dict, paper: str, photo: str = "") -> dict:
         "paper_option": PAPERS[paper], "accent_hex": accent_hex, "accent_name": accent_name, "headings": headings,
         "name": {"first": _str(name.get("first"), "name.first", required=True),
                  "last": _str(name.get("last"), "name.last", required=True)},
-        "title": _str(role.get("title"), "title", required=True),
-        "address": _str(base.get("address"), "address"), "phone": _str(base.get("phone"), "phone"),
-        "email": _str(base.get("email"), "email"), "homepage": web_url(_str(base.get("homepage"), "homepage"), "homepage"),
-        "github": _str(base.get("github"), "github"), "linkedin": _str(base.get("linkedin"), "linkedin"),
-        "extra": _str(base.get("extra"), "extra"), "date_of_birth": _str(base.get("date_of_birth"), "date_of_birth"),
+        "title": _str(data.get("title"), "title", required=True),
+        "address": _str(data.get("address"), "address", required=True), "phone": _str(data.get("phone"), "phone", required=True),
+        "email": _str(data.get("email"), "email", required=True), "homepage": web_url(_str(data.get("homepage"), "homepage"), "homepage"),
+        "github": _str(data.get("github"), "github"), "linkedin": _str(data.get("linkedin"), "linkedin"),
+        "extra": _str(data.get("extra"), "extra"), "date_of_birth": _str(data.get("date_of_birth"), "date_of_birth"),
         "photo": photo,
-        "introduction": _str(role.get("introduction"), "introduction"),
-        "experience": _experience(role.get("experience")),
+        "introduction": _str(data.get("introduction"), "introduction"),
+        "experience": _experience(data.get("experience")),
         "projects": projects, "education": education, "skills": skills,
-        # base.yaml `interests` is the text; the role yaml's `interests: yes|no` says whether it is printed
-        "interests": _str(base.get("interests"), "interests") if _yes(role.get("interests")) else "",
+        # `interests` is the text; `show_interests: yes|no` says whether it is printed
+        "interests": _str(data.get("interests"), "interests") if _yes(data.get("show_interests")) else "",
     }
 
 
@@ -290,16 +292,13 @@ def _paper(paper):
     return paper if paper is not None else W.load_config()["pipeline"]["resume_paper"]
 
 
-def _inputs(role_yaml):
-    if not Path(W.BASE_YAML).exists():
-        raise BuildError("base.yaml not found (run /ohmyjob:profile)")
-    return _load(W.BASE_YAML, "base.yaml"), _load(role_yaml, "role yaml")
+def _inputs(resume_yaml) -> dict:
+    return _load(resume_yaml, "resume yaml")
 
 
-def render(role_yaml, *, paper=None, photo: str = "") -> str:
-    """LaTeX source for base.yaml (W.BASE_YAML) merged with `role_yaml`. Raises BuildError."""
-    base, role = _inputs(role_yaml)
-    return _ENV.get_template(TEMPLATE_NAME).render(**_context(base, role, _paper(paper), photo))
+def render(resume_yaml, *, paper=None, photo: str = "") -> str:
+    """LaTeX source for one full resume yaml. Raises BuildError."""
+    return _ENV.get_template(TEMPLATE_NAME).render(**_context(_inputs(resume_yaml), _paper(paper), photo))
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -310,6 +309,18 @@ def _lualatex():
     if not exe:
         raise BuildError("lualatex not found (run /ohmyjob:setup)")
     return exe
+
+
+def _latex_env() -> dict:
+    """The environment of a lualatex run. With $OHMYJOB_DATA set, the font and format caches (TEXMFVAR, TEXMFCACHE)
+    live in $OHMYJOB_DATA/texmf-var, so nothing is written to the user's home."""
+    env = dict(os.environ)
+    data = os.environ.get("OHMYJOB_DATA")
+    if data:
+        cache = Path(data) / "texmf-var"
+        cache.mkdir(parents=True, exist_ok=True)
+        env["TEXMFVAR"] = env["TEXMFCACHE"] = str(cache)
+    return env
 
 
 def _log_error(log: str) -> str:
@@ -335,25 +346,26 @@ def build(role_yaml: Path, out_pdf: Path, *, max_pages: int | None = None, paper
         if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 0:
             raise BuildError(f"max_pages must be a whole number >= 0, not {max_pages!r}")
         paper = _paper(paper)
-        base, role = _inputs(role_yaml)
+        data = _inputs(role_yaml)
         W.BUILD_DIR.mkdir(parents=True, exist_ok=True)
         bdir = Path(tempfile.mkdtemp(prefix="b-", dir=W.BUILD_DIR))
         photo = ""
-        if _str(base.get("photo"), "photo"):
-            src = Path(_str(base.get("photo"), "photo"))
-            src = src if src.is_absolute() else Path(W.BASE_YAML).parent / src
+        if _str(data.get("photo"), "photo"):
+            src = Path(_str(data.get("photo"), "photo"))
+            src = src if src.is_absolute() else Path(role_yaml).parent / src
             if src.suffix.lower() not in (".jpg", ".jpeg", ".png", ".pdf") or not src.is_file():
                 raise BuildError(f"photo {src.name} must be an existing jpg, png or pdf file")
             photo = "photo" + src.suffix.lower()
             shutil.copyfile(src, bdir / photo)
         (bdir / "resume.tex").write_text(
-            _ENV.get_template(TEMPLATE_NAME).render(**_context(base, role, paper, photo)), encoding="utf-8", errors="replace")
+            _ENV.get_template(TEMPLATE_NAME).render(**_context(data, paper, photo)), encoding="utf-8", errors="replace")
         shutil.copyfile(CLASS_FILE, bdir / CLASS_FILE.name)
         exe = _lualatex()  # only now: bad input is reported as such even where TeX is not installed
         try:
             proc = subprocess.run(
                 [exe, "-interaction=nonstopmode", "-halt-on-error", "-no-shell-escape", "-jobname=resume", "resume.tex"],
-                cwd=bdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=LATEX_TIMEOUT)
+                cwd=bdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=LATEX_TIMEOUT,
+                env=_latex_env())
         except subprocess.TimeoutExpired:
             return "FAIL", None, f"lualatex timed out after {LATEX_TIMEOUT}s"
         except OSError as exc:
@@ -395,13 +407,45 @@ def _one_line(text: str) -> str:
     return " ".join(str(text).split())[:300]
 
 
+def build_all(directory: Path) -> int:
+    """Build every *.yaml of `directory` (sorted) into the PDF with the same name; one line per file."""
+    files = sorted(Path(directory).glob("*.yaml"))
+    if not files:
+        print(f"FATAL: no resume yaml files in {directory}")
+        return 1
+    counts = {"OK": 0, "OVERFLOW": 0, "FAIL": 0}
+    for path in files:
+        try:
+            status, pages, detail = build(path, path.with_suffix(".pdf"))
+        except Exception as exc:  # one broken file must not stop the others
+            status, pages, detail = "FAIL", None, f"{type(exc).__name__}: {exc}"
+        counts[status] += 1
+        tail = {"OK": "OK", "OVERFLOW": f"OVERFLOW {pages} pages"}.get(status) or f"FAIL {_one_line(detail)}"
+        print(f"{path.name}: {tail}")
+        try:
+            if W.has_template_marker(path):
+                print(f"WARNING {path.name}: still has the template marker")
+        except OSError:
+            pass
+    print(f"SUMMARY {counts['OK']} OK, {counts['OVERFLOW']} OVERFLOW, {counts['FAIL']} FAIL")
+    return 0 if counts["OK"] == len(files) else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="ohmyjob resume")
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build a PDF from a role yaml")
     b.add_argument("yaml", type=Path)
     b.add_argument("--out", type=Path, default=None, help="PDF path (default: the yaml path with .pdf)")
+    a = sub.add_parser("build-all", help="build every *.yaml of a folder into a PDF next to it")
+    a.add_argument("--dir", type=Path, default=None, help="folder (default: Default_Resume_Files)")
     args = ap.parse_args(argv)
+    if args.cmd == "build-all":
+        try:
+            return build_all(args.dir or W.DEFAULT_RESUMES)
+        except Exception as exc:
+            print(f"FATAL: {type(exc).__name__}: {exc}")
+            return 1
     out = args.out or args.yaml.with_suffix(".pdf")
     try:
         status, pages, detail = build(args.yaml, out)

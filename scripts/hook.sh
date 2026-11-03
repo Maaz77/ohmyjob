@@ -29,14 +29,19 @@ find_all() {  # find_all <key> -> fills the array `found`
   done
 }
 
-# The workspace is the nearest folder with ohmyjob.json at or above CLAUDE_PROJECT_DIR (the folder Claude was started
-# in, a subfolder of the workspace at most), else at or above the stdin cwd (Claude may have been started elsewhere and
-# then moved in; CLAUDE_PROJECT_DIR is not set for every caller), up to /. None: not an ohmyjob workspace, do nothing.
-# No forks: this runs on every call. (A path that is not absolute is no workspace.)
+# The workspace, by the one discovery rule (workspace.find_workspace): walk up from a start folder; at each folder D it
+# is D when D/ohmyjob.json exists, else D/ohmyjob when D/ohmyjob/ohmyjob.json exists. Start folders: CLAUDE_PROJECT_DIR
+# (the folder Claude was started in: the project folder, or a folder inside it), else every stdin cwd (Claude may have
+# been started elsewhere and then moved in; CLAUDE_PROJECT_DIR is not set for every caller), up to /. None: not an
+# ohmyjob workspace, do nothing. No forks: this runs on every call. A path that is not absolute is no workspace.
 find_workspace() {  # find_workspace <dir> -> sets `root`
-  root="$1"
-  while [ -n "$root" ] && [ ! -f "$root/ohmyjob.json" ]; do
-    case "$root" in /) root="" ;; /*/*) root="${root%/*}" ;; /*) root="/" ;; *) root="" ;; esac
+  local dir="$1"
+  root=""
+  while [ -n "$dir" ]; do
+    case "$dir" in /*) ;; *) return ;; esac
+    if [ -f "$dir/ohmyjob.json" ]; then root="$dir"; return; fi
+    if [ -f "${dir%/}/ohmyjob/ohmyjob.json" ]; then root="${dir%/}/ohmyjob"; return; fi
+    case "$dir" in /) dir="" ;; /*/*) dir="${dir%/*}" ;; *) dir="/" ;; esac
   done
 }
 find_workspace "${CLAUDE_PROJECT_DIR:-}"

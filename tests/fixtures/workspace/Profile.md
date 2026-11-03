@@ -1,3 +1,7 @@
+# Candidate
+
+- Name: Alex Example
+
 # Fit Preferences
 
 - **Target roles:** Operations Analyst, Supply Chain Analyst, Project Coordinator

@@ -26,5 +26,5 @@ In the steps below, `PJ` means the command `ohmyjob prep`. Every PJ command prin
 ## Rules
 - Use only the PJ commands above. Start only the agent type that PJ prints (its "subagent_type" is already the full `ohmyjob:` name).
 - Do not read, judge or repeat the worker reports or their completion notices: the hooks and scripts check them. `PJ next` knows which workers have finished.
-- If a PJ command prints a line that starts with FATAL or `ohmyjob: `, show that line and stop.
+- If a PJ command prints a line that starts with FATAL or `ohmyjob: `, show that line (it names the file to fix) and stop.
 - Keep your own messages short. Do not repeat the Profile.md text that a command prints.
