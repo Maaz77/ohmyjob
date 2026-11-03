@@ -7,7 +7,7 @@ A job-search pipeline for [Claude Code](https://code.claude.com), shipped as a p
 | Step | Command | What happens |
 |---|---|---|
 | 1 | `/ohmyjob:find-jobs` | Searches the boards you configured, filters by title, employment type and company, drops duplicates, and adds new jobs to the tracker at `Found`, each with a folder `Applications/<id>_<Company>_<Title>/job.md`. |
-| 2 | `/ohmyjob:prep-jobs` | One small worker per job screens it against `Profile.md` (`Matched` or `Skipped-LowFit`), then one worker per match tailors a copy of your closest pre-made resume and builds the PDF (`Resume Built`). |
+| 2 | `/ohmyjob:prep-jobs` | One small worker per job screens it against `Profile.md` (`Matched` or `Skipped-LowFit`), then one worker per match tailors a copy of your closest resume and builds the PDF (`Resume Built`); a match on a ready-made PDF uses it as it is. |
 | 3 | `/ohmyjob:apply-jobs` | One worker per job fills the application in its own Chrome tab and parks it before the final button (`Pending Review`), or flags it (`Needs Attention`). Questions it cannot answer from `Profile.md` are collected and asked once; your answers are saved for next time. |
 | 4 | by hand | Open the Chrome tab group "Needs Attention" and fix what blocked each job (sign in, create an account, close a pop-up). |
 | 5 | `/ohmyjob:continue-applying` | Workers continue those tabs from where they stopped. |
@@ -16,16 +16,20 @@ A job-search pipeline for [Claude Code](https://code.claude.com), shipped as a p
 
 Drop a job at any time by deleting its folder. Details of every component: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Requirements
+## Prerequisites
+
+Check all of these **before** the install steps:
 
 - macOS or Linux. Windows is not supported.
 - Claude Code 2.1.306 or newer (`claude --version`; `claude update`).
-- For the application step: a direct Anthropic plan (Pro, Max, Team or Enterprise) signed in with `/login`. An API key turns Claude in Chrome off. Chrome, Edge or Brave with the Claude in Chrome extension. WSL is not supported for the browser.
-- Disk and network for the one-time setup: Python packages (via [uv](https://docs.astral.sh/uv/)) and, only if your computer has no working `lualatex`, a TinyTeX install of about 250 MB. Everything goes into the plugin's data folder; no admin rights and no system folder are touched. TinyTeX is installed only after you agree, into the plugin data folder, and your `PATH` and shell files are not changed.
+- A direct Anthropic plan (Pro, Max, Team or Enterprise) signed in with `/login`. An API key turns Claude in Chrome off.
+- Chrome, Edge or Brave with the Claude in Chrome extension installed and signed in. WSL is not supported for the browser. Only `/ohmyjob:apply-jobs` and `/ohmyjob:continue-applying` need the browser; the other commands work without it.
+- Both the plugin and Claude in Chrome must be enabled in the session you work in: install the plugin at project scope (below) and start Claude with `--chrome` (the launch line below does).
+- Network and disk for the one-time setup (see what it installs, and where, below).
 
 ## Install
 
-Create a folder for the search and install the plugin there at project scope (this keeps the plugin, its hooks and its settings inside that one folder, and leaves `~/.claude/settings.json` alone):
+Create a project folder for the search and install the plugin there at project scope (this keeps the plugin, its hooks and its settings inside that one folder, and leaves `~/.claude/settings.json` alone):
 
 ```
 mkdir ~/JobSearch && cd ~/JobSearch
@@ -33,20 +37,43 @@ claude plugin marketplace add Maaz77/ohmyjob --scope project
 claude plugin install ohmyjob@ohmyjob --scope project
 ```
 
-Start Claude **in the workspace root** (project settings and hooks load only from the folder Claude starts in; from a subfolder they do not apply):
+Start Claude **in that project folder** (project settings and hooks load only from the folder Claude starts in; from a subfolder they do not apply):
 
 ```
 claude --setting-sources project,local --strict-mcp-config --chrome
 ```
 
-Then run `/ohmyjob:setup`. It is safe to run again at any time and doubles as a health check. After you agree, it:
+## `/ohmyjob:setup`
 
-1. checks the Claude Code version;
-2. installs the Python environment into the plugin data folder, and builds a sample resume with the LaTeX on your computer (offering TinyTeX only if that fails; each install is asked separately);
-3. creates `Job_Tracker.xlsx`, `Applications/`, `Pending-Review/`, `Needs-Attention/`, `Submitted/`, `ohmyjob.json`, `CLAUDE.md` and `.gitignore` where missing, and merges `.claude/settings.json` (your own keys stay);
-4. checks that `ohmyjob@ohmyjob` is enabled at project or local scope (if not, it tells you to install it here and stops);
-5. prints the Chrome extension steps with the path of a stable copy;
-6. tells you to restart Claude in the workspace root with the launch line, then runs the profile interview (`/ohmyjob:profile`, which writes `Profile.md`, `Default_Resume_Files/base.yaml` and the `search` and `pipeline` sections of `ohmyjob.json`) and builds your role resumes (`/ohmyjob:resumes`, which needs your approval of each PDF).
+Run `/ohmyjob:setup`. It prepares everything and then tells you what to fill in. It **never interviews you and never writes your real data**; it is safe to run again (it never overwrites a file that exists and changes only `ohmyjob/.ohmyjob/env.sh`).
+
+It checks:
+
+1. the Claude Code version (stops if older than 2.1.306);
+2. that `ohmyjob@ohmyjob` is installed and enabled at project or local scope (if not, it tells you how and stops, because the never-submit hooks only protect a project where the plugin is enabled);
+3. that the Claude in Chrome tools answer. If they do not, you get a **warning** with the steps to turn them on, and setup continues.
+
+After you agree (each install is asked separately), it installs **only into the plugin's data folder** (`~/.claude/plugins/data/<id>/`, removed with the plugin): the Python environment (`venv/`), uv's own Python and cache (`python/`, `uv-cache/`), `uv` itself only if it is missing (`bin/`), TinyTeX (`tinytex/`) only if no working system LaTeX builds the template (about 250 MB), the LaTeX font caches (`texmf-var/`) and a stable copy of the Chrome helper extension (`chrome-extension/`). Nothing goes to your `PATH`, shell profile, `~/.local`, `~/.cache` or a system folder, and no system TeX tree is touched.
+
+It creates this skeleton in the project folder, each item only when missing, and merges `.claude/settings.json` (your own keys stay):
+
+```
+<project folder>/
+  .claude/settings.json          plugin enablement, environment, permissions (merged)
+  ohmyjob/                       the workspace
+    ohmyjob.json                 settings, with mock values
+    Profile.md                   candidate, fit preferences, master resume, follow-up answers (mock)
+    Job_Tracker.xlsx
+    CLAUDE.md                    short guide and the standing never-submit rule
+    .gitignore                   keeps the personal files out of git
+    Default_Resume_Files/        Template.yaml and Template.pdf
+    Applications/  Pending-Review/  Needs-Attention/  Submitted/
+    .ohmyjob/                    working files (environment, run state, builds); do not edit
+```
+
+`ohmyjob.json`, `Profile.md` and `Template.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of `Template.yaml`; the `"_template"` key of `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` is the sample build of `Template.yaml`.
+
+The workspace is found from the project folder, from inside `ohmyjob/`, or from any folder below either.
 
 ### The Chrome extension
 
@@ -54,9 +81,37 @@ The helper extension opens page pop-ups (for example a sign-in window) as tabs, 
 
 Then open the Claude extension's settings in Chrome and allow it on the sites you will use (the job boards and the company career sites). Per-site permissions live in the extension; nothing in this plugin can set them. Sign in to LinkedIn and any other board in that same Chrome profile.
 
+## What you do next
+
+Work in `ohmyjob/`:
+
+1. **`Profile.md`**: replace the mock data, then delete the marker line (the first line). Sections:
+   - `# Candidate`: `- Name: First Last`. The first name becomes the prefix of your resume file names.
+   - `# Fit Preferences`: what a good job is for you (roles, level, places, work authorization, languages, dealbreakers). The screening workers read it.
+   - `# Resume`: your master resume, every true fact the tailored resumes may use, with numbers where you have them. Facts you want kept off the default resumes go under `### HELD IN RESERVE`; they are used only when a question asks for them.
+   - `# Follow Up Questions`: answers the application workers reuse. One line per item, `- Question? Answer.`, under the exact heading. Replace the mock answers; `/ohmyjob:apply-jobs` asks you any question it meets that is missing and saves the answer here.
+2. **`ohmyjob.json`**: set your boards, search terms, location and country, page limit and paper size (every key is below), then delete the `"_template"` line.
+3. **Resumes** in `Default_Resume_Files/`:
+   - Copy `Template.yaml` once per role you apply for and **name each copy by field**, for example `Data-Analyst.yaml`. Replace the mock data and delete the marker line in each. One yaml is one complete resume; there is no shared base file.
+   - Optionally add ready-made PDF resumes named by field (for example `Nurse-ICU.pdf`), with no yaml. They are used exactly as they are and never edited.
+4. **`/ohmyjob:build-resumes`** builds a PDF next to every yaml, with the same name (`Template.yaml` too). It prints one line per file, `<file>: OK`, `<file>: OVERFLOW <N> pages` (longer than `resume_max_pages`: shorten the yaml or raise the limit, then run it again) or `<file>: FAIL <reason>`, a `WARNING <file>: still has the template marker` line for a file you have not finished editing, and a last `SUMMARY <n> OK, <n> OVERFLOW, <n> FAIL` line. The exit code is 0 only when every file is OK. It never edits your files.
+5. Run the daily loop above.
+
+During screening, the usable resumes are every `<name>.yaml` with a built `<name>.pdf` (tailored per job) and every `<name>.pdf` without a yaml (used as is). `Template.*` and any file that still holds the marker are never used. A job that matches a ready-made PDF gets a copy of it in its folder, named `<First>_<Company>_<Title>.pdf`, and goes straight to `Resume Built`; a job that matches a yaml gets a tailored copy (`.yaml` and `.pdf`) from a worker.
+
+### The mock guard
+
+Until you delete the marker lines, the commands that would act on mock data refuse with one clear line naming the file (this is intended):
+
+| Command | Refuses while |
+|---|---|
+| `/ohmyjob:find-jobs` | `ohmyjob.json` or `Profile.md` has the marker (the mock search terms would be searched and tracked). |
+| `/ohmyjob:prep-jobs` | `Profile.md` has the marker, or no usable resume is left (it never uses `Template.*` or a marked file). |
+| `/ohmyjob:apply-jobs`, `/ohmyjob:continue-applying` | `Profile.md` has the marker (mock answers would be typed into real forms). |
+
 ## Configuration: `ohmyjob.json`
 
-Created by setup and filled in by the profile interview. Unknown keys and bad values are refused with a message naming the key.
+Created by setup with mock values; you edit it (see above). Unknown keys and bad values are refused with a message naming the key.
 
 `search`:
 
@@ -74,7 +129,7 @@ Created by setup and filled in by the profile interview. Unknown keys and bad va
 | `filter_title_terms` | `[]` | Words that drop a posting when they appear in its title (empty by default). |
 | `title_filter` | `"strict"` | `strict` keeps a posting only if its title matches a search term (accents and word forms ignored); `off` keeps every title. |
 | `title_aliases` | `{}` | Extra words that count as a match, applied to both the term and the title, for example `{"ops": "operations"}`. |
-| `title_only_aliases` | `{}` | Aliases applied to the posting title only. `templates/presets/software.json` holds a broad set of software abbreviations and bridges (for example "ml", "web" or "designer" lead to "software" or "engineer"); the profile skill can merge it for tech roles. It favors recall over precision: trim the entries that give you unwanted matches. |
+| `title_only_aliases` | `{}` | Aliases applied to the posting title only. `templates/presets/software.json` holds a broad set of software abbreviations and bridges (for example "ml", "web" or "designer" lead to "software" or "engineer"); merge it into your own aliases for tech roles. It favors recall over precision: trim the entries that give you unwanted matches. |
 | `languages` | `["en"]` | Languages of the postings, for word-form matching. |
 | `uk_sponsor_only` | `false` | `freehire` only: keep only jobs from UK sponsor-licensed employers (see below). |
 | `git_snapshot` | `false` | Commit the tracker and `Applications/` before a scrape; skipped if the folder is not a git repository. It respects the workspace `.gitignore`, which lists these files: remove their lines there only for a repository that stays private and never has a public remote. |
@@ -102,7 +157,7 @@ Per-board notes:
   - **The main session and any other agent** (outside the pipeline): clicks only on refs from a fresh read of that tab, one pressable click per read, no coordinate clicks, no Enter, Return or Space keys, navigation to http(s) addresses only, no Apply click on a job board or under a filled form, and final button names checked by the word lists.
 - **Fail-open before setup.** Until setup has created the Python environment, the main session's own Chrome guard cannot run Python and lets the call through with a notice. No pipeline can run before setup, and every ohmyjob agent is denied instead. Run `/ohmyjob:setup` first.
 - **You submit.** Workers park each form before the final button. You review it and press Submit yourself.
-- Text copied from job pages and forms is treated as data, never as instructions. Without a `ohmyjob.json` in or above the folder, the hooks do nothing.
+- Text copied from job pages and forms is treated as data, never as instructions. Without an `ohmyjob.json` (or `ohmyjob/ohmyjob.json`) in or above the folder, the hooks do nothing.
 
 Read [DISCLAIMER.md](DISCLAIMER.md) before you use this on a real account.
 
@@ -117,7 +172,8 @@ Each run ends with a usage table (agents, API calls, input, cache and output tok
 - **Tracker open in Excel or LibreOffice**: saving is refused with a clear message and nothing is lost. Close the file and run the command again. If the tracker changed on disk during a long run, the save is refused too; run the command again.
 - A line starting `ohmyjob: ` or `FATAL` is an error. Read it, fix what it names, run the command again.
 - `FATAL` naming `ohmyjob.json`: a setting is invalid; the message names the key.
-- Hooks seem inactive: Claude was probably started outside the workspace root, or the plugin is installed only at user scope. Check with `claude plugin list`.
+- A line saying a file "still has the template marker": replace the mock data in that file and delete its marker line (see the mock guard).
+- Hooks seem inactive: Claude was probably started outside the project folder, or the plugin is installed only at user scope. Check with `claude plugin list`.
 
 ## Develop
 
