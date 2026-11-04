@@ -159,10 +159,9 @@ QUESTIONS_BLOCKER = "questions for the candidate"
 # --------------------------------------------------------------------------- Profile.md and the templates
 
 # Setup writes the templates with mock data and this marker on a line the user deletes after editing: the first line
-# of Profile.md and of Template.yaml, and the "_template" key of ohmyjob.json. A file that still holds it is not the
+# of Profile.md and of Template.yaml, and the `// OHMYJOB-TEMPLATE` comment line of ohmyjob.json. A file that still holds it is not the
 # user's own: the commands refuse to use it (docs/CONTRACTS.md, "Templates and the mock guard").
 TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"
-TEMPLATE_KEY = "_template"  # the one extra top-level key ohmyjob.json may hold (a string)
 
 _LEVEL1_HEADING_RE = re.compile(r"^#\s+(.*?)\s*$")  # "# Resume"; "## ..." is a subsection
 _NAME_LINE_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*)?name(?:\s*:\s*\*\*|\*\*\s*:|\s*:)\s*(.*)$", re.IGNORECASE)
@@ -263,16 +262,8 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "exclude_seniority_level": [],
         "filter_title_terms": [],
         "title_filter": "strict",
-        "title_aliases": {},
-        "title_only_aliases": {},
         "languages": ["en"],
         "uk_sponsor_only": False,
-        "git_snapshot": False,
-    },
-    "pipeline": {
-        "max_parallel_workers": 5,
-        "resume_max_pages": 1,  # 0 = no page limit
-        "resume_paper": "a4",
     },
 }
 
@@ -347,17 +338,6 @@ def _languages(key: str, value: Any) -> list:
     return codes
 
 
-def _aliases(key: str, value: Any) -> dict:
-    """{"word": "replacement words"} or {"word": ["replacement words", ...]}."""
-    if not isinstance(value, dict):
-        _fail(key, 'must be an object like {"ops": "operations"}')
-    for word, target in value.items():
-        targets = target if isinstance(target, list) else [target]
-        if not word.strip() or not targets or not all(isinstance(t, str) and t.strip() for t in targets):
-            _fail(key, f'has a bad entry for "{word}": use a non-empty word that maps to text or a list of texts')
-    return dict(value)
-
-
 CHECKS: dict[str, Callable] = {
     "search.sources": _strings(SOURCES, lower=True, nonempty=True),
     "search.search_query": _strings(),
@@ -370,32 +350,20 @@ CHECKS: dict[str, Callable] = {
     "search.exclude_seniority_level": _strings(),
     "search.filter_title_terms": _strings(),
     "search.title_filter": _choice("strict", "off"),
-    "search.title_aliases": _aliases,
-    "search.title_only_aliases": _aliases,
     "search.languages": _languages,
     "search.uk_sponsor_only": _flag,
-    "search.git_snapshot": _flag,
-    "pipeline.max_parallel_workers": _whole(1),
-    "pipeline.resume_max_pages": _whole(0),
-    "pipeline.resume_paper": _choice("a4", "letter"),
 }
 
 
 def validate_config(raw: Any) -> dict:
     """The config with every default filled in and every value checked; ConfigError names the first bad key.
 
-    The one other top-level key accepted is "_template" (TEMPLATE_KEY, a string: the template marker line). It is not
-    part of the result; template_files() tells whether it is still there.
+    Unknown keys are errors. The template marker is a `//` comment line (see load_config), not a key.
     """
     if not isinstance(raw, dict):
         raise ConfigError(f"{CONFIG_NAME}: the file must hold a JSON object")
     for key in raw:
-        if key == TEMPLATE_KEY:
-            if not isinstance(raw[key], str):
-                _fail(key, "must be a string: it is the template marker line, delete the whole line after editing")
-        elif key.startswith("_"):
-            continue  # a hint key ("_<field>"): documentation only, ignored
-        elif key not in DEFAULTS:
+        if key not in DEFAULTS:
             _fail(key, f"is not a known section. Known sections: {', '.join(DEFAULTS)}")
     config = copy.deepcopy(DEFAULTS)
     for section, known in DEFAULTS.items():
@@ -403,8 +371,6 @@ def validate_config(raw: Any) -> dict:
         if not isinstance(given, dict):
             _fail(section, "must be an object")
         for key, value in given.items():
-            if key.startswith("_"):
-                continue  # a hint key ("_<field>"): documentation only, ignored
             if key not in known:
                 _fail(f"{section}.{key}", f"is not a known setting. Known settings: {', '.join(known)}")
             config[section][key] = CHECKS[f"{section}.{key}"](f"{section}.{key}", value)
@@ -415,11 +381,16 @@ def validate_config(raw: Any) -> dict:
     return config
 
 
+def strip_comments(text: str) -> str:
+    """ohmyjob.json is JSON with full-line `//` comments: drop the lines whose first non-blank characters are `//`."""
+    return "\n".join("" if line.lstrip().startswith("//") else line for line in text.splitlines())
+
+
 def load_config(root: Optional[Path] = None) -> dict:
     """ohmyjob.json of the workspace (`root`, else find_root()), validated and merged over DEFAULTS."""
     path = (root or find_root()) / CONFIG_NAME
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(strip_comments(path.read_text(encoding="utf-8")))
     except FileNotFoundError:
         raise ConfigError(f"{path} not found. Run /ohmyjob:setup.") from None
     except json.JSONDecodeError as exc:
@@ -429,11 +400,11 @@ def load_config(root: Optional[Path] = None) -> dict:
     return validate_config(raw)
 
 
-def slots(config: Optional[dict] = None) -> int:
-    """Workers that may run at once: max_parallel_workers, below Claude Code's subagent cap by one (the master counts)."""
-    workers = (config or load_config())["pipeline"]["max_parallel_workers"]
+def slots() -> int:
+    """Workers that may run at once: Claude Code's subagent cap (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, else 20) minus
+    one for the master."""
     try:
         cap = int(os.environ.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") or 20)
     except ValueError:
         cap = 20
-    return max(1, min(workers, cap - 1))
+    return max(1, cap - 1)

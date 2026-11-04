@@ -302,9 +302,10 @@ def test_page_limit_1_2_and_0(env):
     assert (status, pages) == ("OVERFLOW", 2) and not (env / "one.pdf").exists()
     assert rb.build(long, env / "two.pdf", max_pages=2, paper="a4") == ("OK", 2, str(env / "two.pdf"))
     assert rb.build(long, env / "zero.pdf", max_pages=0, paper="a4")[0:2] == ("OK", 2)
-    # the page limit is for `document: resume`; a CV has none
+    # the page count of the source applies to a CV too; without a source count nothing is checked
     cv = role(env, document="cv", experience=yaml.safe_load(long.read_text())["experience"])
-    assert rb.build(cv, env / "cv.pdf", max_pages=1, paper="a4") == ("OK", 2, str(env / "cv.pdf"))
+    assert rb.build(cv, env / "cv.pdf", max_pages=1, paper="a4")[:2] == ("OVERFLOW", 2)
+    assert rb.build(cv, env / "cv.pdf", paper="a4") == ("OK", 2, str(env / "cv.pdf"))
     assert not any((env.parent / "build").iterdir())
 
 
@@ -423,12 +424,11 @@ def test_cli_prints_one_line(workspace):
     run = subprocess.run(exe + [str(yaml_path), "--out", str(out)], capture_output=True, text=True, cwd=workspace)
     assert run.stdout == f"OK {out}\n" and run.returncode == 0 and out.exists()
     assert "WARNING Project-Coordinator.yaml: skills is not shown in a resume" in run.stderr
-    (workspace / "ohmyjob.json").write_text('{"pipeline": {"resume_max_pages": 1, "resume_paper": "letter"}}')
     long = yaml.safe_load(yaml_path.read_text())
     long["experience"] = long["experience"] * 8
     yaml_path.write_text(yaml.safe_dump(long))
     run = subprocess.run(exe + [str(yaml_path)], capture_output=True, text=True, cwd=workspace)
-    assert run.stdout == "OVERFLOW 2 pages\n" and run.returncode == 1
+    assert run.stdout == f"OK {yaml_path.with_suffix('.pdf')}\n" and run.returncode == 0  # no page limit of its own
     yaml_path.write_bytes(b"title: \xff\n")
     run = subprocess.run(exe + [str(yaml_path)], capture_output=True, text=True, cwd=workspace)
     assert run.stdout.startswith("FAIL ") and "Traceback" not in run.stderr and run.stdout.count("\n") == 1
@@ -519,10 +519,10 @@ def test_template_yaml_builds_on_one_page(env, paper):
 
 @needs_tex
 @pytest.mark.parametrize("paper", ["a4", "letter"])
-def test_template_cv_builds_without_a_page_limit(env, paper):
+def test_template_cv_builds_on_each_paper(env, paper):
     src = ROOT / "templates" / "Template-CV.yaml"
     out = env / f"cv-{paper}.pdf"
-    status, pages, _ = rb.build(src, out, max_pages=1, paper=paper)
+    status, pages, _ = rb.build(src, out, paper=paper)
     assert status == "OK" and pages >= 1 and out.exists()
 
 
@@ -535,7 +535,6 @@ def cli(workspace, *args):
 @needs_tex
 def test_build_all_lines_and_exit_codes(workspace):
     d = workspace / "Default_Resume_Files"
-    (workspace / "ohmyjob.json").write_text('{"pipeline": {"resume_max_pages": 1, "resume_paper": "a4"}}')
     # all OK: the two fixture resumes -> exit 0
     code, out = cli(workspace, "build-all")
     assert out.splitlines() == [
@@ -545,26 +544,40 @@ def test_build_all_lines_and_exit_codes(workspace):
         "Project-Coordinator.yaml: OK", "WARNING Project-Coordinator.yaml: skills is not shown in a resume",
         "SUMMARY 2 OK, 0 OVERFLOW, 0 FAIL"]
     assert code == 0 and (d / "Operations-Analyst.pdf").exists() and (d / "Project-Coordinator.pdf").exists()
-    # an OVERFLOW, a FAIL and a file that still has the marker -> exit 1, lines sorted by file name
+    # a FAIL -> exit 1, lines sorted by file name; Template*.yaml is never built; no page limit
     long = yaml.safe_load((d / "Project-Coordinator.yaml").read_text())
     long["experience"] = long["experience"] * 8
     (d / "Project-Coordinator.yaml").write_text(yaml.safe_dump(long))
     (d / "Broken.yaml").write_text("title: [")
     shutil.copy(ROOT / "templates" / "Template.yaml", d / "Template.yaml")
+    shutil.copy(ROOT / "templates" / "Template-CV.yaml", d / "Template-CV.yaml")
     code, out = cli(workspace, "build-all")
-    lines = [l for l in out.splitlines() if not l.startswith("WARNING") or "marker" in l]
+    lines = [l for l in out.splitlines() if not l.startswith("WARNING")]
     assert lines[0].startswith("Broken.yaml: FAIL ") and lines[1] == "Operations-Analyst.yaml: OK"
-    assert lines[2] == "Project-Coordinator.yaml: OVERFLOW 2 pages"
-    assert lines[3:5] == ["Template.yaml: OK", "WARNING Template.yaml: still has the template marker"]
-    assert lines[5] == "SUMMARY 2 OK, 1 OVERFLOW, 1 FAIL" and len(lines) == 6 and code == 1
-    assert (d / "Template.pdf").exists() and not (d / "Broken.pdf").exists()
-    assert not (d / "Project-Coordinator.pdf").exists()                                  # OVERFLOW leaves no PDF
+    assert lines[2] == "Project-Coordinator.yaml: OK"
+    assert lines[3] == "SUMMARY 2 OK, 0 OVERFLOW, 1 FAIL" and len(lines) == 4 and code == 1
+    assert not (d / "Template.pdf").exists() and not (d / "Template-CV.pdf").exists() and not (d / "Broken.pdf").exists()
+    # one file by name (with or without .yaml); a Template or an unknown name is refused
+    (d / "Operations-Analyst.pdf").unlink()
+    code, out = cli(workspace, "build-all", "Operations-Analyst")
+    assert code == 0 and out.splitlines()[0] == "Operations-Analyst.yaml: OK" and out.splitlines()[-1].startswith("SUMMARY 1 OK")
+    assert (d / "Operations-Analyst.pdf").exists()
+    for name in ("Template.yaml", "Template-CV", "Nope.yaml"):
+        code, out = cli(workspace, "build-all", name)
+        assert code == 1 and out.startswith("FATAL: no resume yaml named ") and out.count("\n") == 1
     # --dir
     other = workspace / "elsewhere"
     other.mkdir()
     shutil.copy(FIXTURE / "Operations-Analyst.yaml", other / "A.yaml")
     code, out = cli(workspace, "build-all", "--dir", str(other))
     assert code == 0 and out.splitlines()[0] == "A.yaml: OK" and out.splitlines()[-1] == "SUMMARY 1 OK, 0 OVERFLOW, 0 FAIL"
+
+
+def test_paper_is_a4_unless_the_yaml_sets_it(env):
+    assert r"\documentclass[11pt, a4paper]{awesome-cv}" in rb.render(env / "Operations-Analyst.yaml")
+    assert "[11pt, letterpaper]{awesome-cv}" in rb.render(role(env, paper="Letter"))
+    status, _, detail = rb.build(role(env, paper="legal"), env / "o.pdf")
+    assert status == "FAIL" and "paper must be a4 or letter" in detail
 
 
 def test_build_all_empty_dir(workspace, tmp_path):

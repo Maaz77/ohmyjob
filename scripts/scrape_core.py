@@ -5,9 +5,11 @@ No network, no workspace, no tracker here (scrape.py does those), so every rule 
 from __future__ import annotations
 
 import html
+import json
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from functools import lru_cache
 from typing import Any, Iterable, Optional
 
@@ -50,6 +52,24 @@ def _alias_rules(table: dict) -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
             if a and b and tuple(map(fold, a)) != tuple(map(fold, b)):
                 rules.append((a, b))
     return rules
+
+
+# The built-in aliases: always on, no config key. The shipped software preset (templates/presets/software.json) plus the
+# common abbreviations of any field. title aliases rewrite the search term and the title in both directions;
+# title-only aliases rewrite the title only, one way.
+PRESET_FILE = Path(__file__).resolve().parents[1] / "templates" / "presets" / "software.json"
+COMMON_ABBREVIATIONS = {
+    "ops": "operations", "mgr": "manager", "sr": "senior", "jr": "junior", "eng": "engineer", "dev": "developer",
+    "assoc": "associate", "admin": "administrator", "asst": "assistant", "dir": "director", "exec": "executive",
+    "rep": "representative", "hr": "human resources", "acct": "accountant", "mktg": "marketing",
+}
+
+
+@lru_cache(maxsize=1)
+def builtin_aliases() -> tuple[dict, dict]:
+    """(title_aliases, title_only_aliases): the preset file plus COMMON_ABBREVIATIONS."""
+    preset = json.loads(PRESET_FILE.read_text(encoding="utf-8"))
+    return {**COMMON_ABBREVIATIONS, **preset["title_aliases"]}, dict(preset["title_only_aliases"])
 
 
 def _replace_all(seq: tuple[str, ...], old: tuple[str, ...], new: tuple[str, ...]) -> Iterable[tuple[str, ...]]:
@@ -96,19 +116,18 @@ class TitleMatcher:
     """Does a posting's title belong to one of the search terms?
 
     A term matches when every word of it is in the title, in any order, comparing lemmas (config `languages`). Before
-    that, `title_aliases` rewrite both the term and the title in both directions ({"ops": "operations"}: "Ops Analyst"
-    meets the term "Operations Analyst" and the reverse), and `title_only_aliases` rewrite the title only, one way
-    ({"manager": "coordinator"}: "Project Manager" meets "Project Coordinator"). mode "off" accepts every title.
+    that, the built-in aliases (builtin_aliases) rewrite both the term and the title in both directions ({"ops":
+    "operations"}: "Ops Analyst" meets the term "Operations Analyst" and the reverse), and the built-in title-only
+    aliases rewrite the title only, one way ({"developer": ["engineer"]}). mode "off" accepts every title.
     """
 
-    def __init__(self, terms: Iterable[str], languages: Iterable[str] = ("en",), mode: str = "strict",
-                 title_aliases: Optional[dict] = None, title_only_aliases: Optional[dict] = None):
+    def __init__(self, terms: Iterable[str], languages: Iterable[str] = ("en",), mode: str = "strict"):
         self.mode = mode
         self.lemmas = Lemmas(languages)
-        both = _alias_rules(title_aliases or {})
+        both = _alias_rules(builtin_aliases()[0])
         both += [(b, a) for a, b in both]
         self._both = both
-        self._title_only = _alias_rules(title_only_aliases or {})
+        self._title_only = _alias_rules(builtin_aliases()[1])
         self._queries: list[tuple[str, ...]] = []
         for term in terms:
             self._queries += [q for q in _variants(words(term), both) if q]
@@ -197,7 +216,7 @@ def employment_ok(value: Any, wanted: Iterable[str]) -> bool:
 class Filters:
     """exclude_seniority_level and filter_title_terms (both empty by default); exclude_companies is `excluded_company`.
 
-    A seniority word is looked for in the title (whole words, after `title_aliases` rewrote it: "Sr." is "senior") and
+    A seniority word is looked for in the title (whole words, after the built-in aliases rewrote it: "Sr." is "senior") and
     must equal the board's job_level as a whole value: "senior" does not drop LinkedIn's "Mid-Senior level".
     """
 
@@ -206,7 +225,7 @@ class Filters:
         self.exclude_companies = list(search.get("exclude_companies", []))
         self.seniority = [words(s) for s in search.get("exclude_seniority_level", []) if words(s)]
         self.title_terms = [words(s) for s in search.get("filter_title_terms", []) if words(s)]
-        rules = _alias_rules(search.get("title_aliases") or {})
+        rules = _alias_rules(builtin_aliases()[0])
         self._rules = rules + [(b, a) for a, b in rules]
 
     @staticmethod

@@ -20,25 +20,30 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   else the cwd; it raises `WorkspaceError` (with the `/ohmyjob:setup` hint). hook.sh: `$CLAUDE_PROJECT_DIR`, else
   every stdin `cwd`; hooks.py and pj_hooks.py: the parsed top-level `cwd`, else `$CLAUDE_PROJECT_DIR`; bin/ohmyjob:
   the shell cwd only (the Bash tool sets no `CLAUDE_PROJECT_DIR`).
-- `load_config(root=None)`, `validate_config(raw)`: defaults filled in, `ConfigError` names the bad key. Unknown keys are
-  errors: a new setting needs `DEFAULTS`, `CHECKS` and `templates/ohmyjob.json`. The one other top-level key accepted
-  is `_template` (`TEMPLATE_KEY`, a string): it is not in the returned config, and `template_files()` reports it.
-  Every other key that starts with `_` (top level or inside `search`/`pipeline`) is a hint and is ignored.
+- `load_config(root=None)`, `validate_config(raw)`: defaults filled in, `ConfigError` names the bad key. `ohmyjob.json`
+  is JSON with full-line `//` comments: `strip_comments(text)` blanks the lines whose first non-blank characters are
+  `//` before `json.loads`. Unknown keys are errors (no hint keys, no `_template` key; the only section is `search`):
+  a new setting needs `DEFAULTS`, `CHECKS`, `templates/ohmyjob.json` and the README table. Removed settings (now
+  errors): `title_aliases`, `title_only_aliases`, `git_snapshot`, the whole `pipeline` section (`resume_max_pages`,
+  `max_parallel_workers`, `resume_paper`).
   Validation also rejects what the tools would fail on later: `languages` must be in `W.LANGUAGES` (simplemma's
   tuple, pinned by test; `ja`, `zh`, `xx` are refused), and `country` is required while `indeed` or `glassdoor` is in
   `sources` (JobSpy would search the USA). `DEFAULTS` has `sources: ["linkedin"]`, so `{}` loads.
-- `templates/ohmyjob.json` is the mock template (test-pinned): `_template` as its FIRST key (deleting that line leaves
-  valid JSON), then `DEFAULTS`, each field preceded by a hint key `"_<field>"` (one line: what it does, type and
-  default, and ALL valid values of a choice field; no hint holds the marker string; a test checks every constant of
-  `W.SOURCES/COUNTRIES/EMPLOYMENT_TYPES/LANGUAGES` appears in its hint) with the mock search values `sources ["linkedin", "indeed"]`, `search_query ["Operations
-  Analyst"]`, `location "Berlin, Germany"`, `country "germany"`. It loads as it is.
+- `templates/ohmyjob.json` is the mock template (test-pinned): its FIRST line is the comment
+  `// OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line`, then a `//` comment block that lists
+  only the REQUIRED fields (`sources`, `search_query`, `location`, `country`) and, for a field with choices, ALL valid
+  values (a test checks every constant of `W.SOURCES/COUNTRIES` appears), then only those four fields inside `search`
+  with the mock values `sources ["linkedin", "indeed"]`, `search_query ["Operations Analyst"]`, `location "Berlin,
+  Germany"`, `country "germany"`. It loads as it is. The full reference (every field, type, default, choices) is the table
+  in README.md, which `/ohmyjob:help` prints.
 - Template marker: `TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"`. `has_template_marker(path) -> bool`: a raw text search of the
   whole file, nothing parsed or decoded; False when the file is missing.
   `template_files(root=None) -> list[Path]`: those of `ohmyjob.json` and `Profile.md` (in that order) that still hold it.
-- `slots(config=None) -> int`: `min(max_parallel_workers, subagent cap - 1)`; call it late, not at import.
+- `slots() -> int`: the Claude Code subagent cap (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, else 20) minus 1, at least 1;
+  call it late, not at import.
   `file_prefix(root=None) -> str`: ASCII slug of the first word of the `- Name: <First> <Last>` line (also
   `- **Name:** ...`) inside the level-1 section `# Resume` of `Profile.md`, else `Resume`; tailored files are
-  `<prefix>_<Company>.pdf/.yaml`. No resume yaml is read; a missing `Profile.md` gives `Resume`.
+  `<prefix>_<Company>.pdf/.yaml` (files that pj.py writes; apply does not require the name). No resume yaml is read; a missing `Profile.md` gives `Resume`.
 - Unreadable files: `has_template_marker`, `template_files` and `file_prefix` raise `W.FileReadError` (a `WorkspaceError`
   and an `OSError`) for a file that exists but cannot be read (no permission, a symlink loop) or, where text is
   decoded, is not UTF-8; `load_config` raises `ConfigError` for the same. The message names the file and says what to
@@ -54,7 +59,7 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 ## Templates and the mock guard
 - Setup writes the templates with the mock persona Alex Example, each with `TEMPLATE_MARKER` on a line the user deletes
   after editing: the first line of `Profile.md` (`<!-- OHMYJOB-TEMPLATE: ... -->`) and of
-  `Default_Resume_Files/Template.yaml` (`# OHMYJOB-TEMPLATE: ...`), and the `_template` key of `ohmyjob.json`.
+  `Default_Resume_Files/Template.yaml` (`# OHMYJOB-TEMPLATE: ...`), and the `// OHMYJOB-TEMPLATE` comment line of `ohmyjob.json`.
 - Mock guard: a command refuses with ONE line that names the file (`ohmyjob: ...` from bin/ohmyjob, `FATAL: ...` from a
   script) and tells the user to replace the mock data and delete the marker line. `scrape` (find-jobs) refuses while
   `W.template_files()` is not empty; `prep` refuses while `Profile.md` holds the marker, never uses `Template.*` or a
@@ -80,18 +85,18 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - Each resume is ONE complete yaml, never merged with another file: `Default_Resume_Files/Template.yaml`, the user's
   `<Field>.yaml` (named by field, e.g. `Data-Analyst.yaml`), and the tailored `<prefix>_<Company>.yaml` in a job folder.
 - Two layouts, exactly Awesome-CV's upstream examples (pinned commit dfe8635): `document: resume` (default; `examples/resume.tex`,
-  `\makecvheader[C]`, footer "<Name> · Résumé", at most `resume_max_pages` pages) and `document: cv` (`examples/cv.tex`,
-  `\makecvheader`, footer "<Name> · Curriculum Vitae", no page limit). Preamble: `\documentclass[11pt, a4paper|letterpaper]`,
+  `\makecvheader[C]`, footer "<Name> · Résumé") and `document: cv` (`examples/cv.tex`,
+  `\makecvheader`, footer "<Name> · Curriculum Vitae", no summary). Preamble: `\documentclass[11pt, a4paper|letterpaper]`,
   `\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}`, `awesome-red`, section highlight on.
 - Sections (an empty one is left out), order and headings fixed: resume = Summary (`introduction`, cvparagraph), Work
   Experience (`experience`), Honors & Awards (`honors`), Certificates (`certificates`), Education (`education`); cv =
   Education, Skills (`skills`, cvskills), Experience, Extracurricular Activity (`extracurricular`), Honors & Awards,
   Certificates, Presentation (`presentation`), Writing (`writing`), Program Committees (`committees`).
 - Keys (`?` = optional): `document?` (`resume`|`cv`), `name{first, last}`, `title` (the position line), `address`, `phone`,
-  `email`, `homepage?`, `github?`, `linkedin?`, `quote?`, `extra?`, `photo?`, `date_of_birth?`, `accent_color?` (only
+  `email`, `homepage?`, `github?`, `linkedin?`, `quote?`, `extra?`, `photo?`, `date_of_birth?`, `paper?` (`a4` default, or `letter`), `accent_color?` (only
   upstream's names: emerald, skyblue, red, pink, orange, nephritis, concrete, darknight; default red; anything else
   prints a WARNING and uses red), `sections?` (heading overrides by section key: summary, experience, honors,
-  certificates, education, skills, extracurricular, presentation, writing, committees), `introduction`, `experience[]`
+  certificates, education, skills, extracurricular, presentation, writing, committees), `introduction` (resume only: a CV has none and needs none), `experience[]`
   (plain `{role, company, location, dates, bullets[]}` or grouped `{employer, location, dates, roles[]{role, dates,
   bullets[]}}`), `education[]{degree, school, location, dates, details[]}` + `education_details: yes|no`,
   `skills[]{label, items}` (cv only), cvhonor lists `honors[]`, `certificates[]` (event = issuer, location = credential id),
@@ -102,9 +107,10 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   build prints `WARNING <file>: <key> is not shown in a <document>` (build-all on stdout, `resume build` on stderr).
 - Text is plain text plus `**bold**` (see resume_build.py). The resume-worker tailors the content keys only: the
   header/contact keys, `sections`, `accent_color` and `education` are frozen (WS-B).
-- `ohmyjob resume build-all` (WS-A; `/ohmyjob:build-resumes`): builds every `*.yaml` in `Default_Resume_Files/`
-  (`Template.yaml` too) into a PDF with the same name next to it; one line per file (`OK`, `OVERFLOW <N> pages` or
-  `FAIL <reason>`), and a warning for a file that still holds the marker. `Template-CV.yaml` is the cv sample.
+- `ohmyjob resume build-all [<name.yaml>]` (WS-A; `/ohmyjob:build-resumes [file.yaml]`): builds every `*.yaml` in
+  `Default_Resume_Files/` except `Template*.yaml` (never built), or only the named file, into a PDF with the same name
+  next to it, with no page check; one line per file (`OK` or `FAIL <reason>`), and a warning for a file that still holds
+  the marker. `Template-CV.yaml` is the cv sample.
 - Screening catalog (WS-B): the usable resumes are every `<name>.yaml` with a `<name>.pdf` next to it (tailorable) and
   every `<name>.pdf` without a yaml (ready-made, used as is) in `Default_Resume_Files/`; never `Template.*`, never a
   file that holds the marker. `prep start` writes their text to `W.CATALOG_DIR` (yaml: title, introduction, skills; PDF:
@@ -136,7 +142,9 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 
 ## resume_build.py
 - `build(role_yaml, out_pdf, *, max_pages=None, paper=None) -> (status, pages, detail)`, status `OK`, `OVERFLOW` or `FAIL`.
-  `None` reads `pipeline.resume_max_pages` / `resume_paper` from the config; `max_pages=0` means no page limit (a `document: cv` is always built without one). It reads
+  No page limit exists in the config. `max_pages` is the page count N of the source resume's PDF (pj.py passes it, any
+  document type): more pages is `OVERFLOW`; `None`/`0` checks nothing. `paper` is the argument, else the yaml's `paper`,
+  else `a4`. It reads
   ONE full resume yaml (see "Resume yaml"; nothing is merged in), builds in its own dir under `W.BUILD_DIR` (class
   copied in, dir removed after), runs `$OHMYJOB_LUALATEX`, else `lualatex` on PATH, with `-interaction=nonstopmode
   -halt-on-error` and a timeout, and counts pages from the log. It deletes `out_pdf` first, so OVERFLOW and FAIL leave

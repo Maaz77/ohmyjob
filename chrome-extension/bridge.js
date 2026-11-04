@@ -7,7 +7,7 @@
 
 (() => {
   const ATTR = "data-aa-popups-as-tabs";
-  const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\] /;
+  const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\](?: |$)/;
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
@@ -31,7 +31,8 @@
   function keepTitle(tag) {
     const apply = () => {
       const title = document.title || "";
-      if (!title.startsWith(tag)) {
+      // the tab title is trimmed: a page without a title of its own shows the bare tag, which is right as it is
+      if (title !== tag.trimEnd() && !title.startsWith(tag)) {
         document.title = tag + title.replace(TAG_RE, "");
       }
     };

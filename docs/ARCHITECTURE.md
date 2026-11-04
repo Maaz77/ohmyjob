@@ -16,7 +16,8 @@ How ohmyjob is put together. Exact names, formats and conventions that scripts, 
 |---|---|
 | `setup` | Idempotent preparation and health check: version gate, plugin-scope and Chrome checks (Chrome is a warning only), bootstrap (scoped installs, the `ohmyjob/` skeleton, mock templates, `Template.pdf`), extension steps, then it prints what the user fills in. It never interviews and never writes the user's data. |
 | `master-resume` | Runs `ohmyjob resume master`: a script merges the resume yamls and extracts PDF text into a draft of `# Resume`; Claude adds the PDF facts; `--apply` saves it into Profile.md after a backup. |
-| `build-resumes` | Runs `ohmyjob resume build-all`: a PDF next to every yaml in `Default_Resume_Files/`; reports `OK`, `OVERFLOW` or `FAIL` per file. Never edits a yaml. |
+| `build-resumes` | Runs `ohmyjob resume build-all`: a PDF next to every yaml in `Default_Resume_Files/`; reports `OK` or `FAIL` per file (never `Template*.yaml`; an optional file name builds only that file). Never edits a yaml. |
+| `help` | Reads the plugin README and prints the commands with their use-cases, the `ohmyjob.json` field table and the job status life cycle. The model may invoke it. |
 | `find-jobs` | Runs `ohmyjob scrape` in the background and summarizes (also usable from a scheduled `claude -p`). |
 | `prep-jobs` | Forks the `prep-master` agent. |
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers. |
@@ -43,7 +44,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. |
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. |
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
-| `ohmyjob resume build`, `build-all` | `resume_build.py` | Render one yaml (or every yaml of a folder) to LaTeX, run `lualatex`, count pages. |
+| `ohmyjob resume build`, `build-all` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
 | (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
 
@@ -59,7 +60,7 @@ A small MV3 extension. In a run's tab group it opens page pop-ups (sign-in windo
 
 ### Resume build (`resume/`, `resume_build.py`)
 
-One complete yaml per resume (no shared base file; `Template.yaml` is the annotated starting point) is rendered through `resume.tex.j2` and compiled with LuaLaTeX using the vendored Awesome-CV class, in its own directory per build so parallel builds do not collide. The result is `OK`, `OVERFLOW` (more pages than `resume_max_pages`) or `FAIL`; character budgets for bullets and skill rows are checked before compiling. Every build uses `texmf-var/` in the plugin data folder for the LaTeX font caches.
+One complete yaml per resume (no shared base file; `Template.yaml` is the annotated starting point) is rendered through `resume.tex.j2` and compiled with LuaLaTeX using the vendored Awesome-CV class, in its own directory per build so parallel builds do not collide. The result is `OK`, `OVERFLOW` (a tailored resume with more pages than its source resume's PDF; a build with fewer pages is a check failure asking to keep the original length) or `FAIL`; character budgets for bullets and skill rows are checked before compiling. Every build uses `texmf-var/` in the plugin data folder for the LaTeX font caches.
 
 ## Hook routing and the guard model
 
@@ -95,7 +96,7 @@ What the guards enforce:
 
 ## Queues
 
-Both masters are queue loops: a new worker starts as soon as one finishes, up to `max_parallel_workers` (capped below Claude Code's subagent limit by one for the master). The master must keep its turn alive with the `next` loop; a forked master that ends its turn after launching background workers stops at once.
+Both masters are queue loops: a new worker starts as soon as one finishes, up to Claude Code's subagent cap minus one for the master (`W.slots()`; shared by all worker types: a resume-worker starts as soon as a screen-worker reports a match, while other screen-workers still run). The master must keep its turn alive with the `next` loop; a forked master that ends its turn after launching background workers stops at once.
 
 ### Prep (`ohmyjob prep`)
 

@@ -148,7 +148,7 @@ def write_brief(run_dir: Path, job: dict) -> Path:
         resume_text = "```yaml\n" + yamls[0].read_text(encoding="utf-8").strip() + "\n```"
     else:
         resume_title = "Tailored resume for this job"
-        resume_text = f"(expected 1 {W.file_prefix()}_*.yaml in the job folder, found {len(yamls)})"
+        resume_text = f"(expected 1 resume yaml in the job folder, found {len(yamls)})"
     ats = L.ATS_DIR
     apply_line = (f"\n- Apply URL (the employer's own application address: navigate to it first, instead of the Job URL): "
                   f"{job['apply_url']}" if job.get("apply_url") else "")
@@ -273,10 +273,10 @@ def continue_queue(rows: list[dict], by_key: dict) -> tuple[list[dict], list[dic
             skipped.append({"job": label, "reason": "not exactly one tracker row and one folder in Needs-Attention/"})
             continue
         folder = candidates[0]
-        pdfs = L.tailored_pdfs(folder)
+        pdf = L.job_pdf(folder)
         md_path = folder / "job.md"
-        if len(pdfs) != 1 or not md_path.exists():
-            skipped.append({"job": label, "folder": folder.name, "reason": f"expected job.md and 1 {W.file_prefix()}_*.pdf"})
+        if pdf is None or not md_path.exists():
+            skipped.append({"job": label, "folder": folder.name, "reason": "expected job.md and a PDF next to it"})
             continue
         job_md = md_path.read_text(encoding="utf-8")
         note = last_note(job_md)
@@ -292,7 +292,7 @@ def continue_queue(rows: list[dict], by_key: dict) -> tuple[list[dict], list[dic
             "folder": folder.name, "company": row["Company"] or overview.get("Company", ""),
             "title": row["Job Title"] or overview.get("Job Title", ""),
             "url": overview.get("Job URL") or row["Job URL"], "apply_url": overview.get("Apply URL") or "",
-            "pdf": str(pdfs[0].resolve()),
+            "pdf": str(pdf.resolve()),
             "location": str(overview.get("Location") or row["Location"] or ""),
             "continue": True, "prev_tab": int(tabs[-1]),
         })
@@ -309,7 +309,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     if W.has_template_marker(W.PROFILE):
         fatal("Profile.md still has the template marker (the mock data of the template): fill in your own details, then "
               "delete the marker line, and run this again.")
-    W.slots()  # reads ohmyjob.json now: a bad config stops the run here (main prints FATAL), not in the middle of it
+    W.load_config()  # reads ohmyjob.json now: a bad config stops the run here (main prints FATAL), not in the middle of it
     # A run that stopped early leaves its folder. Its jobs are still at "Resume Built", so they are queued again.
     delete_run_folders()
     L.RUN_BASE.mkdir(parents=True, exist_ok=True)
@@ -342,9 +342,9 @@ def cmd_start(args: argparse.Namespace) -> None:
             skipped.append({"job": label, "reason": reason})
             continue
         folder = candidates[0]
-        pdfs = L.tailored_pdfs(folder)
-        if len(pdfs) != 1:
-            skipped.append({"job": label, "folder": folder.name, "reason": f"expected 1 {W.file_prefix()}_*.pdf, found {len(pdfs)}"})
+        pdf = L.job_pdf(folder)
+        if pdf is None:
+            skipped.append({"job": label, "folder": folder.name, "reason": "no PDF next to job.md"})
             continue
         job_md_path = folder / "job.md"
         if not job_md_path.exists():
@@ -363,7 +363,7 @@ def cmd_start(args: argparse.Namespace) -> None:
                 "title": row["Job Title"] or overview.get("Job Title", ""),
                 "url": url,
                 "apply_url": overview.get("Apply URL") or "",
-                "pdf": str(pdfs[0].resolve()),
+                "pdf": str(pdf.resolve()),
                 "location": str(location),
             }
         )
@@ -676,7 +676,7 @@ def cmd_next(args: argparse.Namespace) -> None:
 
 
 def retry_workers(run_dir: Path) -> list:
-    """For each job whose worker reported UPLOAD_HANG, shorten the resume name (<prefix>_<Company>.pdf/.yaml,
+    """For each job whose worker reported UPLOAD_HANG, shorten the resume name (<prefix>_<Company>.pdf, and the yaml of the same name,
     in the job folder) and return a new worker for the same tab. Once for each job."""
     workers = []
     with L.locked(run_dir):
@@ -691,7 +691,7 @@ def retry_workers(run_dir: Path) -> list:
             short = f"{W.file_prefix()}_" + re.sub(r"^\d+_", "", folder).split("_")[0]
             if pdf.stem == short:
                 continue  # the name is short already: not the cause, the job stays blocked
-            for old in [pdf, *L.tailored_yamls(pdf.parent)]:
+            for old in [pdf, *(y for y in L.tailored_yamls(pdf.parent) if y.stem == pdf.stem)]:
                 old.rename(old.with_name(short + old.suffix))
             job.update({"pdf": str(pdf.with_name(short + ".pdf")), "renamed": True, "capture_blocks": 0})
             result_path.unlink()

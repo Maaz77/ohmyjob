@@ -281,8 +281,9 @@ def write_catalog() -> list[dict]:
         if entry["kind"] == "tailorable":
             data = yaml.safe_load(entry["source"].read_text(encoding="utf-8")) or {}
             body = (f"- kind: tailorable (a worker adapts a copy of it to the job)\n- title: {data.get('title')}\n"
-                    f"- introduction: {rendered(data.get('introduction'))}\n"
-                    f"- skills: {' | '.join(skills_line(row) for row in data.get('skills') or [])}")
+                    + (f"- introduction: {rendered(data.get('introduction'))}\n" if "introduction" in data else "")
+                    + (f"- skills: {' | '.join(skills_line(row) for row in data.get('skills') or [])}" if "skills" in data
+                       else f"- document: {data.get('document') or 'resume'}"))
         else:
             body = f"- kind: ready-made (used as is, never edited)\n- text of the PDF:\n\n{pdf_text(entry['source'])}"
         blocks.append(f"### {entry['file']}\n{body}")
@@ -346,12 +347,13 @@ def check_yaml(new: Any, src: dict, overflowed: bool, profile: str) -> list[str]
     added = {w.casefold() for w in re.findall(seniority, title, re.I)} - {w.casefold() for w in re.findall(seniority, str(src.get("title") or ""), re.I)}
     if added:
         errors.append(f"The title '{title}' must not add a seniority word ({', '.join(sorted(added))}) that the matched resume's title does not carry.")
-    intro = rendered(new.get("introduction"))
-    if title and not intro.casefold().startswith(title.casefold()):
-        errors.append(f"The introduction must open with the resume title '{title}' (it opens with '{intro[:40]}').")
-    if len(intro) > len(rendered(src.get("introduction"))) + INTRO_SLACK:
-        errors.append(f"The introduction is {len(intro)} characters; keep it no longer than the matched yaml's "
-                      f"({len(rendered(src.get('introduction')))}): the page has no spare line.")
+    if "introduction" in src:  # a document type without a summary (the CV) has none
+        intro = rendered(new.get("introduction"))
+        if title and not intro.casefold().startswith(title.casefold()):
+            errors.append(f"The introduction must open with the resume title '{title}' (it opens with '{intro[:40]}').")
+        if len(intro) > len(rendered(src.get("introduction"))) + INTRO_SLACK:
+            errors.append(f"The introduction is {len(intro)} characters; keep it no longer than the matched yaml's "
+                          f"({len(rendered(src.get('introduction')))}): the page has no spare line.")
     src_bullets = {rendered(b) for e in src.get("experience") or [] for r in roles_of(e) for b in r.get("bullets") or []}
     src_bullets |= {rendered(b) for p in src.get("projects") or [] for b in p.get("bullets") or []}
 
@@ -415,6 +417,8 @@ def check_yaml(new: Any, src: dict, overflowed: bool, profile: str) -> list[str]
             elif p.get("repo") and str(p.get("repo")) not in profile:
                 errors.append(f"Project '{p.get('title')}': its repo link is not in Profile.md; leave it out.")
             bullets_ok(f"Project '{p.get('title')}'", p.get("bullets"), src_count.get(p.get("title")))
+    if "skills" not in src:  # the resume layout prints no skills
+        return errors
     skills = new.get("skills")
     if not isinstance(skills, list) or not all(isinstance(s, dict) and isinstance(s.get("label"), str) and "items" in s for s in skills):
         errors.append("Skills: each row needs 'label' and 'items'.")
@@ -594,14 +598,18 @@ Read the catalog text of these resumes (title, introduction, skills, or the text
     return path.resolve()
 
 
-def page_limit() -> int:
-    """resume_max_pages of ohmyjob.json (0: no limit)."""
-    return int(W.load_config()["pipeline"]["resume_max_pages"])
+def pdf_pages(path: Path) -> int:
+    """The page count of a PDF (pypdf)."""
+    import logging
+
+    from pypdf import PdfReader
+
+    logging.getLogger("pypdf").setLevel(logging.CRITICAL)  # a damaged PDF is reported by the caller, not on stderr
+    return len(PdfReader(str(path)).pages)
 
 
-def page_limit_text() -> str:
-    limit = page_limit()
-    return "no page limit" if limit == 0 else f"the resume must fit {limit} page{'s' if limit != 1 else ''}"
+def pages_text(pages: int) -> str:
+    return f"exactly {pages} page{'s' if pages != 1 else ''}"
 
 
 def write_build_brief(run_dir: Path, key: str, job: dict) -> Path:
@@ -614,7 +622,7 @@ def write_build_brief(run_dir: Path, key: str, job: dict) -> Path:
 - Matched pre-made resume it was copied from: {Path(job['source']).name}
 - Build command: ohmyjob prep build {key}
 - Builds allowed: {MAX_BUILDS}
-- Page limit: {page_limit_text()}
+- Pages: the tailored resume must have {pages_text(job['pages'])} (the page count of {Path(job['source']).with_suffix('.pdf').name}). Not fewer, not more.
 
 ## Job: Overview
 {(L.md_section_body(md, r"(1\.\s*)?Overview", 2) or '').strip()}
@@ -874,10 +882,18 @@ def assign_build(run_dir: Path, limit: int) -> tuple[list, list, dict]:
                     "reason": f"blocker: the matched pre-made resume '{matched or '(blank)'}' has no yaml in Default_Resume_Files/"})
                 failed.append(job["folder"])
                 continue
+            try:
+                pages = pdf_pages(source.with_suffix(".pdf"))
+            except Exception as exc:  # noqa: BLE001  (no PDF next to the yaml, or a damaged one)
+                L.write_json(result_path(run_dir, key, "build"), {
+                    "job": key, "status": "failed", "ground": None, "title": "", "edits_md": "", "ladder": "",
+                    "reason": f"blocker: the page count of {source.with_suffix('.pdf').name} cannot be read ({exc})"})
+                failed.append(job["folder"])
+                continue
             target = folder / f"{resume_name(job['folder'])}.yaml"
             shutil.copyfile(source, target)
             job.update({"yaml": str(target.resolve()), "pdf": str(target.with_suffix(".pdf").resolve()),
-                        "source": str(source.resolve()), "src_hash": sha(target), "builds": 0, "built_hash": None,
+                        "source": str(source.resolve()), "pages": pages, "src_hash": sha(target), "builds": 0, "built_hash": None,
                         "overflowed": False})
             write_build_brief(run_dir, key, job)
             workers.append(worker(run_dir, key, job))
@@ -953,9 +969,8 @@ def cmd_build(args: argparse.Namespace) -> None:
         builds, digest = job["builds"], sha(yaml_path)
         L.save_state(run_dir, state)
     pdf = Path(job["pdf"])
-    limit = page_limit()
     try:
-        status, pages, detail = compile_pdf(yaml_path, pdf, limit)
+        status, pages, detail = compile_pdf(yaml_path, pdf, job["pages"])
     except subprocess.TimeoutExpired:
         status, pages, detail = "FAIL", None, "the compile timed out"
     except Exception as exc:  # noqa: BLE001  (a build crash is a failed build, not a crashed worker)
@@ -965,12 +980,17 @@ def cmd_build(args: argparse.Namespace) -> None:
         job = state["jobs"][key]
         job["command"] = f"ohmyjob resume build '{yaml_path.relative_to(W.ROOT) if yaml_path.is_relative_to(W.ROOT) else yaml_path}'"
         if status == "OK" and pdf.exists():
-            job["built_hash"] = digest
-            shown = "built" if pages is None else f"{pages} page{'s' if pages != 1 else ''}"
-            line = f"OK: {shown} ({page_limit_text()}), {pdf.name}. Builds used {builds}/{MAX_BUILDS}."
+            if pages is not None and pages < job["pages"]:
+                pdf.unlink(missing_ok=True)
+                line = (f"CHECK-FAIL: the PDF has {pages} page{'s' if pages != 1 else ''}, the source resume has {job['pages']}. "
+                        f"Keep the original length ({pages_text(job['pages'])}): restore content you cut or shortened. "
+                        f"Builds used {builds}/{MAX_BUILDS}.")
+            else:
+                job["built_hash"] = digest
+                line = f"OK: {pages_text(job['pages'])}, {pdf.name}. Builds used {builds}/{MAX_BUILDS}."
         elif status == "OVERFLOW":
             job["overflowed"] = True
-            line = (f"OVERFLOW: {pages if pages is not None else 'more than the limit'} pages ({page_limit_text()}). "
+            line = (f"OVERFLOW: {pages if pages is not None else 'more than the limit'} pages, the source resume has {job['pages']}. "
                     f"Builds used {builds}/{MAX_BUILDS}. Take the smallest overflow-ladder step, then build again.")
         else:
             line = f"FAIL: the compile failed. Builds used {builds}/{MAX_BUILDS}. Last output:\n" + "\n".join(str(detail).strip().splitlines()[-15:])
@@ -978,18 +998,22 @@ def cmd_build(args: argparse.Namespace) -> None:
     print(line)
 
 
-def compile_pdf(yaml_path: Path, pdf: Path, limit: int) -> tuple[str, Optional[int], str]:
+def compile_pdf(yaml_path: Path, pdf: Path, pages: int) -> tuple[str, Optional[int], str]:
     """("OK" | "OVERFLOW" | "FAIL", pages, detail). PJ_COMPILE_CMD (tests) is a fake: `<cmd> <pdf> <yaml>`."""
     fake = os.environ.get("PJ_COMPILE_CMD", "").split()
     if not fake:
-        return resume_build().build(yaml_path, pdf)  # the page limit and paper come from ohmyjob.json
+        return resume_build().build(yaml_path, pdf, max_pages=pages)  # OVERFLOW above the source's page count
     proc = subprocess.run([*fake, str(pdf), str(yaml_path)], capture_output=True, text=True, timeout=600)
     output = (proc.stdout + proc.stderr).strip()
     found = re.search(r"is (\d+) pages", output)
+    counted = int(found.group(1)) if found else None
+    if counted is not None and counted > pages:
+        pdf.unlink(missing_ok=True)  # like the real build: OVERFLOW leaves no PDF
+        return "OVERFLOW", counted, output
     if proc.returncode == 0 and pdf.exists():
-        return "OK", int(found.group(1)) if found else 1, output
+        return "OK", counted if counted is not None else 1, output
     if "must fit on" in output:
-        return "OVERFLOW", int(found.group(1)) if found else None, output
+        return "OVERFLOW", counted, output
     return "FAIL", None, output
 
 

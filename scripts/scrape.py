@@ -142,16 +142,16 @@ def known_keys(root: Path) -> set[str]:
 
 
 def snapshot(root: Path) -> None:
-    """git_snapshot: commit the tracker and Applications/ as they are before this run (skipped outside a git repo)."""
+    """--git-snapshot: commit the tracker and Applications/ as they are before this run (skipped outside a git repo)."""
     if not (root / ".git").exists():
-        say("WARNING git_snapshot: the workspace is not a git repo; skipped")
+        say("WARNING --git-snapshot: the workspace is not a git repo; skipped")
         return
     names = [n for n in ("Job_Tracker.xlsx", "Applications") if (root / n).exists()]
     # .gitignore is respected: the workspace template ignores the personal files, and the user removes a line to version them
     paths = [n for n in names if subprocess.run(["git", "-C", str(root), "check-ignore", "-q", n]).returncode != 0]
     if not paths:
         if names:
-            say("WARNING git_snapshot: the tracker and Applications/ are ignored by .gitignore; nothing to snapshot")
+            say("WARNING --git-snapshot: the tracker and Applications/ are ignored by .gitignore; nothing to snapshot")
         return
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     steps = (("add", ["add", "--", *paths]),  # the pathspec of the commit keeps the user's other staged changes out
@@ -159,25 +159,24 @@ def snapshot(root: Path) -> None:
     for name, cmd in steps:
         done = subprocess.run(["git", "-C", str(root), *cmd], capture_output=True, text=True)
         if done.returncode != 0 and not any(t in done.stdout + done.stderr for t in ("nothing to commit", "no changes added")):
-            say(f"WARNING git_snapshot: git {name} failed ({(done.stderr or done.stdout).strip()[:120]}); continuing")
+            say(f"WARNING --git-snapshot: git {name} failed ({(done.stderr or done.stdout).strip()[:120]}); continuing")
             return
 
 
-def run(root: Path, search: dict, dry_run: bool = False) -> int:
+def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = False) -> int:
     template = W.template_files(root)
     if template:  # the mock values would be searched for and tracked as if they were yours
         raise Stop(f"{template[0].name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with "
-                   "yours and delete the marker line (the _template key in ohmyjob.json), then run again")
+                   "yours and delete the marker line (the `// OHMYJOB-TEMPLATE` line in ohmyjob.json), then run again")
     if not search["search_query"]:
         raise Stop('search.search_query is empty in ohmyjob.json. Add search terms, for example ["Data Analyst"].')
     boards = list(search["sources"])
 
     open_tracker(root)  # fail before the long scrape if there is no usable tracker
     lemmas = C.Lemmas(search["languages"])
-    matcher = C.TitleMatcher(search["search_query"], search["languages"], search["title_filter"],
-                             search["title_aliases"], search["title_only_aliases"])
+    matcher = C.TitleMatcher(search["search_query"], search["languages"], search["title_filter"])
     filters = C.Filters(search, lemmas)
-    if search["git_snapshot"] and not dry_run:
+    if git_snapshot and not dry_run:
         snapshot(root)
 
     scraped = {board: scrape_board(board, search) for board in boards}  # minutes; the tracker is not open meanwhile
@@ -289,10 +288,12 @@ def run(root: Path, search: dict, dry_run: bool = False) -> int:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="ohmyjob scrape", description=__doc__.split("\n")[0])
     parser.add_argument("--dry-run", action="store_true", help="count what would be new; write nothing")
+    parser.add_argument("--git-snapshot", action="store_true",
+                        help="commit the tracker and Applications/ before the run (skipped outside a git repository)")
     args = parser.parse_args(argv)
     try:
         root = W.find_root()
-        return run(root, W.load_config(root)["search"], args.dry_run)
+        return run(root, W.load_config(root)["search"], args.dry_run, args.git_snapshot)
     except (W.WorkspaceError, Stop) as exc:
         say(f"FATAL: {exc}")
         return EXIT_FATAL

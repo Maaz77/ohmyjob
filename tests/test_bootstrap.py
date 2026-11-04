@@ -210,7 +210,7 @@ def test_real_run_builds_everything(real):
     assert (e.data / "chrome-extension" / "manifest.json").exists()
     for name in ("Applications", "Pending-Review", "Needs-Attention", "Submitted", "Default_Resume_Files", ".ohmyjob"):
         assert (e.ws / name).is_dir()
-    assert json.loads((e.ws / "ohmyjob.json").read_text()) == json.loads((ROOT / "templates" / "ohmyjob.json").read_text())
+    assert (e.ws / "ohmyjob.json").read_text() == (ROOT / "templates" / "ohmyjob.json").read_text()
     assert (e.ws / "CLAUDE.md").read_text() == (ROOT / "templates" / "CLAUDE.md").read_text()
     assert (e.ws / ".gitignore").read_text() == (ROOT / "templates" / "gitignore").read_text()
     assert (e.ws / "Profile.md").read_text() == (ROOT / "templates" / "Profile.md").read_text()
@@ -454,14 +454,10 @@ def test_invalid_settings_json_is_not_overwritten(env):
     assert path.read_text() == "{ not json"
 
 
-@pytest.mark.parametrize("workers,expected", [(5, "20"), (19, "20"), (20, "21"), (30, "31")])
-def test_subagent_cap(env, workers, expected):
+def test_subagent_cap_is_the_default_twenty(env):
     env.ws.mkdir(parents=True)
-    config = json.loads((ROOT / "templates" / "ohmyjob.json").read_text())
-    config["pipeline"]["max_parallel_workers"] = workers
-    (env.ws / "ohmyjob.json").write_text(json.dumps(config))
     ok(env.run())
-    assert read_settings(env)["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == expected
+    assert read_settings(env)["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "20"
 
 
 # --------------------------------------------------------------------------- never overwrite
@@ -522,7 +518,7 @@ def test_layout_in_the_project_folder(env):
     assert (env.ws / "Profile.md").read_text().startswith("<!-- OHMYJOB-TEMPLATE:")
     for name in ("Template", "Template-CV"):
         assert (env.ws / "Default_Resume_Files" / f"{name}.yaml").read_text().startswith("# OHMYJOB-TEMPLATE:")
-    assert json.loads((env.ws / "ohmyjob.json").read_text())["_template"].startswith("OHMYJOB-TEMPLATE")
+    assert (env.ws / "ohmyjob.json").read_text().startswith("// OHMYJOB-TEMPLATE")
     assert (env.proj / ".claude" / "settings.json").exists() and not (env.ws / ".claude").exists()
     # the warm-up builds used the plugin's Template.yaml and Template-CV.yaml
     assert env.calls("lualatex")

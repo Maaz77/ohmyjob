@@ -45,7 +45,7 @@ MASTER = W.APPLICATION_MASTER
 
 MAX_CAPTURE_BLOCKS = 2  # times the result hooks send a worker back to fix its report
 
-# Worker queue ('next' in aa.py and pj.py): workers running at the same time. L.SLOTS is W.slots(): max_parallel_workers,
+# Worker queue ('next' in aa.py and pj.py): workers running at the same time. L.SLOTS is W.slots():
 # below Claude Code's subagent cap by one (the master is a subagent too). It is read when it is used (module
 # __getattr__), never at import, so importing this module needs no valid ohmyjob.json.
 def __getattr__(name: str) -> Any:
@@ -452,12 +452,14 @@ def folder_id(name: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def tailored_pdfs(folder_path: Path) -> list[Path]:
-    return sorted(p for p in folder_path.glob(f"{W.file_prefix()}_*.pdf") if p.is_file())
+def job_pdf(folder_path: Path) -> Optional[Path]:
+    """The resume PDF to upload: any PDF next to job.md; with several, the newest by modification time (name breaks a tie)."""
+    pdfs = [p for p in folder_path.iterdir() if p.suffix.lower() == ".pdf" and p.is_file()]
+    return max(pdfs, key=lambda p: (p.stat().st_mtime_ns, p.name), default=None)
 
 
 def tailored_yamls(folder_path: Path) -> list[Path]:
-    return sorted(p for p in folder_path.glob(f"{W.file_prefix()}_*.yaml") if p.is_file())
+    return sorted(p for p in folder_path.glob("*.yaml") if p.is_file())
 
 
 # --------------------------------------------------------------------------- markdown
@@ -670,8 +672,10 @@ GOOGLE_CHOOSER_RE = re.compile(r"(accountchooser|chooseaccount|oauthchooseaccoun
 # Title tags of the helper extension (chrome-extension/): "[AA on <version>] " on the tab that registered
 # the run's tab group (an older extension writes "[AA on] "), "[AA from N] " on a tab that tab N opened
 # (a sign-in pop-up as a tab).
-HELPER_ON_RE = re.compile(r"^\[AA on(?: (?P<version>[0-9][\w.+-]*))?\] ")
-CHILD_TITLE_RE = re.compile(r"^\[AA from (\d+)\] ")
+# Chrome trims the trailing space of a tab title, so a page without a title of its own (robots.txt) shows the bare tag:
+# a tag is followed by a space or ends the title.
+HELPER_ON_RE = re.compile(r"^\[AA on(?: (?P<version>[0-9][\w.+-]*))?\](?: |$)")
+CHILD_TITLE_RE = re.compile(r"^\[AA from (\d+)\](?: |$)")
 
 
 def host_of(url: Optional[str]) -> Optional[str]:

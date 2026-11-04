@@ -1,5 +1,6 @@
 """Title matching (plan 7.7): Unicode tokens, lemmas per language, aliases, the software preset."""
 import json
+from unittest import mock
 from pathlib import Path
 
 import pytest
@@ -10,11 +11,11 @@ PRESET = json.loads((Path(__file__).parents[2] / "templates" / "presets" / "soft
 
 
 def matcher(terms, languages=("en",), mode="strict", preset=True, **extra):
-    aliases = dict(PRESET["title_aliases"]) if preset else {}
-    only = dict(PRESET["title_only_aliases"]) if preset else {}
-    aliases.update(extra.get("title_aliases", {}))
-    only.update(extra.get("title_only_aliases", {}))
-    return C.TitleMatcher(terms, languages, mode, aliases, only)
+    """preset=False: no built-in aliases, only the `extra` ones (the built-in table is patched while it is built)."""
+    aliases, only = C.builtin_aliases() if preset else ({}, {})
+    aliases, only = {**aliases, **extra.get("title_aliases", {})}, {**only, **extra.get("title_only_aliases", {})}
+    with mock.patch.object(C, "builtin_aliases", lambda: (aliases, only)):
+        return C.TitleMatcher(terms, languages, mode)
 
 
 def test_tokens_fold_accents_and_keep_any_script():
@@ -53,7 +54,7 @@ def test_aliases_work_on_both_sides_and_title_only_aliases_one_way():
 
 def test_alias_table_cannot_explode():
     loop = {chr(97 + i) * 2: [chr(97 + (i + 1) % 20) * 2, chr(97 + (i + 2) % 20) * 2] for i in range(20)}
-    m = C.TitleMatcher(["aa"], ("en",), "strict", loop, {})
+    m = matcher(["aa"], preset=False, title_aliases=loop)
     m.matches("aa bb cc dd ee ff gg hh")  # returns, whatever the answer
 
 
@@ -100,10 +101,10 @@ def test_software_preset_vectors(term, title, expected):
     assert matcher([term]).matches(title) is expected
 
 
-def test_preset_is_valid_search_config(workspace):
-    import workspace as W
-
-    raw = json.loads((workspace / "ohmyjob.json").read_text(encoding="utf-8"))
-    raw["search"].update(PRESET)
-    assert W.validate_config(raw)["search"]["title_aliases"]["swe"] == "software engineer"
+def test_the_builtin_aliases_are_the_preset_plus_common_abbreviations_and_are_always_on():
+    both, only = C.builtin_aliases()
     assert set(PRESET) == {"title_aliases", "title_only_aliases"}
+    assert all(both[k] == v for k, v in PRESET["title_aliases"].items()) and only == PRESET["title_only_aliases"]
+    assert both["ops"] == "operations" and both["mgr"] == "manager" and both["sr"] == "senior"
+    assert C.TitleMatcher(["Operations Analyst"], ["en"], "strict").matches("Ops Analyst")  # no argument, no config
+    assert C.TitleMatcher(["Software Engineer"], ["en"], "strict").matches("SWE II")

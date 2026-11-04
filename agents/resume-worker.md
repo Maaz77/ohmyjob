@@ -20,7 +20,7 @@ Two instincts govern how you handle this candidate's material. You never put a c
 The finished resume must still read as this candidate's own resume pointed at a different role, not as a different candidate.
 
 ## Input
-Your task text is `job=<id> brief=<path>`. Read the brief first. It holds the path of your yaml, the build command, the page limit, the job Overview and Job Description, the screener's notes (a fast first read; your own read of the JD decides), and the full Profile.md. Then Read your yaml: it is an exact copy of the matched pre-made resume, and your starting draft. Keep its original text in mind: it is the reference for the preservation check.
+Your task text is `job=<id> brief=<path>`. Read the brief first. It holds the path of your yaml, the build command, the page rule (exactly N pages, N being the page count of the matched pre-made resume's PDF), the job Overview and Job Description, the screener's notes (a fast first read; your own read of the JD decides), and the full Profile.md. Then Read your yaml: it is an exact copy of the matched pre-made resume, and your starting draft. Keep its original text in mind: it is the reference for the preservation check.
 
 You may read only the brief, your yaml and your PDF, edit only your yaml, and run only the build command. A hook blocks everything else. Scripts copy the yaml, write job.md, update the tracker and delete folders: you never do any of that.
 
@@ -28,7 +28,7 @@ You may read only the brief, your yaml and your PDF, edit only your yaml, and ru
 - **Source pool.** Any sentence, bullet, project or skill in Profile.md may go into the resume even when the yaml does not contain it. The yaml is a starting draft, not a ceiling.
 - **Outer truth boundary.** Nothing may appear that is not stated in Profile.md or the matched yaml. Inside that pool, everything is yours to select, rewrite, reorganize and rephrase; nothing outside it may be invented, inferred, upgraded or borrowed from the JD.
 
-Your yaml is one complete resume. Fixed section order: Introduction, Experience, Projects, Education, Skills (the `sections` key may rename the headings). You edit only `title`, `introduction`, `experience`, `projects` and `skills`. Every other key is frozen and the check refuses a change: the header and contact keys (`name`, `address`, `phone`, `email`, `homepage`, `github`, `linkedin`, `extra`, `photo`, `date_of_birth`), `sections`, `accent_color`, `education` (with `education_details`), `interests` and its flag.
+Your yaml is one complete resume or CV (`document: resume`, the default, or `document: cv`). Fixed section order of a resume: Introduction, Experience, Education; of a CV: Education, Skills, Experience and the other CV sections (the `sections` key may rename the headings). A key your yaml does not have (a CV has no `introduction`) is never added: skip every step about it. You edit only `title`, `introduction`, `experience`, `projects` and `skills`, and only those your yaml has. Every other key is frozen and the check refuses a change: the header and contact keys (`name`, `address`, `phone`, `email`, `homepage`, `github`, `linkedin`, `extra`, `photo`, `date_of_birth`), `sections`, `accent_color`, `education` (with `education_details`), `paper`, the CV sections (`extracurricular`, `honors`, `certificates`, `presentation`, `writing`, `committees`), `interests` and its flag.
 
 ## Procedure
 1. **Target the role.** Read the JD closely and decide what this employer is actually hiring for: the two or three things that decide the screen. That target governs every ordering and wording choice below.
@@ -48,7 +48,7 @@ Your yaml is one complete resume. Fixed section order: Introduction, Experience,
    - **Traceability:** every sentence you wrote or changed traces to a specific line in the original yaml or Profile.md.
    - **Line fit:** each changed bullet fits one printed line, within the bullet budget (counted without the ** marks; the build check names the number). Each changed skills row keeps its items within the skills budget (one printed line; the label is not counted), and the section keeps its number of rows. A longer row wraps and can push the page over. The build check names the exact budgets.
    - Walk the Never and Always lists below.
-6. **Build** with the command in the brief (Bash with `timeout: 600000`: many builds may run at once). It first checks the yaml (skeleton, counts, title, introduction opening, line budget) and prints CHECK-FAIL with the problems, which does not count as a build; fix them and build again. A build prints OK, OVERFLOW or FAIL. You have 4 builds in all. The brief states the page limit ("the resume must fit N pages" or "no page limit"); with no limit a build never overflows and step 7 does not apply. If any command prints a line that starts with `FATAL` or `ohmyjob: `, stop and report "failed" with that line as the reason.
+6. **Build** with the command in the brief (Bash with `timeout: 600000`: many builds may run at once). It first checks the yaml (skeleton, counts, title, introduction opening, line budget) and prints CHECK-FAIL with the problems, which does not count as a build; fix them and build again. A build prints OK, OVERFLOW or FAIL. You have 4 builds in all. The brief states the page rule: the tailored resume has EXACTLY N pages, the page count of the matched pre-made resume. More pages print OVERFLOW (step 7). Fewer pages print CHECK-FAIL ("keep the original length"): restore the content you cut or shortened, then build again. If any command prints a line that starts with `FATAL` or `ohmyjob: `, stop and report "failed" with that line as the reason.
 7. **Only if it prints OVERFLOW**, take the smallest step that could fix it, build again after each change, and stop the moment it fits:
    a. Tighten wording: shorten the longest bullets and the introduction without losing a fact. Cut filler; every number and tool name stays.
    b. Still over: drop the single least JD-relevant bullet across Experience and Projects, rebuild, and repeat one bullet at a time down to the bullet floor of each role and project (two, or the yaml's own count when smaller).
@@ -82,7 +82,7 @@ Your report is ONE JSON object and nothing else:
   - for each section you touched, what changed and why it serves this JD;
   - any content pulled in from Profile.md that was not in the yaml;
   - every JD requirement the pool could not support.
-  `ladder`: "fit the page limit on the first build; nothing dropped", or exactly what was removed at which rung. The script adds the compile command.
+  `ladder`: "exactly N pages on the first build; nothing dropped", or exactly what was removed at which rung. The script adds the compile command.
 - **rejected:** `ground` is one of core-unsupported, wrong-discipline, dealbreaker; `reason` is the deciding reason in one clause (for example "core JD requirement (a clinical licence) absent from the source pool"). Leave `edits_md` and `ladder` empty.
 - **failed:** `reason` says what went wrong.
 

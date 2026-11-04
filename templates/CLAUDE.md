@@ -16,7 +16,7 @@ Claude starts in):
 - A file that still holds the line `OHMYJOB-TEMPLATE` is mock data, not the candidate: do not use it as a fact.
 
 ## Files
-- `ohmyjob.json`: settings (boards, search terms, country, page limit, parallel workers).
+- `ohmyjob.json`: settings (boards, search terms, location, country and filters).
 - `Profile.md`: `# Fit Preferences`, `# Resume` (the master resume, the only source of facts for tailoring), `# Follow Up Questions` (numbered answers reused on application forms).
 - `Job_Tracker.xlsx`: one row per job. Close it in Excel / LibreOffice before running a command.
 - `Default_Resume_Files/`: one `<Field>.yaml` per role family (copied from `Template.yaml`) and its `<Field>.pdf`, plus

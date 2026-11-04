@@ -45,7 +45,7 @@ def setup(workspace, monkeypatch):
     def configure(**search):
         raw = json.loads((workspace / "ohmyjob.json").read_text(encoding="utf-8"))
         raw["search"].update(dict(exclude_companies=[], exclude_seniority_level=[], filter_title_terms=[],
-                                  title_aliases={}, title_only_aliases={}, search_query=["Operations Analyst"]))
+                                  search_query=["Operations Analyst"]))
         raw["search"].update(search)
         (workspace / "ohmyjob.json").write_text(json.dumps(raw), encoding="utf-8")
         return W.load_config(workspace)["search"]
@@ -255,22 +255,40 @@ def test_dry_run_writes_nothing(setup, capsys):
     assert rows(root) == [] and not any((root / "Applications").glob("111*"))
 
 
+def test_git_snapshot_is_a_flag_not_a_setting(setup, monkeypatch):
+    import pytest
+
+    root, boards, calls, configure = setup
+    with pytest.raises(W.ConfigError, match="git_snapshot"):
+        configure(git_snapshot=True)
+    raw = json.loads((root / "ohmyjob.json").read_text(encoding="utf-8"))
+    raw["search"].pop("git_snapshot")
+    (root / "ohmyjob.json").write_text(json.dumps(raw), encoding="utf-8")  # a valid config again
+    seen = {}
+    monkeypatch.setattr(scrape, "run", lambda *a, **k: seen.update(args=a) or 0)
+    monkeypatch.setenv("OHMYJOB_WORKSPACE", str(root))
+    scrape.main(["--git-snapshot"])
+    assert seen["args"][3] is True
+    scrape.main([])
+    assert seen["args"][3] is False
+
+
 def test_git_snapshot_opt_in(setup, capsys, monkeypatch):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(post())
-    scrape.run(root, configure(git_snapshot=True))
-    assert "git_snapshot: the workspace is not a git repo; skipped" in capsys.readouterr().out
+    scrape.run(root, configure(), git_snapshot=True)
+    assert "--git-snapshot: the workspace is not a git repo; skipped" in capsys.readouterr().out
     for name, value in (("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@e.x"), ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@e.x")):
         monkeypatch.setenv(name, value)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/333"))
-    scrape.run(root, configure(git_snapshot=True))
+    scrape.run(root, configure(), git_snapshot=True)
     log = subprocess.run(["git", "-C", str(root), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert log.startswith("ohmyjob snapshot")
     shown = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format="], capture_output=True, text=True).stdout
     assert "Job_Tracker.xlsx" in shown and "111_Acme-GmbH" in shown and "333_" not in shown  # the state before this run
     before = len(log.splitlines())
-    scrape.run(root, configure(git_snapshot=False))
+    scrape.run(root, configure())
     assert len(subprocess.run(["git", "-C", str(root), "log", "--format=%s"], capture_output=True, text=True).stdout.splitlines()) == before
 
 
@@ -318,7 +336,7 @@ def test_job_level_is_a_whole_value_and_aliases_apply(setup):
         post(title="Sr. Operations Analyst", url="https://www.linkedin.com/jobs/view/2", company="B"),
         post(url="https://www.linkedin.com/jobs/view/3", company="C", job_level="Senior"),
         post(url="https://www.linkedin.com/jobs/view/4", company="D", job_level="Director"))
-    scrape.run(root, configure(exclude_seniority_level=["senior"], title_aliases={"sr": "senior"}))
+    scrape.run(root, configure(exclude_seniority_level=["senior"]))  # "Sr." is "senior" by the built-in aliases
     assert sorted(r["_key"] for r in rows(root)) == ["1", "4"]
 
 
@@ -352,7 +370,7 @@ def test_git_snapshot_commits_only_its_paths(setup, monkeypatch):
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / "notes.txt").write_text("mine", encoding="utf-8")
     subprocess.run(["git", "-C", str(root), "add", "notes.txt"], check=True)
-    scrape.run(root, configure(git_snapshot=True))
+    scrape.run(root, configure(), git_snapshot=True)
     shown = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format="], capture_output=True, text=True).stdout
     assert "Job_Tracker.xlsx" in shown and "notes.txt" not in shown
     staged = subprocess.run(["git", "-C", str(root), "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
@@ -360,7 +378,7 @@ def test_git_snapshot_commits_only_its_paths(setup, monkeypatch):
 
 
 def test_unexpected_errors_are_one_fatal_line(workspace, capsys, monkeypatch):
-    def broken(root, search, dry_run=False):
+    def broken(root, search, dry_run=False, git_snapshot=False):
         raise PermissionError("denied: Applications")
 
     monkeypatch.setattr(scrape, "run", broken)
@@ -621,12 +639,12 @@ def test_git_snapshot_respects_gitignore(setup, capsys, monkeypatch):
         monkeypatch.setenv(name, value)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / ".gitignore").write_text("Job_Tracker.xlsx\nApplications/\n", encoding="utf-8")
-    scrape.run(root, configure(git_snapshot=True))
+    scrape.run(root, configure(), git_snapshot=True)
     assert "ignored by .gitignore; nothing to snapshot" in capsys.readouterr().out
     log = subprocess.run(["git", "-C", str(root), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert log == ""
     (root / ".gitignore").write_text("Applications/\n", encoding="utf-8")  # one of the two is versioned now
-    scrape.run(root, configure(git_snapshot=True))
+    scrape.run(root, configure(), git_snapshot=True)
     shown = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format=%s"], capture_output=True, text=True).stdout
     assert "ohmyjob snapshot" in shown and "Job_Tracker.xlsx" in shown and "Applications" not in shown
 

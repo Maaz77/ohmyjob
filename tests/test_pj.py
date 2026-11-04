@@ -25,11 +25,8 @@ FAKE_COMPILE = '''import os, sys
 from pathlib import Path
 pdf, yaml_file = sys.argv[1], sys.argv[2]
 pages = int(os.environ.get("FAKE_PAGES", "1"))
-if pages > 1:
-    print(f"Resume is {pages} pages (must fit on 1), aborting")
-    sys.exit(1)
 Path(pdf).write_bytes(b"%PDF-1.4 fake")
-print(f"Done: {pdf}")
+print(f"Done: {pdf}, the document is {pages} pages")
 '''
 
 # Stands in for WS-A's resume_build: the same names, no LaTeX.
@@ -44,8 +41,11 @@ def build(role_yaml, out_pdf, *, max_pages=None, paper=None):
     if os.environ.get("FAKE_BUILD_RAISE"):
         import subprocess
         raise subprocess.TimeoutExpired("lualatex", 180)
+    pages = int(os.environ.get("FAKE_PAGES", "1"))
+    if max_pages and pages > max_pages:
+        return "OVERFLOW", pages, ""
     Path(out_pdf).write_bytes(b"%PDF fake")
-    return "OK", 1, ""
+    return "OK", pages, ""
 '''
 
 OPS, COORD = "Operations-Analyst.pdf", "Project-Coordinator.pdf"
@@ -66,13 +66,14 @@ def job_md(url: str, company: str, title: str, location: str = "Berlin, Germany"
         "## 3. Match Reasoning and Discussions", "", "### Why Matched?", "", "### Gaps?", ""])
 
 
-def make_pdf(text: str) -> bytes:
-    """A one-page PDF whose text pypdf can read back (no LaTeX)."""
+def make_pdf(text: str, pages: int = 1) -> bytes:
+    """A PDF of `pages` pages whose text pypdf can read back (no LaTeX)."""
     stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
-    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    kids = " ".join(f"{5 + i} 0 R" for i in range(pages))
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", f"<< /Type /Pages /Kids [{kids}] /Count {pages} >>".encode(),
             b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    objs += [b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 3 0 R /Resources << /Font << /F1 4 0 R >> >> >>"] * pages
     out, offsets = b"%PDF-1.4\n", []
     for i, body in enumerate(objs, 1):
         offsets.append(len(out))
@@ -87,7 +88,7 @@ class Env:
     def __init__(self, root: Path, tmp: Path):
         self.root, self.tmp = root, tmp
         for name in (OPS, COORD):
-            (root / "Default_Resume_Files" / name).write_bytes(b"%PDF")
+            (root / "Default_Resume_Files" / name).write_bytes(make_pdf("Resume"))
         shutil.rmtree(root / "Applications")
         (root / "Applications").mkdir()
         import tracker as T
@@ -400,7 +401,7 @@ def test_full_run(pe):
     assert out["subagent_type"] == BUILDER
     yaml_a = a / "Alex_Acme_Operations-Analyst.yaml"
     assert yaml_a.read_text() == (pe.root / "Default_Resume_Files" / "Operations-Analyst.yaml").read_text()
-    assert "the resume must fit 1 page" in Path(jobs["1001"]).read_text()
+    assert "exactly 1 page" in Path(jobs["1001"]).read_text()
     for job in jobs:
         pe.bind(BUILDER, f"r{job}", jobs[job])
     g = lambda agent_id, tool, ti: pe.guard(BUILDER, agent_id, tool, ti).returncode  # noqa: E731
@@ -417,7 +418,7 @@ def test_full_run(pe):
     yaml_a.write_text(original.replace("Excel, SQL, Power BI, forecasting, KPI design", "SQL, Excel, Power BI, forecasting, KPI design"))
     assert "OVERFLOW: 2 pages" in pe.pj("build", "1001", env={**pe.env, "FAKE_PAGES": "2"})
     assert "Builds used 2/4" in pe.pj("build", "1001", env={**pe.env, "FAKE_PAGES": "2"})
-    assert pe.pj("build", "1001").startswith("OK: 1 page")
+    assert pe.pj("build", "1001").startswith("OK: exactly 1 page")
     assert (a / "Alex_Acme_Operations-Analyst.pdf").exists()
     built = {"job": "1001", "status": "built", "ground": None, "reason": "", "title": "Operations Analyst",
              "edits_md": "- **Skills:** reordered the analysis row.", "ladder": "fit one page on the third build; nothing dropped"}
@@ -453,25 +454,152 @@ def test_build_uses_resume_build_with_absolute_paths_and_survives_a_timeout(pe):
     [(job, brief)] = pe.workers(pe.pj("assign-build"))
     pe.bind(BUILDER, "r1", brief)
     env = {k: v for k, v in pe.env.items() if k != "PJ_COMPILE_CMD"}
-    assert pe.pj("build", job, env=env).startswith("OK: 1 page")
+    assert pe.pj("build", job, env=env).startswith("OK: exactly 1 page")
     role_yaml, pdf, max_pages, paper = json.loads(Path(pe.env["FAKE_BUILD_LOG"]).read_text())
     assert Path(role_yaml).is_absolute() and Path(pdf).is_absolute() and pdf.endswith(".pdf")
-    assert (max_pages, paper) == (None, None)
+    assert (max_pages, paper) == (1, None)  # exactly the page count of the source resume's PDF
     out = pe.pj("build", job, env={**env, "FAKE_BUILD_RAISE": "1"})
     assert out.startswith("FAIL") and "Builds used 2/4" in out and "timed out" in out
     assert pe.pj("build", job, env={**env}).startswith("OK")  # the hook did not die; the count went on
     assert json.loads((pe.run_dir() / "state.json").read_text())["jobs"][job]["builds"] == 3
 
 
-def test_page_limit_zero_is_told_to_the_worker(pe):
-    cfg = json.loads((pe.root / "ohmyjob.json").read_text())
-    cfg["pipeline"]["resume_max_pages"] = 0
-    (pe.root / "ohmyjob.json").write_text(json.dumps(cfg))
+def source_pages(pe, pages):
+    (pe.root / "Default_Resume_Files" / OPS).write_bytes(make_pdf("Resume", pages))
+
+
+def test_the_page_rule_is_exactly_the_source_page_count(pe):
+    source_pages(pe, 2)
     pe.folder("1001", "Acme", "Analyst", score="7", resume=OPS)
     pe.row("1001", "Acme", "Analyst", "Matched")
     pe.pj("start")
-    [(_job, brief)] = pe.workers(pe.pj("assign-build"))
-    assert "Page limit: no page limit" in Path(brief).read_text()
+    [(job, brief)] = pe.workers(pe.pj("assign-build"))
+    text = Path(brief).read_text()
+    assert "exactly 2 pages" in text and "Page limit" not in text
+    assert json.loads((pe.run_dir() / "state.json").read_text())["jobs"][job]["pages"] == 2
+    pe.bind(BUILDER, "r1", brief)
+    out = pe.pj("build", job, env={**pe.env, "FAKE_PAGES": "3"})
+    assert out.startswith("OVERFLOW: 3 pages, the source resume has 2")
+    out = pe.pj("build", job, env={**pe.env, "FAKE_PAGES": "1"})
+    assert out.startswith("CHECK-FAIL") and "keep the original length" in out.lower() and "exactly 2 pages" in out
+    assert not (pe.root / "Applications" / "1001_Acme_Analyst" / "Alex_Acme_Analyst.pdf").exists()
+    assert pe.pj("build", job, env={**pe.env, "FAKE_PAGES": "2"}).startswith("OK: exactly 2 pages")
+    real = {k: v for k, v in pe.env.items() if k != "PJ_COMPILE_CMD"}  # resume_build.build gets the page count
+    assert pe.pj("build", job, env={**real, "FAKE_PAGES": "1"}).startswith("CHECK-FAIL")  # the 4th and last build
+    assert json.loads(Path(pe.env["FAKE_BUILD_LOG"]).read_text())[2] == 2
+
+
+def test_a_source_pdf_that_cannot_be_read_is_a_blocker_not_a_crash(pe):
+    (pe.root / "Default_Resume_Files" / OPS).write_bytes(b"%PDF broken")
+    pe.folder("1001", "Acme", "Analyst", score="7", resume=OPS)
+    pe.row("1001", "Acme", "Analyst", "Matched")
+    pe.pj("start")
+    out = json.loads(pe.pj("assign-build"))
+    assert out["workers"] == [] and out["failed_without_worker"] == ["1001_Acme_Analyst"]
+
+
+def finish_screen(pe, job, brief, matched):
+    pe.bind(SCREEN, f"s{job}", brief)
+    assert pe.report(SCREEN, f"s{job}", {"job": job, "score": 8, **{**MATCH, "matched_resume": matched}}).returncode == 0
+
+
+def test_a_resume_worker_starts_while_other_screen_workers_still_run(pe):
+    for job_id, company in [("1001", "Acme"), ("1002", "Beta"), ("1003", "Gamma")]:
+        pe.folder(job_id, company, "Analyst")
+        pe.row(job_id, company, "Analyst", "Found")
+    env = {**pe.env, "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "5"}  # 4 slots shared by every worker type
+    assert json.loads(pe.pj("start"))["screen"] == 3
+    first = json.loads(pe.pj("next", env=env))["workers"]
+    assert [w["subagent_type"] for w in first] == [SCREEN] * 3  # no wave limit: every free slot is used at once
+    briefs = dict(pe.workers(json.dumps({"workers": first})))
+    finish_screen(pe, "1001", briefs["1001"], OPS)  # 1002 and 1003 are still screening
+    second = json.loads(pe.pj("next", env=env))["workers"]
+    assert [w["subagent_type"] for w in second] == [BUILDER] and "job=1001" in second[0]["prompt"]
+    state = json.loads((pe.run_dir() / "state.json").read_text())
+    assert sum(1 for j in state["jobs"].values() if j["assigned"] and not j["done"]) == 3  # 2 screens + 1 resume, 4 slots
+
+
+def test_slots_are_shared_screens_first_then_builds(pe):
+    for job_id, company in [("1001", "Acme"), ("1002", "Beta"), ("1003", "Gamma")]:
+        pe.folder(job_id, company, "Analyst")
+        pe.row(job_id, company, "Analyst", "Found")
+    env = {**pe.env, "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "3"}  # 2 slots
+    pe.pj("start")
+    briefs = dict(pe.workers(json.dumps({"workers": json.loads(pe.pj("next", env=env))["workers"]})))
+    assert sorted(briefs) == ["1001", "1002"]
+    finish_screen(pe, "1001", briefs["1001"], OPS)
+    nxt = json.loads(pe.pj("next", env=env))["workers"]  # one slot free: the waiting screen goes before the build
+    assert [w["subagent_type"] for w in nxt] == [SCREEN] and "job=1003" in nxt[0]["prompt"]
+    pe.bind(SCREEN, "s1002", briefs["1002"])
+    assert pe.report(SCREEN, "s1002", {"job": "1002", **LOW}).returncode == 0
+    nxt = json.loads(pe.pj("next", env=env))["workers"]  # no screen left to start: the build takes the slot
+    assert [w["subagent_type"] for w in nxt] == [BUILDER] and "job=1001" in nxt[0]["prompt"]
+
+
+@pytest.mark.parametrize("template", ["Template.yaml", "Template-CV.yaml"])
+def test_a_copy_of_each_template_goes_through_the_whole_prep_path(pe, template):
+    """Build, catalog, screening match, frozen keys and budgets (check_yaml), the resume-worker guard and the brief."""
+    import yaml
+
+    text = (REPO / "templates" / template).read_text(encoding="utf-8")
+    text = "\n".join(line for line in text.splitlines() if "OHMYJOB-TEMPLATE" not in line) + "\n"
+    defaults = pe.root / "Default_Resume_Files"
+    (defaults / "Copy-Of-Template.yaml").write_text(text, encoding="utf-8")
+    (defaults / "Copy-Of-Template.pdf").write_bytes(make_pdf("Analyst copy", pages=2))
+    # the real build of the copy (no LaTeX here: render() is the build's first step and fails on a bad document)
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("real_resume_build", SCRIPTS / "resume_build.py")
+    rb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rb)
+    assert "\\begin{document}" in rb.render(defaults / "Copy-Of-Template.yaml")
+    pe.folder("1001", "Acme", "Analyst")
+    pe.row("1001", "Acme", "Analyst", "Found")
+    pe.pj("start")
+    catalog = (pe.root / ".ohmyjob" / "catalog" / "catalog.md").read_text(encoding="utf-8")
+    assert "### Copy-Of-Template.pdf" in catalog and "kind: tailorable" in catalog
+    block = catalog.split("### Copy-Of-Template.pdf", 1)[1].split("###", 1)[0]
+    assert ("- introduction:" in block) == (template == "Template.yaml")  # a CV has no introduction line
+    [(job, brief)] = pe.workers(pe.pj("assign-screen"))
+    finish_screen(pe, job, brief, "Copy-Of-Template.pdf")
+    assert pe.pj("record").startswith("OK recorded")
+    [(job, brief)] = pe.workers(pe.pj("assign-build"))
+    assert "exactly 2 pages" in Path(brief).read_text()
+    pe.bind(BUILDER, "r1", brief)
+    yaml_path = next((pe.root / "Applications").glob("1001_*/*.yaml"))
+    assert pe.guard(BUILDER, "r1", "Edit", {"file_path": str(yaml_path)}).returncode == 0
+    assert pe.pj("build", job, env={**pe.env, "FAKE_PAGES": "2"}).startswith("OK: exactly 2 pages")  # checks pass unchanged
+    # the checks still bite: a frozen key, and (resume only) the introduction opening
+    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    data["address"] = "Elsewhere 1"
+    yaml_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    assert "'address' must stay unchanged" in pe.pj("build", job)
+
+
+def test_a_cv_yaml_runs_through_check_yaml_without_an_introduction():
+    import copy
+    import importlib
+
+    import yaml
+
+    pj = importlib.import_module("pj")
+    cv = yaml.safe_load((REPO / "templates" / "Template-CV.yaml").read_text(encoding="utf-8"))
+    assert "introduction" not in cv and cv["document"] == "cv"
+    assert pj.check_yaml(copy.deepcopy(cv), cv, False, "") == []
+    longer = copy.deepcopy(cv)
+    longer["experience"][1]["bullets"][0] = "Led " + "very " * 40 + "long work."  # a changed bullet over the budget
+    assert any("renders" in e for e in pj.check_yaml(longer, cv, False, ""))
+    longer = copy.deepcopy(cv)
+    longer["skills"][0]["items"] = ", ".join(f"Tool{i}" for i in range(40))
+    assert any("Skills: a changed row" in e for e in pj.check_yaml(longer, cv, False, ""))
+    frozen = copy.deepcopy(cv)
+    frozen["education"][0]["school"] = "Other"
+    frozen["extracurricular"][0]["role"] = "Other"
+    errors = pj.check_yaml(frozen, cv, False, "")
+    assert "'education' must stay unchanged." in errors and "'extracurricular' must stay unchanged." in errors
+    added = copy.deepcopy(cv)
+    added["introduction"] = "A summary a CV does not have."
+    assert any("top-level keys changed" in e for e in pj.check_yaml(added, cv, False, ""))
 
 
 def test_stale_tracker_is_a_stop_not_an_overwrite(pe):

@@ -1,6 +1,6 @@
 # OHMYJOB-TEMPLATE: copy this file to <Field>.yaml, replace the mock data, then delete this line
 #
-# One complete CV (the layout of Awesome-CV's examples/cv.tex): it has no page limit. Copy it to a file named after
+# One complete CV (the layout of Awesome-CV's examples/cv.tex): it has no introduction (no summary). Copy it to a file named after
 # the field it targets (Data-Analyst-CV.yaml ...), replace every mock value with your own, and build it with
 # /ohmyjob:build-resumes. Keep the keys; delete a whole optional key (marked "optional") when you do not need it. A
 # section without entries is left out. The PDF is built next to the file with the same name.

@@ -958,30 +958,27 @@ class TestMockGuard(T.Base):
             section = text[text.index("# Follow Up Questions"):]
             self.assertIn("11. Years of Rust? None.", section)
             self.assertEqual(text.replace("11. Years of Rust? None.\n", ""), MARKER_LINE + original)
-            # the first name from "# Resume" is the file prefix: the tailored files are found by it
+            # the first name from "# Resume" is the file prefix of the files pj.py writes; the PDF to upload is any PDF
             code = ("import aa_lib as L, workspace as W; from pathlib import Path\n"
-                    "print(W.file_prefix()); print(len(L.tailored_pdfs(Path(sys.argv[1]))), len(L.tailored_yamls(Path(sys.argv[1]))))")
+                    "print(W.file_prefix()); print(L.job_pdf(Path(sys.argv[1])).suffix, len(L.tailored_yamls(Path(sys.argv[1]))))")
             out = subprocess.run([sys.executable, "-c", "import sys\n" + code, str(self.root / "Applications" / LINKEDIN_JOB)],
                                  env=self.env, cwd=SCRIPTS, capture_output=True, text=True, check=True).stdout.split()
-            self.assertEqual(out, ["Alex", "1", "1"])
+            self.assertEqual(out, ["Alex", ".pdf", "1"])
         finally:
             path.write_text(original, encoding="utf-8")
             (self.root / ".ohmyjob" / "questions.json").unlink(missing_ok=True)
 
 
 class TestSlots(T.Base):
-    def test_slots_follow_the_config_and_the_subagent_cap(self):
+    def test_slots_are_the_subagent_cap_minus_one_whatever_the_config_says(self):
         code = "import aa_lib as L; print(L.SLOTS)"
         run = lambda env: subprocess.run([sys.executable, "-c", code], env=env, cwd=SCRIPTS, capture_output=True,  # noqa: E731
                                          text=True).stdout.strip()
-        self.assertEqual(run(self.env), "3")  # the fixture sets max_parallel_workers: 3
+        self.assertEqual(run(self.env), "19")  # the default cap of 20, less the master
         self.assertEqual(run({**self.env, "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "2"}), "1")
-        # importing needs no valid config: only reading SLOTS does
-        (self.root / "ohmyjob.json").write_text("{not json")
-        code = "import aa_lib as L; print('imported'); L.SLOTS"
-        proc = subprocess.run([sys.executable, "-c", code], env=self.env, cwd=SCRIPTS, capture_output=True, text=True)
-        self.assertIn("imported", proc.stdout)
-        self.assertNotEqual(proc.returncode, 0)
+        (self.root / "ohmyjob.json").write_text("{not json")  # the config plays no part
+        self.assertEqual(run(self.env), "19")
+        (self.root / "ohmyjob.json").write_text('{"search": {"sources": ["linkedin"]}}')
 
 
 class TestJudgeCommand(unittest.TestCase):

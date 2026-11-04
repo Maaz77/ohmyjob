@@ -187,46 +187,44 @@ def test_importing_workspace_loads_no_heavy_dependency():
 
 MOCK_SEARCH = {"sources": ["linkedin", "indeed"], "search_query": ["Operations Analyst"], "location": "Berlin, Germany",
                "country": "germany"}
-TEMPLATE_LINE = "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line"
+TEMPLATE_LINE = "// OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line"
+REQUIRED = ("sources", "search_query", "location", "country")
 
 
-def test_the_template_is_the_defaults_with_mock_search_values_and_the_marker():
+def test_the_template_is_json_with_comments_the_mock_values_and_the_marker():
     text = (TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8")
-    template = json.loads(text)
+    lines = text.splitlines()
+    assert lines[0] == TEMPLATE_LINE
+    template = json.loads(W.strip_comments(text))
+    assert template == {"search": MOCK_SEARCH}
+    assert "_template" not in text and '"_' not in text  # no hint keys
     expected = copy.deepcopy(W.DEFAULTS)
     expected["search"].update(MOCK_SEARCH)
-    assert template.pop("_template") == TEMPLATE_LINE
-    hints = {key: template[section].pop(key) for section in W.DEFAULTS for key in list(template[section]) if key.startswith("_")}
-    assert template == expected
-    assert set(hints) == {f"_{key}" for keys in W.DEFAULTS.values() for key in keys}
-    assert list(json.loads(text))[0] == "_template"  # first: deleting its line leaves valid JSON
-    assert not any(W.TEMPLATE_MARKER in hint for hint in hints.values())
-    assert W.validate_config(json.loads(text)) == expected  # the mock template loads; "_..." keys are not settings
-    edited = "\n".join(line for line in text.splitlines() if W.TEMPLATE_MARKER not in line)
-    assert W.validate_config(json.loads(edited)) == expected
+    assert W.validate_config(template) == expected  # the mock template loads as it is
+    assert W.has_template_marker(TEMPLATES / "ohmyjob.json")
+    edited = "\n".join(line for line in lines if W.TEMPLATE_MARKER not in line)
+    assert W.validate_config(json.loads(W.strip_comments(edited))) == expected
 
 
-def test_every_hint_is_right_before_its_field_and_lists_every_valid_value():
-    raw = json.loads((TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8"))
-    for section, keys in W.DEFAULTS.items():
-        order = list(raw[section])
-        for key in keys:
-            assert order.index(f"_{key}") == order.index(key) - 1  # the hint sits right before its field
-    search = {key: raw["search"][f"_{key}"] for key in W.DEFAULTS["search"]}
-    for key, values in {"sources": W.SOURCES, "country": W.COUNTRIES, "employment_types": W.EMPLOYMENT_TYPES,
-                        "languages": W.LANGUAGES, "title_filter": ("strict", "off")}.items():
-        for value in values:  # drift guard: a new constant value must reach the hint
-            assert re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", search[key]), (key, value)
-    assert "a4" in raw["pipeline"]["_resume_paper"] and "letter" in raw["pipeline"]["_resume_paper"]
-    assert "freehire" in search["uk_sponsor_only"]
-    assert "0 = no limit" in raw["pipeline"]["_resume_max_pages"]
+def test_the_comment_block_lists_only_the_required_fields_and_every_valid_value():
+    comments = "\n".join(l for l in (TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8").splitlines() if l.startswith("//"))
+    for field in REQUIRED:
+        assert re.search(rf"//\s+{field}\s", comments), field
+    for optional in set(W.DEFAULTS["search"]) - set(REQUIRED):
+        assert not re.search(rf"//\s+{optional}\s", comments), optional
+    for values in (W.SOURCES, W.COUNTRIES):  # drift guard: a new constant value must reach the comment
+        for value in values:
+            assert re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", comments), value
 
 
-def test_hint_keys_are_ignored_by_validation():
-    config = W.validate_config({"_note": "x", "search": {"_sources": "x", "sources": ["linkedin"]}, "pipeline": {"_z": 1}})
-    assert config == W.DEFAULTS
-    with pytest.raises(W.ConfigError, match="search.bogus"):
-        W.validate_config({"search": {"bogus": 1}})
+def test_comments_are_full_lines_only_and_hint_keys_are_refused(tmp_path):
+    text = '// a comment\n  // another\n{"search": {"sources": ["linkedin"],\n// inside\n "location": "x // y"}}\n'
+    (tmp_path / "ohmyjob.json").write_text(text)
+    config = W.load_config(tmp_path)
+    assert config["search"]["location"] == "x // y"  # only a line that STARTS with // is a comment
+    for raw in ({"_note": "x"}, {"search": {"_sources": "x"}}, {"_template": "x"}):
+        with pytest.raises(W.ConfigError, match="not a known"):
+            W.validate_config(raw)
 
 
 def test_every_setting_has_a_check():
@@ -243,27 +241,23 @@ def test_the_fixture_config_loads(workspace):
     assert config["search"]["search_query"] == ["Operations Analyst", "Project Coordinator"]
     assert config["search"]["country"] == "germany"
     assert config["search"]["languages"] == ["en", "de"]
-    assert config["pipeline"] == {"max_parallel_workers": 3, "resume_max_pages": 1, "resume_paper": "a4"}
+    assert "pipeline" not in config
 
 
 def test_missing_keys_take_their_defaults_and_defaults_are_not_shared(tmp_path):
     config = write_config(tmp_path, {"search": {"location": " Berlin ", "country": "germany"}})
     assert config["search"]["location"] == "Berlin"
     assert config["search"]["sources"] == ["linkedin"]
-    assert config["pipeline"] == W.DEFAULTS["pipeline"]
     config["search"]["sources"].append("google")
     assert W.DEFAULTS["search"]["sources"] == ["linkedin"]
 
 
-def test_the_template_key_is_the_one_extra_key_and_is_not_a_setting(tmp_path):
-    only_linkedin = {"search": {"sources": ["linkedin"]}}
-    expected = {**W.DEFAULTS, "search": {**W.DEFAULTS["search"], "sources": ["linkedin"]}}
-    assert write_config(tmp_path, only_linkedin) == expected
-    assert write_config(tmp_path, {"_template": "OHMYJOB-TEMPLATE: x", **only_linkedin}) == expected
-    assert write_config(tmp_path, {"_template": ""}) == W.DEFAULTS
-    for bad in (None, 1, True, ["OHMYJOB-TEMPLATE"], {"x": 1}):
-        with pytest.raises(W.ConfigError, match='"_template" must be a string'):
-            write_config(tmp_path, {"_template": bad})
+def test_removed_settings_are_unknown_keys(tmp_path):
+    for key in ("title_aliases", "title_only_aliases", "git_snapshot", "resume_max_pages", "max_parallel_workers"):
+        with pytest.raises(W.ConfigError, match=f"search.{key}"):
+            write_config(tmp_path, {"search": {key: 1}})
+    with pytest.raises(W.ConfigError, match='"pipeline" is not a known section'):
+        write_config(tmp_path, {"pipeline": {"resume_paper": "a4"}})
     for key in ("$schema", "template", "Template"):
         with pytest.raises(W.ConfigError, match=f'"{re.escape(key)}" is not a known section'):
             write_config(tmp_path, {key: "x"})
@@ -335,11 +329,10 @@ def test_employment_types_are_checked_and_may_be_empty(tmp_path):
 @pytest.mark.parametrize("key, bad", [
     ("recency_days", -1), ("recency_days", 3651), ("recency_days", True), ("recency_days", 1.5), ("recency_days", "1"),
     ("results_per_term", 0), ("results_per_term", None),
-    ("uk_sponsor_only", 1), ("git_snapshot", "no"),
+    ("uk_sponsor_only", 1),
     ("location", 5), ("country", 5),
     ("title_filter", "loose"), ("title_filter", None),
     ("languages", []), ("languages", ["english"]), ("languages", "en"),
-    ("title_aliases", ["ops"]), ("title_aliases", {"ops": 3}), ("title_aliases", {"ops": []}), ("title_only_aliases", {"": "x"}),
     ("exclude_companies", "Example Staffing"), ("filter_title_terms", [1]),
 ])
 def test_bad_search_values_are_refused_with_their_key(tmp_path, key, bad):
@@ -347,26 +340,13 @@ def test_bad_search_values_are_refused_with_their_key(tmp_path, key, bad):
         write_config(tmp_path, {"search": {key: bad}})
 
 
-@pytest.mark.parametrize("key, bad", [
-    ("max_parallel_workers", 0), ("max_parallel_workers", "5"), ("resume_max_pages", -1), ("resume_max_pages", False),
-    ("resume_paper", "a5"), ("resume_paper", 4),
-])
-def test_bad_pipeline_values_are_refused_with_their_key(tmp_path, key, bad):
-    with pytest.raises(W.ConfigError, match=f'"pipeline.{key}"'):
-        write_config(tmp_path, {"pipeline": {key: bad}})
-
-
 def test_good_edge_values_are_kept(tmp_path):
     config = write_config(tmp_path, {
-        "search": {"country": "usa", "recency_days": 0, "title_filter": "OFF", "languages": ["DE", "fr"],
-                   "title_aliases": {"rn": ["registered nurse", "nurse"]}},
-        "pipeline": {"resume_max_pages": 0, "resume_paper": "Letter"},
+        "search": {"country": "usa", "recency_days": 0, "title_filter": "OFF", "languages": ["DE", "fr"]},
     })
     assert config["search"]["recency_days"] == 0
     assert config["search"]["title_filter"] == "off"
     assert config["search"]["languages"] == ["de", "fr"]
-    assert config["search"]["title_aliases"] == {"rn": ["registered nurse", "nurse"]}
-    assert config["pipeline"] == {"max_parallel_workers": 5, "resume_max_pages": 0, "resume_paper": "letter"}
 
 
 def test_unknown_sections_and_settings_are_refused_with_the_known_ones(tmp_path):
@@ -374,8 +354,6 @@ def test_unknown_sections_and_settings_are_refused_with_the_known_ones(tmp_path)
         write_config(tmp_path, {"serach": {}})
     with pytest.raises(W.ConfigError, match=r'"search.seach_query" is not a known setting.*search_query'):
         write_config(tmp_path, {"search": {"seach_query": ["x"]}})
-    with pytest.raises(W.ConfigError, match='"pipeline" must be an object'):
-        write_config(tmp_path, {"pipeline": None})
 
 
 def test_the_valid_values_match_the_pinned_jobspy():
@@ -396,17 +374,15 @@ def test_the_languages_match_the_pinned_simplemma():
 # --------------------------------------------------------------------------- slots
 
 
-def test_slots_is_the_worker_limit_below_the_subagent_cap_by_one(workspace, monkeypatch):
+def test_slots_is_the_subagent_cap_minus_one(monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", raising=False)
-    assert W.slots() == 3  # the fixture asks for 3 workers
-    config = W.validate_config({"search": {"country": "usa"}, "pipeline": {"max_parallel_workers": 50}})
-    assert W.slots(config) == 19  # default cap 20
+    assert W.slots() == 19  # default cap 20
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "60")
-    assert W.slots(config) == 50
+    assert W.slots() == 59
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "1")
-    assert W.slots(config) == 1  # never below one
+    assert W.slots() == 1  # never below one
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "many")
-    assert W.slots(config) == 19
+    assert W.slots() == 19
 
 
 # --------------------------------------------------------------------------- file_prefix
@@ -470,7 +446,6 @@ def test_file_prefix_does_not_read_any_resume_yaml(workspace):
 
 def test_the_marker_string():
     assert W.TEMPLATE_MARKER == "OHMYJOB-TEMPLATE"
-    assert W.TEMPLATE_KEY == "_template"
 
 
 def test_has_template_marker_is_a_raw_text_search(tmp_path):

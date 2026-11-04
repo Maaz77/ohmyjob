@@ -90,6 +90,11 @@ class TestParsers(unittest.TestCase):
         self.assertIsNone(L.helper_version("[AA on] Feed | LinkedIn"))
         self.assertIsNone(L.helper_version("Feed | LinkedIn"))
         self.assertFalse(L.HELPER_ON_RE.match("[AA onward] x"))
+        # Chrome trims a title's trailing space: a page without a title of its own (robots.txt) shows the bare tag
+        self.assertTrue(L.HELPER_ON_RE.match("[AA on 1.6.0]"))
+        self.assertEqual(L.helper_version("[AA on 1.6.0]"), "1.6.0")
+        self.assertTrue(L.CHILD_TITLE_RE.match("[AA from 49]"))
+        self.assertFalse(L.HELPER_ON_RE.match("[AA on 1.6.0]x"))
         self.assertEqual(L.CHILD_TITLE_RE.match("[AA from 701] Sign in - Google Accounts").group(1), "701")
         self.assertIsNone(L.CHILD_TITLE_RE.match("Sign in - Google Accounts"))
 

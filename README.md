@@ -1,6 +1,6 @@
 # ohmyjob
 
-A job-search pipeline for [Claude Code](https://code.claude.com), shipped as a plugin. It finds postings on the job boards, screens them against your profile, tailors a one-page resume for each match, fills the application forms in your own Chrome up to the final button, and keeps a tracker in step. **You press every Submit button yourself.**
+A job-search pipeline for [Claude Code](https://code.claude.com), shipped as a plugin. It finds postings on the job boards, screens them against your profile, tailors a resume of the same length as your source resume for each match, fills the application forms in your own Chrome up to the final button, and keeps a tracker in step. **You press every Submit button yourself.**
 
 ## What it does: the daily loop
 
@@ -13,6 +13,15 @@ A job-search pipeline for [Claude Code](https://code.claude.com), shipped as a p
 | 5 | `/ohmyjob:continue-applying` | Workers continue those tabs from where they stopped. |
 | 6 | by hand | Review each parked form and **submit it yourself**. |
 | 7 | `/ohmyjob:reconcile` | Every job whose folder is in `Pending-Review/` or `Needs-Attention/` becomes `Submitted`, whether or not you sent it; a job whose folder you deleted becomes `Deleted`. Before you run it, move any folder you did not send back to `Applications/` (or delete it). The dry run lists every change first and asks before anything is written. |
+
+Other commands:
+
+| Command | Use it to |
+|---|---|
+| `/ohmyjob:setup` | Prepare the environment and the workspace the first time (safe to run again). |
+| `/ohmyjob:build-resumes [file.yaml]` | Build the PDF of every resume yaml in `Default_Resume_Files/` (never `Template*.yaml`), or only the yaml you name. A tailored resume later has exactly the page count of its source PDF. |
+| `/ohmyjob:master-resume` | Draft the `# Resume` section of `Profile.md` from your resume files. |
+| `/ohmyjob:help` | Print the commands, the `ohmyjob.json` table and the job status life cycle. |
 
 Drop a job at any time by deleting its folder. Details of every component: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -71,7 +80,7 @@ It creates this skeleton in the project folder, each item only when missing, and
     .ohmyjob/                    working files (environment, run state, builds); do not edit
 ```
 
-`ohmyjob.json`, `Profile.md`, `Template.yaml` and `Template-CV.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of both templates; the `"_template"` key of `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` and `Template-CV.pdf` are the sample builds.
+`ohmyjob.json`, `Profile.md`, `Template.yaml` and `Template-CV.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of both templates; a `// OHMYJOB-TEMPLATE: ...` comment line in `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` and `Template-CV.pdf` are the sample builds.
 
 Both templates follow the examples of [Awesome-CV](https://github.com/posquit0/Awesome-CV) exactly (red accent, its geometry, header and footer). `Template.yaml` is the resume (`document: resume`: Summary, Work Experience, Honors & Awards, Certificates, Education); `Template-CV.yaml` is the CV (`document: cv`: Education, Skills, Experience, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees). A section without entries is left out, and a key the chosen document does not show prints a `WARNING` line instead of failing.
 
@@ -91,11 +100,11 @@ Work in `ohmyjob/`:
    - `# Fit Preferences`: exactly three fields, `**Seniority / experience level:**`, `**What I'm looking for:**` and `**Dealbreakers:**`. The screening workers judge every posting against them first: the section is printed at the top of each screening brief, a dealbreaker or a clear seniority mismatch gives a low score and a reject reason that quotes your words, and "What I'm looking for" is the main fit criterion.
    - `# Resume`: your master resume, the only source of facts for tailored resumes, so write every true fact, with numbers where you have them. It starts with header lines (`- Name: First Last`, email, phone, address, links; the first name becomes the prefix of your resume file names) and has the sections of the two resume templates: Summary, Work Experience, Education, Skills, Honors & Awards, Certificates, Extracurricular Activity, Presentation, Writing, Program Committees. The template holds one guidance line per section; `/ohmyjob:master-resume` drafts the section from your resume files.
    - `# Follow Up Questions`: answers the application workers reuse, including your work authorization and visa status per country. A numbered list, `1. Question? Answer.`, under the exact heading (`N)` and the old `- ` lists still work). Replace the mock answers; `/ohmyjob:apply-jobs` asks you any question it meets that is missing and saves the answer here with the next number.
-2. **`ohmyjob.json`**: set your boards, search terms, location and country, page limit and paper size (every key is below), then delete the `"_template"` line.
+2. **`ohmyjob.json`**: set your boards, search terms, location and country, and the optional filters (every field is in the table below), then delete the `// OHMYJOB-TEMPLATE` line.
 3. **Resumes** in `Default_Resume_Files/`:
    - Copy `Template.yaml` (or `Template-CV.yaml` for a CV) once per role you apply for and **name each copy by field**, for example `Data-Analyst.yaml`. Replace the mock data and delete the marker line in each. One yaml is one complete resume; there is no shared base file.
    - Optionally add ready-made PDF resumes named by field (for example `Nurse-ICU.pdf`), with no yaml. They are used exactly as they are and never edited.
-4. **`/ohmyjob:build-resumes`** builds a PDF next to every yaml, with the same name (`Template.yaml` and `Template-CV.yaml` too). It prints one line per file, `<file>: OK`, `<file>: OVERFLOW <N> pages` (longer than `resume_max_pages`: shorten the yaml or raise the limit, then run it again) or `<file>: FAIL <reason>`, a `WARNING <file>: still has the template marker` line for a file you have not finished editing, and a last `SUMMARY <n> OK, <n> OVERFLOW, <n> FAIL` line. The exit code is 0 only when every file is OK. It never edits your files.
+4. **`/ohmyjob:build-resumes [file.yaml]`** builds a PDF next to every yaml, with the same name (never `Template*.yaml`), or only the yaml you name. It prints one line per file, `<file>: OK` or `<file>: FAIL <reason>`, a `WARNING <file>: still has the template marker` line for a file you have not finished editing, and a last `SUMMARY <n> OK, <n> OVERFLOW, <n> FAIL` line. The exit code is 0 only when every file is OK. It never edits your files.
 5. **`/ohmyjob:master-resume`** drafts the `# Resume` section of `Profile.md` from your resume files. A script (no model) merges every resume yaml (the same job, degree or award in several files becomes one entry; bullets and skills are united and near-duplicates keep the longer text) and turns every PDF without a yaml into text; Claude then adds the facts of those texts to the draft, and `ohmyjob resume master --apply` saves it into `Profile.md` after backing up the old file as `.ohmyjob/backup/Profile-<UTC timestamp>.md`. The script prints `DRAFT <path>`, one `PDF <path>` per PDF text and `SUMMARY <n> yaml, <m> pdf`. **Then revise the section by hand**: it is a draft, and tailoring uses it as its only source of facts.
 6. Run the daily loop above.
 
@@ -113,36 +122,41 @@ Until you delete the marker lines, the commands that would act on mock data refu
 
 ## Configuration: `ohmyjob.json`
 
-Created by setup with mock values; you edit it (see above). Unknown keys and bad values are refused with a message naming the key. Every field has a hint key `"_<field>"` right before it in the file: one line with what it does, its type and default, and all valid values of a choice field. Keys that start with `_` are ignored, so leave the hints or delete them; setup ends by explaining every field from its hint.
+Created by setup with mock values; you edit it (see above). The file is JSON with full-line `//` comments (a line whose first non-blank characters are `//` is ignored); its comment block lists the required fields and, for a field with choices, every valid value. Unknown keys and bad values are refused with a message naming the key. Everything is in the `search` section. `/ohmyjob:help` prints this table.
 
-`search`:
+| Field | Type | Default | Choices / meaning |
+|---|---|---|---|
+| `sources` | list of text | `["linkedin"]` | **Required in practice.** Boards, searched in this order (the first keeps a job two boards list). Choices: `linkedin indeed zip_recruiter glassdoor google bayt naukri bdjobs hellowork freehire`. |
+| `search_query` | list of text | `[]` | **Required.** Job titles, one search per term and board. Nothing is searched while it is empty. |
+| `location` | text | `""` | **Required.** City or region, for example `"Berlin, Germany"`. Google needs a city. |
+| `country` | text | `""` | **Required while `indeed` or `glassdoor` is in `sources`** (without it they search the USA). Choices: `argentina australia austria bahrain belgium brazil canada chile china colombia "costa rica" "czech republic" denmark ecuador egypt finland france germany greece "hong kong" hungary india indonesia ireland israel italy japan kuwait luxembourg malaysia mexico morocco netherlands "new zealand" nigeria norway oman pakistan panama peru philippines poland portugal qatar romania "saudi arabia" singapore "south africa" "south korea" spain sweden switzerland taiwan thailand türkiye ukraine "united arab emirates" uk usa uruguay venezuela vietnam`. |
+| `recency_days` | whole number | `1` | Only postings from the last N days. `0` = no age limit. |
+| `results_per_term` | whole number, 1 or more | `30` | Results requested per term and board. |
+| `employment_types` | list of text | `["fulltime", "parttime", "contract"]` | Choices: `fulltime parttime contract temporary internship perdiem other volunteer`. `[]` = every type. |
+| `exclude_companies` | list of text | `[]` | Companies to skip. |
+| `exclude_seniority_level` | list of text | `[]` | Seniority words to skip (for example `"director"`, `"intern"`). |
+| `filter_title_terms` | list of text | `[]` | Words that drop a posting when they appear in its title. |
+| `title_filter` | text | `"strict"` | Choices: `strict` (keep a posting only if its title matches a search term; accents, word forms and the built-in aliases are applied) or `off` (keep every title). |
+| `languages` | list of text | `["en"]` | Languages of the postings, for word-form matching. Choices: `ar ast bg ca cs cy da de el en enm eo es et fa fi fr ga gd gl grc gv hbs he hi hu hy id is it ka la lb lt lv mk ml ms nb nl nn pl pt ro ru se sk sl sq sv sw tl tr uk`. |
+| `uk_sponsor_only` | `true` or `false` | `false` | `freehire` only: keep only jobs from UK sponsor-licensed employers. Other boards ignore it. |
 
-| Key | Default | Meaning |
+Not settings any more: the title aliases (the software preset `templates/presets/software.json` plus common abbreviations such as "ops", "mgr", "sr") are always applied; the git snapshot is the flag `ohmyjob scrape --git-snapshot` (the find-jobs skill passes it only when you ask; it respects the workspace `.gitignore`, which lists the tracker and `Applications/`); parallelism is Claude Code's subagent cap (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, default 20) minus one for the master; the paper is `a4` unless a resume yaml sets `paper: letter`; and the page count of a tailored resume is always the page count of its source resume.
+
+## Job status life cycle
+
+The `Status` column of `Job_Tracker.xlsx`:
+
+| Status | Set by | What comes next |
 |---|---|---|
-| `sources` | `["linkedin"]` | Boards, searched in this order. The order is also the priority when two boards list the same job: the first keeps it. Valid: `linkedin indeed zip_recruiter glassdoor google bayt naukri bdjobs hellowork freehire`. |
-| `search_query` | `[]` | Search terms (job titles), one search per term and board. |
-| `location` | `""` | City or region. |
-| `country` | `""` | Country name as JobSpy knows it (for example `germany`, `usa`, `uk`). **Required while `indeed` or `glassdoor` is in `sources`**: without it those boards search the USA. |
-| `recency_days` | `1` | Only postings from the last N days. `0` = no age limit. |
-| `results_per_term` | `30` | Results requested per term and board. |
-| `employment_types` | `["fulltime", "parttime", "contract"]` | Allowed types: `fulltime parttime contract temporary internship perdiem other volunteer`. `[]` = every type. |
-| `exclude_companies` | `[]` | Companies to skip. |
-| `exclude_seniority_level` | `[]` | Seniority words to skip (empty by default). |
-| `filter_title_terms` | `[]` | Words that drop a posting when they appear in its title (empty by default). |
-| `title_filter` | `"strict"` | `strict` keeps a posting only if its title matches a search term (accents and word forms ignored); `off` keeps every title. |
-| `title_aliases` | `{}` | Extra words that count as a match, applied to both the term and the title, for example `{"ops": "operations"}`. |
-| `title_only_aliases` | `{}` | Aliases applied to the posting title only. `templates/presets/software.json` holds a broad set of software abbreviations and bridges (for example "ml", "web" or "designer" lead to "software" or "engineer"); merge it into your own aliases for tech roles. It favors recall over precision: trim the entries that give you unwanted matches. |
-| `languages` | `["en"]` | Languages of the postings, for word-form matching. |
-| `uk_sponsor_only` | `false` | `freehire` only: keep only jobs from UK sponsor-licensed employers (see below). |
-| `git_snapshot` | `false` | Commit the tracker and `Applications/` before a scrape; skipped if the folder is not a git repository. It respects the workspace `.gitignore`, which lists these files: remove their lines there only for a repository that stays private and never has a public remote. |
-
-`pipeline`:
-
-| Key | Default | Meaning |
-|---|---|---|
-| `max_parallel_workers` | `5` | Workers running at once (capped below Claude Code's subagent limit by one for the master). |
-| `resume_max_pages` | `1` | Page limit for a tailored resume (`document: resume`; a CV has no page limit). `0` = no limit. |
-| `resume_paper` | `"a4"` | `a4` or `letter`. |
+| `Found` | `/ohmyjob:find-jobs` (also `prep-jobs` for a folder without a row) | `/ohmyjob:prep-jobs` screens it. |
+| `Matched` | prep-jobs, when a screening worker scores the job 6 or more of 10 and picks a tailorable resume | A resume-worker tailors a copy and builds the PDF: `Resume Built` or `Resume Failed`. |
+| `Skipped-LowFit` | prep-jobs, when the screening scores the job low (or an agency, or a dealbreaker) | Final; the job folder is deleted. Never written again by reconcile. |
+| `Resume Built` | prep-jobs: the resume-worker's build passed (exactly the source's page count), or a ready-made PDF matched and was copied | `/ohmyjob:apply-jobs` queues it. |
+| `Resume Failed` | prep-jobs, when the resume-worker could not finish (no OK build in 4, a blocker, a timeout) | The reason is in the tracker Notes. prep-jobs does not retry it: fix the resume by hand. |
+| `Pending Review` | apply-jobs, when the worker parked the form before the final button and the checks passed | You review the form and submit it yourself; then `/ohmyjob:reconcile`. |
+| `Needs Attention` | apply-jobs or continue-applying, when a worker was blocked (sign-in, CAPTCHA, a question, a pop-up) or a check failed | Fix the tab by hand, run `/ohmyjob:continue-applying`: it becomes `Pending Review` or `Needs Attention` again. |
+| `Submitted` | `/ohmyjob:reconcile`, for a job whose folder is in `Pending-Review/` or `Needs-Attention/` (you moved it back to `Applications/` if you did not send it) | Final. |
+| `Deleted` | prep-jobs (duplicate posting, a screening ground to delete, a row without a folder), apply-jobs (the job is closed), or reconcile (you deleted the folder) | Final. |
 
 Per-board notes:
 
@@ -165,7 +179,7 @@ Read [DISCLAIMER.md](DISCLAIMER.md) before you use this on a real account.
 
 ## Token cost
 
-Each run ends with a usage table (agents, API calls, input, cache and output tokens per agent type and model). The default parallelism is low (`max_parallel_workers` is 5), screening uses a small model, and `results_per_term` is 30, so that a first run stays within a Pro plan. Raise them once you know the cost.
+Each run ends with a usage table (agents, API calls, input, cache and output tokens per agent type and model). The default parallelism is low (Claude Code's subagent cap is 20; set `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` lower to run fewer workers at once), screening uses a small model, and `results_per_term` is 30, so that a first run stays within a Pro plan. Raise them once you know the cost.
 
 ## Troubleshooting
 

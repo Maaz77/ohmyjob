@@ -2,7 +2,7 @@
 """Build a resume PDF: read ONE full resume yaml, render the Awesome-CV LaTeX template, compile with LuaLaTeX.
 
 CLI: `ohmyjob resume build <resume.yaml> [--out <pdf>]` prints one line: `OK <pdf>`, `OVERFLOW <N> pages` or
-`FAIL <reason>`. `ohmyjob resume master [--apply]` drafts the Resume section of Profile.md (master_resume.py). `ohmyjob resume build-all [--dir <dir>]` builds every *.yaml of the dir (default
+`FAIL <reason>`. `ohmyjob resume master [--apply]` drafts the Resume section of Profile.md (master_resume.py). `ohmyjob resume build-all [<name.yaml>] [--dir <dir>]` builds every *.yaml of the dir except Template*.yaml, or only the named one (default dir
 Default_Resume_Files) next to itself and prints one line per file. Import API (used by pj.py): `build()`, `render()`, `ignored_keys()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
 
 Everything in the yaml is data from a model: `tex()` escapes every LaTeX special, so yaml text never reaches LaTeX as a
@@ -350,8 +350,12 @@ _ENV = jinja2.Environment(
 _ENV.filters.update(tex=tex, plain=plain, cvitems=cvitems)
 
 
-def _paper(paper):
-    return paper if paper is not None else W.load_config()["pipeline"]["resume_paper"]
+def _paper(paper, data=None):
+    """The paper size: the argument, else the yaml's `paper` key, else a4."""
+    if paper is not None:
+        return paper
+    given = data.get("paper") if isinstance(data, dict) else None
+    return _clean(given).lower() if given not in (None, "") else "a4"
 
 
 def _inputs(resume_yaml) -> dict:
@@ -360,7 +364,8 @@ def _inputs(resume_yaml) -> dict:
 
 def render(resume_yaml, *, paper=None, photo: str = "") -> str:
     """LaTeX source for one full resume yaml. Raises BuildError."""
-    return _ENV.get_template(TEMPLATE_NAME).render(**_context(_inputs(resume_yaml), _paper(paper), photo))
+    data = _inputs(resume_yaml)
+    return _ENV.get_template(TEMPLATE_NAME).render(**_context(data, _paper(paper, data), photo))
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -394,8 +399,8 @@ def _log_error(log: str) -> str:
 
 
 def build(role_yaml: Path, out_pdf: Path, *, max_pages: int | None = None, paper: str | None = None) -> tuple[str, int | None, str]:
-    """Build `out_pdf`. Returns ("OK" | "OVERFLOW" | "FAIL", pages, detail). max_pages None reads
-    pipeline.resume_max_pages from ohmyjob.json, 0 means no limit; paper None reads pipeline.resume_paper.
+    """Build `out_pdf`. Returns ("OK" | "OVERFLOW" | "FAIL", pages, detail). max_pages is the page count of the source
+    resume (pj.py passes it); None or 0 means no check. paper None: the yaml's `paper` key, else a4.
     On OVERFLOW and FAIL no PDF is written."""
     bdir = None
     try:
@@ -403,14 +408,11 @@ def build(role_yaml: Path, out_pdf: Path, *, max_pages: int | None = None, paper
     except OSError:
         pass
     try:
-        if max_pages is None:
-            max_pages = W.load_config()["pipeline"]["resume_max_pages"]
+        max_pages = max_pages or 0
         if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 0:
             raise BuildError(f"max_pages must be a whole number >= 0, not {max_pages!r}")
-        paper = _paper(paper)
         data = _inputs(role_yaml)
-        if _document(data) != "resume":
-            max_pages = 0  # the page limit is for a resume; a CV has none
+        paper = _paper(paper, data)
         W.BUILD_DIR.mkdir(parents=True, exist_ok=True)
         bdir = Path(tempfile.mkdtemp(prefix="b-", dir=W.BUILD_DIR))
         photo = ""
@@ -446,7 +448,7 @@ def build(role_yaml: Path, out_pdf: Path, *, max_pages: int | None = None, paper
             return "FAIL", None, "no page count in the lualatex log"
         pages = int(m.group(1))
         if max_pages and pages > max_pages:
-            return "OVERFLOW", pages, f"{pages} pages, limit {max_pages}"
+            return "OVERFLOW", pages, f"{pages} pages, the source resume has {max_pages}"
         out_pdf = Path(out_pdf)
         out_pdf.parent.mkdir(parents=True, exist_ok=True)
         tmp = out_pdf.with_name(out_pdf.name + ".tmp")
@@ -471,11 +473,18 @@ def _one_line(text: str) -> str:
     return " ".join(str(text).split())[:300]
 
 
-def build_all(directory: Path) -> int:
-    """Build every *.yaml of `directory` (sorted) into the PDF with the same name; one line per file."""
-    files = sorted(Path(directory).glob("*.yaml"))
+def build_all(directory: Path, name: str | None = None) -> int:
+    """Build every *.yaml of `directory` (sorted, never Template*.yaml) into the PDF with the same name; one line per
+    file. `name` (a file name, with or without .yaml) builds only that file."""
+    files = sorted(p for p in Path(directory).glob("*.yaml") if not p.name.startswith("Template"))
+    if name:
+        wanted = name if name.endswith(".yaml") else name + ".yaml"
+        files = [p for p in files if p.name == wanted]
+        if not files:
+            print(f"FATAL: no resume yaml named {wanted} in {directory} (Template*.yaml files are never built)")
+            return 1
     if not files:
-        print(f"FATAL: no resume yaml files in {directory}")
+        print(f"FATAL: no resume yaml files in {directory} (Template*.yaml files are never built)")
         return 1
     counts = {"OK": 0, "OVERFLOW": 0, "FAIL": 0}
     for path in files:
@@ -507,6 +516,7 @@ def main(argv=None) -> int:
     b.add_argument("yaml", type=Path)
     b.add_argument("--out", type=Path, default=None, help="PDF path (default: the yaml path with .pdf)")
     a = sub.add_parser("build-all", help="build every *.yaml of a folder into a PDF next to it")
+    a.add_argument("name", nargs="?", default=None, help="build only this yaml file name (default: every file)")
     a.add_argument("--dir", type=Path, default=None, help="folder (default: Default_Resume_Files)")
     m = sub.add_parser("master", help="draft the # Resume section of Profile.md from the resume files (no model)")
     m.add_argument("--apply", action="store_true", help="replace the # Resume section of Profile.md with the draft")
@@ -517,7 +527,7 @@ def main(argv=None) -> int:
         return master_resume.run(args.apply)
     if args.cmd == "build-all":
         try:
-            return build_all(args.dir or W.DEFAULT_RESUMES)
+            return build_all(args.dir or W.DEFAULT_RESUMES, args.name)
         except Exception as exc:
             print(f"FATAL: {type(exc).__name__}: {exc}")
             return 1

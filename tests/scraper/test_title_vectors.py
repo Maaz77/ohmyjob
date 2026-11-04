@@ -3,7 +3,9 @@
 The search terms, the seniority words and the title-term denylist below are the test's own config (the plugin ships
 none of them: its lists are empty by default). The preset supplies the abbreviations and the bridges.
 """
+import contextlib
 import json
+from unittest import mock
 from pathlib import Path
 
 import pytest
@@ -21,16 +23,18 @@ DENY = [
     "unity", "unreal", "network", "networking", "technical writer", "technical writing", "product marketing",
     "support engineer",
 ]
-SEARCH = {"exclude_seniority_level": LEVELS, "filter_title_terms": DENY, **PRESET}
+SEARCH = {"exclude_seniority_level": LEVELS, "filter_title_terms": DENY}
 
 
 def reason(title, terms=TERMS, search=SEARCH):
     """Why a title is dropped ("level", "term", "title"), else None: the order scrape.run applies the rules in."""
     lemmas = C.Lemmas(["en"])
-    why = C.Filters(search, lemmas).reason({"title": title})
-    if why:
-        return why
-    matcher = C.TitleMatcher(terms, ["en"], "strict", search["title_aliases"], search["title_only_aliases"])
+    patch = mock.patch.object(C, "builtin_aliases", lambda: ({}, {})) if search is NONE else contextlib.nullcontext()
+    with patch:  # NONE: no aliases at all; else the built-in ones (the software preset and common abbreviations)
+        why = C.Filters(search, lemmas).reason({"title": title})
+        if why:
+            return why
+        matcher = C.TitleMatcher(terms, ["en"], "strict")
     return None if matcher.matches(title) else "title"
 
 
@@ -91,10 +95,10 @@ def test_exclusions_are_whole_words_and_a_reordered_term_matches():
     assert reason("Engineer, Backend", ["Backend Engineer"], NONE) is None
 
 
-NONE = {"title_aliases": {}, "title_only_aliases": {}}
+NONE = {"no_aliases": True}
 
 
 def test_the_lists_are_empty_by_default_so_nothing_is_dropped_by_level_or_term():
     for title in ("Head Nurse", "Lead Software Engineer", "Software Engineer (Perl)"):
-        assert reason(title, ["Nurse", "Software Engineer"], {**PRESET}) in (None, "title")
+        assert reason(title, ["Nurse", "Software Engineer"], {}) in (None, "title")
     assert reason("Head Nurse", ["Nurse"], NONE) is None

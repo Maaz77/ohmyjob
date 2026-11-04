@@ -225,18 +225,14 @@ say "wrote $ENV_FILE"
 
 # --- 7. workspace .claude/settings.json (merge) -----------------------------------------------------------------------
 mkdir -p "$PROJECT/.claude"
-"$PY" -I - "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json" "$WORKSPACE/ohmyjob.json" <<'PYEOF' \
+"$PY" -I - "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json" <<'PYEOF' \
   || fatal "could not merge .claude/settings.json (the file is left as it was)"
 import json, sys
 from pathlib import Path
 
 template = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 target = Path(sys.argv[2])
-try:
-    workers = int(json.loads(Path(sys.argv[3]).read_text(encoding="utf-8")).get("pipeline", {}).get("max_parallel_workers", 5))
-except (OSError, ValueError, AttributeError):
-    workers = 5
-cap = str(max(20, workers + 1))
+cap = "20"  # the subagent cap; W.slots() is this minus one
 
 if target.exists():
     existing = json.loads(target.read_text(encoding="utf-8"))

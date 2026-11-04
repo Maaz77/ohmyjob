@@ -8,12 +8,14 @@
 #
 # Text rules: plain text, plus **double stars** for bold (use it for a few key terms). Anything else prints as you type
 # it: no LaTeX, no markdown links. Quote a value ("...") when it contains a colon or starts with a symbol, such as
-# a phone number starting with +. Keep every bullet to ONE line (about 124 characters) so the resume fits one page
-# (pipeline.resume_max_pages in ohmyjob.json, default 1; a CV has no page limit).
+# a phone number starting with +. Keep every bullet to ONE line (about 124 characters) so the page count holds.
+# A tailored copy of this resume always has exactly as many pages as the PDF built from this file.
 
 # resume (default) or cv. A key the chosen document does not show (skills in a resume, introduction in a CV ...) is
 # ignored and the build prints a WARNING line.
 document: resume
+# optional: paper: a4 (default) or letter
+# paper: a4
 
 # Your name, as printed in the large header.
 name:
