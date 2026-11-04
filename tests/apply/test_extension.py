@@ -19,7 +19,7 @@ from urllib.parse import quote
 HERE = Path(__file__).resolve().parent
 EXTENSION = HERE.parents[1] / "chrome-extension"
 VERSION = json.loads((EXTENSION / "manifest.json").read_text())["version"]
-ON = f"[AA on {VERSION}] "  # the tag of the tab that registered the run group
+ON = f"[AA on {VERSION}]"  # the tag of the tab that registered the run group; Chrome trims a trailing space
 SITE = HERE / "extension_site"
 # The job page is served as https://www.linkedin.com/feed; newer Chromium blocks its iframe on 127.0.0.1 without this.
 NO_LNA = ["--disable-features=LocalNetworkAccessChecks"]
