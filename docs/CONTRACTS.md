@@ -21,21 +21,17 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   every stdin `cwd`; hooks.py and pj_hooks.py: the parsed top-level `cwd`, else `$CLAUDE_PROJECT_DIR`; bin/ohmyjob:
   the shell cwd only (the Bash tool sets no `CLAUDE_PROJECT_DIR`).
 - `load_config(root=None)`, `validate_config(raw)`: defaults filled in, `ConfigError` names the bad key. `ohmyjob.json`
-  is JSON with full-line `//` comments: `strip_comments(text)` blanks the lines whose first non-blank characters are
-  `//` before `json.loads`. Unknown keys are errors (no hint keys, no `_template` key; the only section is `search`):
+  is plain JSON (no comments; the field guide is the README table). Unknown keys are errors, except the template marker
+  key `_template` (a string; no other `_` key; the only section is `search`):
   a new setting needs `DEFAULTS`, `CHECKS`, `templates/ohmyjob.json` and the README table. Removed settings (now
   errors): `title_aliases`, `title_only_aliases`, `git_snapshot`, the whole `pipeline` section (`resume_max_pages`,
   `max_parallel_workers`, `resume_paper`).
   Validation also rejects what the tools would fail on later: `languages` must be in `W.LANGUAGES` (simplemma's
   tuple, pinned by test; `ja`, `zh`, `xx` are refused), and `country` is required while `indeed` or `glassdoor` is in
   `sources` (JobSpy would search the USA). `DEFAULTS` has `sources: ["linkedin"]`, so `{}` loads.
-- `templates/ohmyjob.json` is the mock template (test-pinned): its FIRST line is the comment
-  `// OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line`, then a `//` comment block that lists
-  only the REQUIRED fields (`sources`, `search_query`, `location`, `country`) and, for a field with choices, ALL valid
-  values (a test checks every constant of `W.SOURCES/COUNTRIES` appears), then only those four fields inside `search`
-  with the mock values `sources ["linkedin", "indeed"]`, `search_query ["Operations Analyst"]`, `location "Berlin,
-  Germany"`, `country "germany"`. It loads as it is. The full reference (every field, type, default, choices) is the table
-  in README.md, which `/ohmyjob:help` prints.
+- `templates/ohmyjob.json` is the mock template (test-pinned): plain JSON, first the key
+  `"_template": "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line"`, then `search` with
+  EVERY field: mock values for `sources`, `search_query`, `location`, `country`, defaults for the rest.
 - Template marker: `TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"`. `has_template_marker(path) -> bool`: a raw text search of the
   whole file, nothing parsed or decoded; False when the file is missing.
   `template_files(root=None) -> list[Path]`: those of `ohmyjob.json` and `Profile.md` (in that order) that still hold it.
@@ -59,7 +55,7 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 ## Templates and the mock guard
 - Setup writes the templates with the mock persona Alex Example, each with `TEMPLATE_MARKER` on a line the user deletes
   after editing: the first line of `Profile.md` (`<!-- OHMYJOB-TEMPLATE: ... -->`) and of
-  `Default_Resume_Files/Template.yaml` (`# OHMYJOB-TEMPLATE: ...`), and the `// OHMYJOB-TEMPLATE` comment line of `ohmyjob.json`.
+  `Default_Resume_Files/Template.yaml` (`# OHMYJOB-TEMPLATE: ...`), and the `"_template"` key line of `ohmyjob.json`.
 - Mock guard: a command refuses with ONE line that names the file (`ohmyjob: ...` from bin/ohmyjob, `FATAL: ...` from a
   script) and tells the user to replace the mock data and delete the marker line. `scrape` (find-jobs) refuses while
   `W.template_files()` is not empty; `prep` refuses while `Profile.md` holds the marker, never uses `Template.*` or a

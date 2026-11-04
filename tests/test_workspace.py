@@ -187,44 +187,33 @@ def test_importing_workspace_loads_no_heavy_dependency():
 
 MOCK_SEARCH = {"sources": ["linkedin", "indeed"], "search_query": ["Operations Analyst"], "location": "Berlin, Germany",
                "country": "germany"}
-TEMPLATE_LINE = "// OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line"
-REQUIRED = ("sources", "search_query", "location", "country")
+TEMPLATE_KEY_LINE = '"_template": "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line",'
 
 
-def test_the_template_is_json_with_comments_the_mock_values_and_the_marker():
+def test_the_template_is_plain_json_with_every_field_the_mock_values_and_the_marker():
     text = (TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8")
-    lines = text.splitlines()
-    assert lines[0] == TEMPLATE_LINE
-    template = json.loads(W.strip_comments(text))
-    assert template == {"search": MOCK_SEARCH}
-    assert "_template" not in text and '"_' not in text  # no hint keys
+    template = json.loads(text)  # plain JSON: no comments
+    assert "//" not in text
+    assert list(template) == ["_template", "search"] and TEMPLATE_KEY_LINE in text
+    assert set(template["search"]) == set(W.DEFAULTS["search"])  # every field is there
     expected = copy.deepcopy(W.DEFAULTS)
     expected["search"].update(MOCK_SEARCH)
     assert W.validate_config(template) == expected  # the mock template loads as it is
     assert W.has_template_marker(TEMPLATES / "ohmyjob.json")
-    edited = "\n".join(line for line in lines if W.TEMPLATE_MARKER not in line)
-    assert W.validate_config(json.loads(W.strip_comments(edited))) == expected
+    edited = "\n".join(line for line in text.splitlines() if W.TEMPLATE_MARKER not in line)
+    assert not W.TEMPLATE_MARKER in edited and W.validate_config(json.loads(edited)) == expected
 
 
-def test_the_comment_block_lists_only_the_required_fields_and_every_valid_value():
-    comments = "\n".join(l for l in (TEMPLATES / "ohmyjob.json").read_text(encoding="utf-8").splitlines() if l.startswith("//"))
-    for field in REQUIRED:
-        assert re.search(rf"//\s+{field}\s", comments), field
-    for optional in set(W.DEFAULTS["search"]) - set(REQUIRED):
-        assert not re.search(rf"//\s+{optional}\s", comments), optional
-    for values in (W.SOURCES, W.COUNTRIES):  # drift guard: a new constant value must reach the comment
-        for value in values:
-            assert re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", comments), value
-
-
-def test_comments_are_full_lines_only_and_hint_keys_are_refused(tmp_path):
-    text = '// a comment\n  // another\n{"search": {"sources": ["linkedin"],\n// inside\n "location": "x // y"}}\n'
-    (tmp_path / "ohmyjob.json").write_text(text)
-    config = W.load_config(tmp_path)
-    assert config["search"]["location"] == "x // y"  # only a line that STARTS with // is a comment
-    for raw in ({"_note": "x"}, {"search": {"_sources": "x"}}, {"_template": "x"}):
+def test_only_the_template_key_is_accepted_and_comments_are_refused(tmp_path):
+    assert W.validate_config({"_template": "x"})["search"] == W.DEFAULTS["search"]
+    with pytest.raises(W.ConfigError, match="must be a string"):
+        W.validate_config({"_template": 1})
+    for raw in ({"_note": "x"}, {"search": {"_sources": "x"}}, {"pipeline": {}}):
         with pytest.raises(W.ConfigError, match="not a known"):
             W.validate_config(raw)
+    (tmp_path / "ohmyjob.json").write_text('// a comment\n{"search": {}}\n')
+    with pytest.raises(W.ConfigError, match="not valid JSON"):
+        W.load_config(tmp_path)
 
 
 def test_every_setting_has_a_check():

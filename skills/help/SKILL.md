@@ -9,4 +9,4 @@ allowed-tools: Read
    - The commands with their use-cases: the daily loop table ("What it does: the daily loop") and the table of the other commands (`/ohmyjob:setup`, `/ohmyjob:build-resumes [file.yaml]`, `/ohmyjob:master-resume`, `/ohmyjob:help`), one line each: when to use it and what it does.
    - The `ohmyjob.json` table ("Configuration: `ohmyjob.json`"): every field with type, default and choices, all choices in full (sources, country, employment_types, languages, title_filter). Mark the required fields.
    - The job status life cycle table ("Job status life cycle"): each status, what sets it, what comes next.
-3. End with one line: edit `ohmyjob/ohmyjob.json` (lines that start with `//` are comments) and the commands refuse to run while a `OHMYJOB-TEMPLATE` marker line is left in a file.
+3. End with one line: edit `ohmyjob/ohmyjob.json` (plain JSON, no comments; this table is the guide) and the commands refuse to run while a `OHMYJOB-TEMPLATE` marker line is left in a file.

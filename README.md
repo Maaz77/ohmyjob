@@ -80,7 +80,7 @@ It creates this skeleton in the project folder, each item only when missing, and
     .ohmyjob/                    working files (environment, run state, builds); do not edit
 ```
 
-`ohmyjob.json`, `Profile.md`, `Template.yaml` and `Template-CV.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of both templates; a `// OHMYJOB-TEMPLATE: ...` comment line in `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` and `Template-CV.pdf` are the sample builds.
+`ohmyjob.json`, `Profile.md`, `Template.yaml` and `Template-CV.yaml` hold the mock persona "Alex Example". Each carries an `OHMYJOB-TEMPLATE` marker line (first line of `Profile.md` and of both templates; the `"_template": "OHMYJOB-TEMPLATE: ..."` line in `ohmyjob.json`) that you delete once you have replaced the mock data. `Template.pdf` and `Template-CV.pdf` are the sample builds.
 
 Both templates follow the examples of [Awesome-CV](https://github.com/posquit0/Awesome-CV) exactly (red accent, its geometry, header and footer). `Template.yaml` is the resume (`document: resume`: Summary, Work Experience, Honors & Awards, Certificates, Education); `Template-CV.yaml` is the CV (`document: cv`: Education, Skills, Experience, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees). A section without entries is left out, and a key the chosen document does not show prints a `WARNING` line instead of failing.
 
@@ -100,7 +100,7 @@ Work in `ohmyjob/`:
    - `# Fit Preferences`: exactly three fields, `**Seniority / experience level:**`, `**What I'm looking for:**` and `**Dealbreakers:**`. The screening workers judge every posting against them first: the section is printed at the top of each screening brief, a dealbreaker or a clear seniority mismatch gives a low score and a reject reason that quotes your words, and "What I'm looking for" is the main fit criterion.
    - `# Resume`: your master resume, the only source of facts for tailored resumes, so write every true fact, with numbers where you have them. It starts with header lines (`- Name: First Last`, email, phone, address, links; the first name becomes the prefix of your resume file names) and has the sections of the two resume templates: Summary, Work Experience, Education, Skills, Honors & Awards, Certificates, Extracurricular Activity, Presentation, Writing, Program Committees. The template holds one guidance line per section; `/ohmyjob:master-resume` drafts the section from your resume files.
    - `# Follow Up Questions`: answers the application workers reuse, including your work authorization and visa status per country. A numbered list, `1. Question? Answer.`, under the exact heading (`N)` and the old `- ` lists still work). Replace the mock answers; `/ohmyjob:apply-jobs` asks you any question it meets that is missing and saves the answer here with the next number.
-2. **`ohmyjob.json`**: set your boards, search terms, location and country, and the optional filters (every field is in the table below), then delete the `// OHMYJOB-TEMPLATE` line.
+2. **`ohmyjob.json`**: set your boards, search terms, location and country, and the optional filters (every field is in the table below), then delete the `"_template"` line.
 3. **Resumes** in `Default_Resume_Files/`:
    - Copy `Template.yaml` (or `Template-CV.yaml` for a CV) once per role you apply for and **name each copy by field**, for example `Data-Analyst.yaml`. Replace the mock data and delete the marker line in each. One yaml is one complete resume; there is no shared base file.
    - Optionally add ready-made PDF resumes named by field (for example `Nurse-ICU.pdf`), with no yaml. They are used exactly as they are and never edited.
@@ -122,7 +122,7 @@ Until you delete the marker lines, the commands that would act on mock data refu
 
 ## Configuration: `ohmyjob.json`
 
-Created by setup with mock values; you edit it (see above). The file is JSON with full-line `//` comments (a line whose first non-blank characters are `//` is ignored); its comment block lists the required fields and, for a field with choices, every valid value. Unknown keys and bad values are refused with a message naming the key. Everything is in the `search` section. `/ohmyjob:help` prints this table.
+Created by setup with mock values; you edit it (see above). The file is plain JSON, without comments: this table is the only guide. Its first line, `"_template": ...`, marks the unedited template; delete it when the values are yours. Unknown keys and bad values are refused with a message naming the key. Everything is in the `search` section. `/ohmyjob:help` prints this table.
 
 | Field | Type | Default | Choices / meaning |
 |---|---|---|---|

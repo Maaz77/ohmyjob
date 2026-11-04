@@ -518,7 +518,7 @@ def test_layout_in_the_project_folder(env):
     assert (env.ws / "Profile.md").read_text().startswith("<!-- OHMYJOB-TEMPLATE:")
     for name in ("Template", "Template-CV"):
         assert (env.ws / "Default_Resume_Files" / f"{name}.yaml").read_text().startswith("# OHMYJOB-TEMPLATE:")
-    assert (env.ws / "ohmyjob.json").read_text().startswith("// OHMYJOB-TEMPLATE")
+    assert json.loads((env.ws / "ohmyjob.json").read_text())["_template"].startswith("OHMYJOB-TEMPLATE")
     assert (env.proj / ".claude" / "settings.json").exists() and not (env.ws / ".claude").exists()
     # the warm-up builds used the plugin's Template.yaml and Template-CV.yaml
     assert env.calls("lualatex")

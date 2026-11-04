@@ -159,9 +159,10 @@ QUESTIONS_BLOCKER = "questions for the candidate"
 # --------------------------------------------------------------------------- Profile.md and the templates
 
 # Setup writes the templates with mock data and this marker on a line the user deletes after editing: the first line
-# of Profile.md and of Template.yaml, and the `// OHMYJOB-TEMPLATE` comment line of ohmyjob.json. A file that still holds it is not the
+# of Profile.md and of Template.yaml, and the `"_template"` key of ohmyjob.json. A file that still holds it is not the
 # user's own: the commands refuse to use it (docs/CONTRACTS.md, "Templates and the mock guard").
 TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"
+TEMPLATE_KEY = "_template"  # the marker key of the ohmyjob.json template; the only extra key validation accepts
 
 _LEVEL1_HEADING_RE = re.compile(r"^#\s+(.*?)\s*$")  # "# Resume"; "## ..." is a subsection
 _NAME_LINE_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*)?name(?:\s*:\s*\*\*|\*\*\s*:|\s*:)\s*(.*)$", re.IGNORECASE)
@@ -358,11 +359,15 @@ CHECKS: dict[str, Callable] = {
 def validate_config(raw: Any) -> dict:
     """The config with every default filled in and every value checked; ConfigError names the first bad key.
 
-    Unknown keys are errors. The template marker is a `//` comment line (see load_config), not a key.
+    Unknown keys are errors, except the template marker key `_template` (a string; its presence means "not edited").
     """
     if not isinstance(raw, dict):
         raise ConfigError(f"{CONFIG_NAME}: the file must hold a JSON object")
+    if TEMPLATE_KEY in raw and not isinstance(raw[TEMPLATE_KEY], str):
+        _fail(TEMPLATE_KEY, "must be a string")
     for key in raw:
+        if key == TEMPLATE_KEY:
+            continue
         if key not in DEFAULTS:
             _fail(key, f"is not a known section. Known sections: {', '.join(DEFAULTS)}")
     config = copy.deepcopy(DEFAULTS)
@@ -381,16 +386,11 @@ def validate_config(raw: Any) -> dict:
     return config
 
 
-def strip_comments(text: str) -> str:
-    """ohmyjob.json is JSON with full-line `//` comments: drop the lines whose first non-blank characters are `//`."""
-    return "\n".join("" if line.lstrip().startswith("//") else line for line in text.splitlines())
-
-
 def load_config(root: Optional[Path] = None) -> dict:
     """ohmyjob.json of the workspace (`root`, else find_root()), validated and merged over DEFAULTS."""
     path = (root or find_root()) / CONFIG_NAME
     try:
-        raw = json.loads(strip_comments(path.read_text(encoding="utf-8")))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise ConfigError(f"{path} not found. Run /ohmyjob:setup.") from None
     except json.JSONDecodeError as exc:
