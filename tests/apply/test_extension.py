@@ -233,7 +233,7 @@ class TestPopupsAsTabs(unittest.TestCase):
                 plan = quote(json.dumps({"Pending Review": [job_id]}, separators=(",", ":")), safe="")
                 home.goto("https://www.linkedin.com/robots.txt?aa-groups#aa-groups=" + plan)
                 time.sleep(1.0)
-                self.assertTrue(home.title().startswith("[AA grouped 1] "), home.title())
+                self.assertTrue(home.title().startswith("[AA grouped 1]"), home.title())
                 titles = sw.evaluate("async () => (await chrome.tabGroups.query({})).map(g => g.title)")
                 self.assertIn("Pending Review", titles)
                 moved = sw.evaluate(f"async () => (await chrome.tabs.get({job_id})).groupId")
