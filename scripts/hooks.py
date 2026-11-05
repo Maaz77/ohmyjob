@@ -928,6 +928,12 @@ def guard(inp: dict) -> None:
               agent_id=agent_id)
         if result is None:
             reason = judge_failed(pending.kind, pending.payload, error)
+            # store error in job state so master can report it
+            if ctx.my_tab() is not None:
+                folder = (ctx.entry(ctx.my_tab()) or {}).get("folder")
+                if folder and folder in ctx.state.get("jobs", {}):
+                    ctx.state["jobs"][folder]["judge_error"] = f"{pending.payload.get('name')}: {error}"
+                    ctx.dirty = True
             break
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab

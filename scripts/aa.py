@@ -1083,6 +1083,9 @@ def summary(state: dict) -> str:
                      "(/ohmyjob:setup prints its path)")
     if pre and not pre.get("judge"):
         lines.append(f"WARN the Haiku check was not available ({pre.get('judge_note')}): unknown button names were blocked")
+    for j in jobs:
+        if j.get("judge_error"):
+            lines.append(f"WARN Haiku check failed for {j['folder']}: {j['judge_error']}")
     waiting = pending_questions()
     if waiting:
         lines.append(f"Questions for the candidate: {len(waiting)} waiting (ohmyjob apply questions); the jobs that asked them "
