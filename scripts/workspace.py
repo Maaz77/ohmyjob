@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 CONFIG_NAME = "ohmyjob.json"  # config and workspace marker: the hooks do nothing without it
+WORKSPACE_DIR = "ohmyjob"  # the workspace folder setup creates in the project folder (the one Claude starts in)
 
 
 class WorkspaceError(Exception):
@@ -28,27 +29,66 @@ class ConfigError(WorkspaceError):
     """ohmyjob.json is missing or holds a value the pipeline cannot use."""
 
 
+class FileReadError(WorkspaceError, OSError):
+    """A workspace file (Profile.md, a resume yaml) exists but cannot be read: no permission, not UTF-8 text.
+
+    The message names the file, so a caller that catches WorkspaceError prints one FATAL line. It is an OSError too, so
+    code that already handles an unreadable file the OSError way keeps working.
+    """
+
+
+def _unreadable(path: str | os.PathLike, exc: Exception) -> str:
+    """One line that names the file and says what to do."""
+    if isinstance(exc, UnicodeDecodeError):
+        return f"{path} is not UTF-8 text (byte {exc.start}). Save it as UTF-8, then run the command again."
+    reason = (exc.strerror if isinstance(exc, OSError) else None) or str(exc) or type(exc).__name__
+    return f"{path} cannot be read ({reason}). Make it a readable file, then run the command again."
+
+
+_MISSING = (FileNotFoundError, NotADirectoryError, IsADirectoryError)  # no such file (a folder is none either)
+
+
 # --------------------------------------------------------------------------- where things live
+
+
+def find_workspace(start: str | os.PathLike | None) -> Path | None:
+    """The workspace for a start folder, by the one discovery rule (hook.sh, bin/ohmyjob and the hooks use it too).
+
+    Walk up from `start` (symlinks resolved). At each folder D: D itself when D/ohmyjob.json exists, else D/ohmyjob when
+    D/ohmyjob/ohmyjob.json exists. So the project folder (which holds ohmyjob/), any folder inside ohmyjob/ and any
+    other subfolder of the project all lead to the same workspace. None when nothing is found, and for an empty start or
+    one that is not an absolute path.
+    """
+    if not start or not os.path.isabs(start):
+        return None
+    try:
+        here = Path(start).resolve()
+    except (OSError, RuntimeError):
+        return None
+    for folder in (here, *here.parents):
+        if os.path.isfile(folder / CONFIG_NAME):
+            return folder
+        if os.path.isfile(folder / WORKSPACE_DIR / CONFIG_NAME):
+            return folder / WORKSPACE_DIR
+    return None
 
 
 def find_root() -> Path:
     """The workspace folder.
 
-    $OHMYJOB_WORKSPACE (tests, bin/ohmyjob and hook.sh) is used as it is. Else the nearest folder holding ohmyjob.json
-    at or above $CLAUDE_PROJECT_DIR (Claude may have been started in a subfolder of the workspace), else at or above
-    the current folder.
+    $OHMYJOB_WORKSPACE (tests, bin/ohmyjob and the hooks) is used as it is. Else find_workspace() from
+    $CLAUDE_PROJECT_DIR (the folder Claude was started in), else from the current folder.
     """
     forced = os.environ.get("OHMYJOB_WORKSPACE")
     if forced:
         return Path(forced).resolve()
     for start in (os.environ.get("CLAUDE_PROJECT_DIR"), Path.cwd()):
-        if start:
-            here = Path(start).resolve()
-            for folder in (here, *here.parents):
-                if (folder / CONFIG_NAME).is_file():
-                    return folder
+        root = find_workspace(start)
+        if root is not None:
+            return root
     raise WorkspaceError(
-        f"No {CONFIG_NAME} in {Path.cwd()} or above. Start Claude in your job-search folder and run /ohmyjob:setup."
+        f"No {CONFIG_NAME} in {Path.cwd()} or above, nor in an {WORKSPACE_DIR}/ folder there. "
+        "Start Claude in your project folder and run /ohmyjob:setup."
     )
 
 
@@ -67,8 +107,9 @@ ROOT = _root_or_cwd()
 CONFIG_FILE = ROOT / CONFIG_NAME
 PROFILE = ROOT / "Profile.md"
 TRACKER = ROOT / "Job_Tracker.xlsx"
-DEFAULT_RESUMES = ROOT / "Default_Resume_Files"  # base.yaml + <Role>.yaml + <Role>.pdf; the pipeline never edits them
-BASE_YAML = DEFAULT_RESUMES / "base.yaml"
+# One full resume per file: Template.yaml/.pdf, <Field>.yaml + <Field>.pdf, ready-made <Field>.pdf; never edited by
+# the pipeline.
+DEFAULT_RESUMES = ROOT / "Default_Resume_Files"
 APPLICATIONS = ROOT / "Applications"
 PENDING_REVIEW = ROOT / "Pending-Review"
 NEEDS_ATTENTION = ROOT / "Needs-Attention"
@@ -80,6 +121,7 @@ ENV_FILE = STATE_DIR / "env.sh"  # written by setup: OHMYJOB_PY, OHMYJOB_UV, OHM
 RUN_PREP = STATE_DIR / "run" / "prep"
 RUN_APPLY = STATE_DIR / "run" / "apply"
 BUILD_DIR = STATE_DIR / "build"  # one folder per resume build
+CATALOG_DIR = STATE_DIR / "catalog"  # the screening catalog: the text of every usable resume (prep start writes it)
 QUESTIONS_FILE = STATE_DIR / "questions.json"
 REPORT_FILE = STATE_DIR / "last_report.txt"
 
@@ -114,19 +156,64 @@ APPLICATION_MASTER_CMD_RE = re.compile(
 QUESTIONS_BLOCKER = "questions for the candidate"
 
 
-def file_prefix(root: Optional[Path] = None) -> str:
-    """The ASCII slug of the first name in base.yaml, else "Resume": tailored files are <prefix>_<Company>.pdf/.yaml."""
-    import yaml  # not at module level: the hooks import this module on every call
+# --------------------------------------------------------------------------- Profile.md and the templates
 
-    path = (root or find_root()) / "Default_Resume_Files" / "base.yaml"
+# Setup writes the templates with mock data and this marker on a line the user deletes after editing: the first line
+# of Profile.md and of Template.yaml, and the `"_template"` key of ohmyjob.json. A file that still holds it is not the
+# user's own: the commands refuse to use it (docs/CONTRACTS.md, "Templates and the mock guard").
+TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"
+TEMPLATE_KEY = "_template"  # the marker key of the ohmyjob.json template; the only extra key validation accepts
+
+_LEVEL1_HEADING_RE = re.compile(r"^#\s+(.*?)\s*$")  # "# Resume"; "## ..." is a subsection
+_NAME_LINE_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*)?name(?:\s*:\s*\*\*|\*\*\s*:|\s*:)\s*(.*)$", re.IGNORECASE)
+
+
+def has_template_marker(path: str | os.PathLike) -> bool:
+    """True when the file holds TEMPLATE_MARKER anywhere (a raw text search of its bytes, nothing is parsed or decoded);
+    False when there is no such file. A file that exists but cannot be read raises FileReadError (which names it)."""
     try:
-        first = (yaml.safe_load(path.read_text(encoding="utf-8")) or {})["name"]["first"]
-    except (OSError, yaml.YAMLError, KeyError, TypeError):
+        return TEMPLATE_MARKER.encode("ascii") in Path(path).read_bytes()
+    except _MISSING:
+        return False
+    except OSError as exc:
+        raise FileReadError(_unreadable(path, exc)) from None
+
+
+def template_files(root: Optional[Path] = None) -> list[Path]:
+    """The files of ohmyjob.json and Profile.md (in this order) of the workspace (`root`, else find_root()) that still
+    hold the template marker: an empty list when the user has edited both. An unreadable one raises FileReadError."""
+    root = root or find_root()
+    return [path for path in (root / CONFIG_NAME, root / "Profile.md") if has_template_marker(path)]
+
+
+def file_prefix(root: Optional[Path] = None) -> str:
+    """The ASCII slug of the first name in Profile.md, else "Resume": tailored files are <prefix>_<Company>.pdf/.yaml.
+
+    The name is the line `- Name: <First> <Last>` (also `- **Name:** ...`) inside the level-1 section `# Resume` of
+    Profile.md; the first word of it is the first name. No Profile.md: "Resume". A Profile.md that cannot be read or is
+    not UTF-8 text raises FileReadError (which names it): a silent "Resume" would name the files of one run differently.
+    """
+    path = (root or find_root()) / "Profile.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except _MISSING:
         return "Resume"
-    if not isinstance(first, str):
-        return "Resume"
-    ascii_name = unicodedata.normalize("NFKD", first).encode("ascii", "ignore").decode()
-    return re.sub(r"[^A-Za-z0-9]+", "-", ascii_name).strip("-") or "Resume"
+    except (OSError, UnicodeDecodeError) as exc:
+        raise FileReadError(_unreadable(path, exc)) from None
+    section = None
+    for line in text.splitlines():
+        heading = _LEVEL1_HEADING_RE.match(line)
+        if heading:
+            section = heading.group(1).strip().lower()
+            continue
+        match = _NAME_LINE_RE.match(line) if section == "resume" else None
+        if match:
+            words = match.group(1).split()
+            if not words:
+                return "Resume"
+            ascii_name = unicodedata.normalize("NFKD", words[0]).encode("ascii", "ignore").decode()
+            return re.sub(r"[^A-Za-z0-9]+", "-", ascii_name).strip("-") or "Resume"
+    return "Resume"
 
 
 # --------------------------------------------------------------------------- config (ohmyjob.json)
@@ -153,11 +240,19 @@ COUNTRY_ALIASES = {
     "czechia": "czech republic", "turkey": "türkiye", "uae": "united arab emirates",
     "united kingdom": "uk", "us": "usa", "united states": "usa",
 }
+# The languages simplemma 2.0 can lemmatize (tests/test_workspace.py checks the tuple against the installed package;
+# workspace.py itself stays standard-library only). Any other code fails in the middle of a scrape.
+LANGUAGES = (
+    "ar", "ast", "bg", "ca", "cs", "cy", "da", "de", "el", "en", "enm", "eo", "es", "et", "fa", "fi", "fr", "ga", "gd",
+    "gl", "grc", "gv", "hbs", "he", "hi", "hu", "hy", "id", "is", "it", "ka", "la", "lb", "lt", "lv", "mk", "ml", "ms",
+    "nb", "nl", "nn", "pl", "pt", "ro", "ru", "se", "sk", "sl", "sq", "sv", "sw", "tl", "tr", "uk",
+)
+COUNTRY_BOARDS = ("indeed", "glassdoor")  # JobSpy searches the USA on these when no country is given
 MAX_RECENCY_DAYS = 3650  # a typo must not stop the run
 
 DEFAULTS: dict[str, dict[str, Any]] = {
     "search": {
-        "sources": ["linkedin", "indeed"],  # order = priority when two boards list the same job
+        "sources": ["linkedin"],  # order = priority when two boards list the same job
         "search_query": [],
         "location": "",
         "country": "",
@@ -168,16 +263,8 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "exclude_seniority_level": [],
         "filter_title_terms": [],
         "title_filter": "strict",
-        "title_aliases": {},
-        "title_only_aliases": {},
         "languages": ["en"],
         "uk_sponsor_only": False,
-        "git_snapshot": False,
-    },
-    "pipeline": {
-        "max_parallel_workers": 5,
-        "resume_max_pages": 1,  # 0 = no page limit
-        "resume_paper": "a4",
     },
 }
 
@@ -247,20 +334,9 @@ def _country(key: str, value: Any) -> str:
 def _languages(key: str, value: Any) -> list:
     codes = _strings(lower=True, nonempty=True)(key, value)
     for code in codes:
-        if not re.fullmatch(r"[a-z]{2,3}", code):
-            _fail(key, f'has "{code}", which is not a language code like "en" or "de"')
+        if code not in LANGUAGES:
+            _fail(key, f'has "{code}", which the text matching does not support. Supported: {", ".join(LANGUAGES)}')
     return codes
-
-
-def _aliases(key: str, value: Any) -> dict:
-    """{"word": "replacement words"} or {"word": ["replacement words", ...]}."""
-    if not isinstance(value, dict):
-        _fail(key, 'must be an object like {"ops": "operations"}')
-    for word, target in value.items():
-        targets = target if isinstance(target, list) else [target]
-        if not word.strip() or not targets or not all(isinstance(t, str) and t.strip() for t in targets):
-            _fail(key, f'has a bad entry for "{word}": use a non-empty word that maps to text or a list of texts')
-    return dict(value)
 
 
 CHECKS: dict[str, Callable] = {
@@ -275,26 +351,24 @@ CHECKS: dict[str, Callable] = {
     "search.exclude_seniority_level": _strings(),
     "search.filter_title_terms": _strings(),
     "search.title_filter": _choice("strict", "off"),
-    "search.title_aliases": _aliases,
-    "search.title_only_aliases": _aliases,
     "search.languages": _languages,
     "search.uk_sponsor_only": _flag,
-    "search.git_snapshot": _flag,
-    "pipeline.max_parallel_workers": _whole(1),
-    "pipeline.resume_max_pages": _whole(0),
-    "pipeline.resume_paper": _choice("a4", "letter"),
 }
 
 
 def validate_config(raw: Any) -> dict:
     """The config with every default filled in and every value checked; ConfigError names the first bad key.
 
-    Keys starting with "$" or "_" at the top level (for example "$schema") are ignored.
+    Unknown keys are errors, except the template marker key `_template` (a string; its presence means "not edited").
     """
     if not isinstance(raw, dict):
         raise ConfigError(f"{CONFIG_NAME}: the file must hold a JSON object")
+    if TEMPLATE_KEY in raw and not isinstance(raw[TEMPLATE_KEY], str):
+        _fail(TEMPLATE_KEY, "must be a string")
     for key in raw:
-        if key not in DEFAULTS and not key.startswith(("$", "_")):
+        if key == TEMPLATE_KEY:
+            continue
+        if key not in DEFAULTS:
             _fail(key, f"is not a known section. Known sections: {', '.join(DEFAULTS)}")
     config = copy.deepcopy(DEFAULTS)
     for section, known in DEFAULTS.items():
@@ -305,6 +379,10 @@ def validate_config(raw: Any) -> dict:
             if key not in known:
                 _fail(f"{section}.{key}", f"is not a known setting. Known settings: {', '.join(known)}")
             config[section][key] = CHECKS[f"{section}.{key}"](f"{section}.{key}", value)
+    search = config["search"]
+    if not search["country"] and any(board in COUNTRY_BOARDS for board in search["sources"]):
+        _fail("search.country", f"is empty, but {' and '.join(COUNTRY_BOARDS)} search the USA without a country. "
+                                f"Set a country, or leave {' and '.join(COUNTRY_BOARDS)} out of search.sources")
     return config
 
 
@@ -317,14 +395,16 @@ def load_config(root: Optional[Path] = None) -> dict:
         raise ConfigError(f"{path} not found. Run /ohmyjob:setup.") from None
     except json.JSONDecodeError as exc:
         raise ConfigError(f"{path} is not valid JSON: {exc}") from None
+    except (OSError, UnicodeDecodeError) as exc:  # no permission, a folder, not UTF-8: one line that names the file
+        raise ConfigError(_unreadable(path, exc)) from None
     return validate_config(raw)
 
 
-def slots(config: Optional[dict] = None) -> int:
-    """Workers that may run at once: max_parallel_workers, below Claude Code's subagent cap by one (the master counts)."""
-    workers = (config or load_config())["pipeline"]["max_parallel_workers"]
+def slots() -> int:
+    """Workers that may run at once: Claude Code's subagent cap (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, else 20) minus
+    one for the master."""
     try:
         cap = int(os.environ.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") or 20)
     except ValueError:
         cap = 20
-    return max(1, min(workers, cap - 1))
+    return max(1, cap - 1)

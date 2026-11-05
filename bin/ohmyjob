@@ -20,26 +20,53 @@ case "${1:-}" in
   *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume> <args>"; exit 2 ;;
 esac
 
-# The workspace, as workspace.find_root() finds it: $OHMYJOB_WORKSPACE, else the nearest folder with ohmyjob.json at or
-# above $CLAUDE_PROJECT_DIR, else at or above the current folder.
+# The workspace: $OHMYJOB_WORKSPACE, else the one discovery rule (workspace.find_workspace) from the current folder (the
+# Bash tool's cwd; it has no CLAUDE_PROJECT_DIR): walk up, and at each folder D it is D when D/ohmyjob.json exists, else
+# D/ohmyjob when D/ohmyjob/ohmyjob.json exists. So the project folder and any folder inside ohmyjob/ both work.
 root="${OHMYJOB_WORKSPACE:-}"
 if [ -z "$root" ]; then
-  for dir in "${CLAUDE_PROJECT_DIR:-}" "$PWD"; do
-    while [ -n "$dir" ] && [ ! -f "$dir/ohmyjob.json" ]; do
-      case "$dir" in /) dir="" ;; /*/*) dir="${dir%/*}" ;; /*) dir="/" ;; *) dir="" ;; esac
-    done
-    if [ -n "$dir" ]; then root="$dir"; break; fi
+  dir="$PWD"
+  while [ -n "$dir" ]; do
+    case "$dir" in /*) ;; *) break ;; esac
+    if [ -f "$dir/ohmyjob.json" ]; then root="$dir"; break; fi
+    if [ -f "${dir%/}/ohmyjob/ohmyjob.json" ]; then root="${dir%/}/ohmyjob"; break; fi
+    case "$dir" in /) dir="" ;; /*/*) dir="${dir%/*}" ;; *) dir="/" ;; esac
   done
 fi
-[ -n "$root" ] && [ -f "$root/ohmyjob.json" ] || fatal "no ohmyjob.json in $PWD or above. Start Claude in your job-search folder and run /ohmyjob:setup."
+[ -n "$root" ] && [ -f "$root/ohmyjob.json" ] || fatal "no ohmyjob.json in $PWD or above, nor in an ohmyjob/ folder there. Start Claude in your project folder and run /ohmyjob:setup."
 
-# Paths from setup. A caller that already set OHMYJOB_PY (tests) needs no env.sh.
-if [ -f "$root/.ohmyjob/env.sh" ]; then
-  set +eu  # a line of env.sh that fails or reads an unset variable must not end the run without a message
-  . "$root/.ohmyjob/env.sh"
-  env_status=$?
-  set -eu
-  [ "$env_status" -eq 0 ] || fatal "$root/.ohmyjob/env.sh failed, run /ohmyjob:setup"
+# Paths from setup. A caller that already set OHMYJOB_PY (tests) needs no env.sh. The file is parsed, never sourced:
+# it sits in a folder the agents can write, and Bash(ohmyjob *) is pre-allowed. Accepted: blank lines, # comments and
+# NAME='value' (or NAME=value) for the four names. A quoted value is taken literally and holds no single quote; an
+# unquoted one holds no quote, $, backtick, backslash or whitespace. Anything else is an error.
+env_file="$root/.ohmyjob/env.sh"
+py_from_file=0
+if [ -f "$env_file" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ""|"#"*) continue ;; esac
+    name="${line%%=*}"
+    value="${line#*=}"
+    [ "$name" != "$line" ] || fatal "$env_file has a line that is not NAME='value', run /ohmyjob:setup"
+    case "$value" in
+      "'"*"'") value="${value#\'}"; value="${value%\'}"
+               case "$value" in *\'*) fatal "$env_file has a value that is not plain text, run /ohmyjob:setup" ;; esac ;;
+      *[\'\"\$\`\\[:space:]]*) fatal "$env_file has a value that is not plain text, run /ohmyjob:setup" ;;
+    esac
+    case "$name" in
+      OHMYJOB_PY) OHMYJOB_PY="$value"; py_from_file=1 ;;
+      OHMYJOB_UV) OHMYJOB_UV="$value" ;;
+      OHMYJOB_DATA) OHMYJOB_DATA="$value" ;;
+      OHMYJOB_LUALATEX) OHMYJOB_LUALATEX="$value" ;;
+      *) fatal "$env_file sets $name, which is not one of the four known names, run /ohmyjob:setup" ;;
+    esac
+  done < "$env_file"
+  # Parsing is not enough: env.sh must not name a program that the allowed `ohmyjob *` could be turned into a shell with
+  # (OHMYJOB_PY=/usr/bin/find). The interpreter is exactly the plugin's venv; uv and lualatex keep their names.
+  if [ "$py_from_file" = 1 ] && [ "${OHMYJOB_PY:-}" != "${OHMYJOB_DATA:-}/venv/bin/python" ]; then
+    fatal "environment missing or stale, run /ohmyjob:setup"
+  fi
+  [ -z "${OHMYJOB_UV:-}" ] || [ "${OHMYJOB_UV##*/}" = "uv" ] || fatal "$env_file has an OHMYJOB_UV that is not uv, run /ohmyjob:setup"
+  [ -z "${OHMYJOB_LUALATEX:-}" ] || [ "${OHMYJOB_LUALATEX##*/}" = "lualatex" ] || fatal "$env_file has an OHMYJOB_LUALATEX that is not lualatex, run /ohmyjob:setup"
 fi
 [ -n "${OHMYJOB_PY:-}" ] && [ -x "$OHMYJOB_PY" ] || fatal "environment missing or stale, run /ohmyjob:setup"
 [ -f "$SCRIPTS/$script" ] || fatal "$SCRIPTS/$script is missing from the plugin, reinstall it"
@@ -54,7 +81,7 @@ resync() {
   [ "$want" = "$(cat "$stamp" 2>/dev/null || true)" ] && return 0
   uv="${OHMYJOB_UV:-$(command -v uv || true)}"
   [ -n "$uv" ] && [ -x "$uv" ] || fatal "uv.lock changed but uv was not found, run /ohmyjob:setup"
-  UV_PROJECT_ENVIRONMENT="$OHMYJOB_DATA/venv" "$uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
+  UV_PROJECT_ENVIRONMENT="$OHMYJOB_DATA/venv" UV_PYTHON_INSTALL_DIR="$OHMYJOB_DATA/python" UV_CACHE_DIR="$OHMYJOB_DATA/uv-cache" "$uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
     || fatal "uv sync failed, run /ohmyjob:setup"
   echo "$want" > "$stamp"
 }

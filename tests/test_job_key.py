@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from job_key import VOLATILE_PARAMS, is_linkedin_url, job_key, strip_tracking
+from job_key import LINKEDIN_PARAMS, VOLATILE_PARAMS, is_linkedin_url, job_key, strip_tracking
 
 # (address, key)
 VECTORS = [
@@ -129,6 +129,20 @@ def test_strip_tracking_removes_the_question_mark_when_nothing_is_left():
 @pytest.mark.parametrize("param", sorted(VOLATILE_PARAMS))
 def test_strip_tracking_drops_every_volatile_param(param):
     assert strip_tracking(f"https://jobs.example.org/p/9?id=7&{param.upper()}=abc") == "https://jobs.example.org/p/9?id=7"
+
+
+@pytest.mark.parametrize("param", sorted(LINKEDIN_PARAMS))
+def test_linkedin_only_params_are_dropped_on_linkedin_hosts_and_kept_elsewhere(param):
+    assert strip_tracking(f"https://www.linkedin.com/comm/jobs/view/1?id=7&{param.upper()}=abc") == \
+        "https://www.linkedin.com/comm/jobs/view/1?id=7"
+    other = f"https://jobs.example.org/p?{param}=abc"
+    assert strip_tracking(other) is other
+
+
+def test_two_postings_that_differ_only_in_refid_are_not_one_job_on_another_site():
+    one = strip_tracking("https://jobs.example.org/apply?refId=1")
+    two = strip_tracking("https://jobs.example.org/apply?refId=2")
+    assert one != two and job_key(one) != job_key(two)
 
 
 @pytest.mark.parametrize("url", [

@@ -1,0 +1,6 @@
+dialog "Sign in to apply" [ref_80]
+ button "Sign up with Google" [ref_81] type="button"
+ button "Continue with Google" [ref_82] type="button"
+ button "Create an account" [ref_83] type="button"
+ button "Sign in" [ref_84] type="button"
+ link "Delete my data" [ref_85] href="#"

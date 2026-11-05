@@ -1,3 +1,16 @@
+# One full resume (docs/CONTRACTS.md, "Resume yaml"): header, sections, experience, education, skills, interests.
+name:
+  first: Alex
+  last: Example
+address: Musterstrasse 12, 10115 Berlin, Germany
+phone: "+49 30 23125 042"
+email: alex.example@example.com
+homepage: example.com/alex
+github: alex-example-fixture
+linkedin: alex-example-fixture
+sections:
+  summary: Profile
+  skills: Core Skills
 title: Project Coordinator
 introduction: >-
   Project coordinator with six years of cross-team delivery in logistics and food supply chains. Keeps plans,
@@ -19,10 +32,19 @@ experience:
       - Ran the promotion calendar with buyers, suppliers and the warehouse, and cut write-offs of short-life products by 12%.
       - Tracked 400 products against forecast each week and raised forecast accuracy from 71% to 83%.
 projects: []
+education:
+  - degree: BSc Business Administration
+    school: Rhein-Spree University of Applied Sciences
+    location: Berlin, Germany
+    dates: 2014 - 2018
+    details:
+      - "Thesis: forecast error in regional parcel networks"
+      - Final grade 1.8 (German scale)
+education_details: no
 skills:
   - label: Delivery
     items: Project planning, risk logs, budget tracking, stakeholder reporting
   - label: Tools
     items: Jira, MS Project, Excel, Power BI
-interests: no
-education_details: no
+interests: Trail running, board games, volunteering at a food bank
+show_interests: no

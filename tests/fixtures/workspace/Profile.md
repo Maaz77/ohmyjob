@@ -1,16 +1,15 @@
 # Fit Preferences
 
-- **Target roles:** Operations Analyst, Supply Chain Analyst, Project Coordinator
-- **Level:** Mid-level, about six years of experience. Not looking for director or intern roles.
-- **Work authorization:** EU citizen. No sponsorship needed in Germany or the Netherlands; sponsorship needed elsewhere.
-- **Location:** Berlin, hybrid with up to two office days a week. Open to relocating within the EU for the right role. Fully remote is fine.
-- **Work languages:** English (fluent), German (fluent).
+- **Seniority / experience level:** Mid-level, about six years of experience. Not looking for director or intern roles.
+- **What I'm looking for:** Operations Analyst, Supply Chain Analyst or Project Coordinator roles in logistics. Berlin, hybrid with up to two office days a week, or fully remote.
 - **Dealbreakers:** Night shifts, on-call rotas, and roles that are mostly sales.
 
 # Resume
 
-Alex Example
-Berlin, Germany | alex.example@example.com | +49 30 23125 042
+- Name: Alex Example
+- Email: alex.example@example.com
+- Phone: +49 30 23125 042
+- Address: Berlin, Germany
 
 ## Summary
 
@@ -45,20 +44,15 @@ BSc Business Administration, Rhein-Spree University of Applied Sciences, Berlin,
 
 Excel, SQL, Power BI, Python (pandas), forecasting, KPI design, stakeholder reporting, supplier management, Lean basics.
 
-### HELD IN RESERVE
-
-- Certified Lean Six Sigma Green Belt (2021), not shown on the default resumes.
-- Volunteer treasurer of a food bank, 2019 - 2022.
-
 # Follow Up Questions
 
-- Notice period? Two months to the end of a calendar month.
-- Salary expectation? 62,000 EUR gross per year, negotiable.
-- Authorized to work in Germany? Yes, EU citizen.
-- Need visa sponsorship in Germany? No.
-- Willing to relocate? Yes, within the EU.
-- Earliest start date? The first of the month after the notice period ends.
-- Worked for this company before? No.
-- Relatives who work for this company? No.
-- Criminal convictions? No.
-- Needs adjustments for a disability? No.
+1. Notice period? Two months to the end of a calendar month.
+2. Salary expectation? 62,000 EUR gross per year, negotiable.
+3. Authorized to work in Germany? Yes, EU citizen.
+4. Need visa sponsorship in Germany? No.
+5. Willing to relocate? Yes, within the EU.
+6. Earliest start date? The first of the month after the notice period ends.
+7. Worked for this company before? No.
+8. Relatives who work for this company? No.
+9. Criminal convictions? No.
+10. Needs adjustments for a disability? No.

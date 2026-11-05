@@ -224,3 +224,115 @@ def test_save_refuses_while_excel_or_libreoffice_has_the_file_open(path, tr, loc
     lock.unlink()
     tr.save()  # the rows added while it was locked are still in memory
     assert len(Tracker(path).rows()) == 2
+
+
+# --------------------------------------------------------------------------- cell text
+
+
+@pytest.mark.parametrize("text", ["=1+1", "=HYPERLINK(\"http://x\",\"y\")", "+SUM(A1)", "@x"])
+def test_text_that_looks_like_a_formula_is_stored_as_text(path, tr, text):
+    index = tr.add_row({"Job URL": LINKEDIN, "Job Title": text})
+    tr.set_cell(index, "Company", text)
+    tr.set_status(index, "Found", text)
+    tr.save()
+    cells = {c.column_letter: c for c in load_workbook(path)["Jobs"][2]}
+    for letter in ("C", "D", "I"):
+        assert cells[letter].data_type == "s", letter
+        assert cells[letter].value == text
+    assert Tracker(path).rows()[0]["Job Title"] == text
+
+
+def test_control_characters_are_dropped_and_long_text_is_clipped(path, tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Job Title": "Ops\x1b[31m Analyst\x00\x08", "Location": "x" * 40000})
+    tr.set_status(index, "Found", "note\x1b")
+    tr.save()  # an IllegalCharacterError here would not be a TrackerError
+    row = Tracker(path).rows()[0]
+    assert row["Job Title"] == "Ops[31m Analyst"
+    assert len(row["Location"]) == T.MAX_CELL_CHARS
+    assert row["Notes"] == "note"
+
+
+def test_the_notes_keep_their_newest_lines_when_they_outgrow_a_cell(path, tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Notes": "o" * T.MAX_CELL_CHARS})
+    tr.set_status(index, "Found", "newest line")
+    assert tr.rows()[0]["Notes"].endswith("\nnewest line")
+    assert len(tr.rows()[0]["Notes"]) == T.MAX_CELL_CHARS
+
+
+# --------------------------------------------------------------------------- stale workbook
+
+
+def test_a_save_refuses_when_the_file_changed_after_the_load(path, tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Status": "Found"})
+    tr.save()
+    stale = Tracker(path)  # a scrape that loaded the tracker before /prep-jobs saved it
+    fresh = Tracker(path)
+    fresh.set_status(index, "Matched", None)
+    fresh.save()
+    stale.add_row({"Job URL": INDEED})
+    before = path.read_bytes()
+    with pytest.raises(TrackerError, match="changed on disk since this run loaded it") as exc:
+        stale.save()
+    assert "Nothing was saved" in str(exc.value)
+    assert path.read_bytes() == before
+    assert Tracker(path).rows()[0]["Status"] == "Matched"
+
+
+def test_a_tracker_can_be_saved_again_after_its_own_save(path, tr):
+    tr.add_row({"Job URL": LINKEDIN})
+    tr.save()
+    tr.add_row({"Job URL": INDEED})
+    tr.save()
+    assert len(Tracker(path).rows()) == 2
+
+
+def test_a_save_refuses_when_the_file_was_deleted(path, tr):
+    tr.add_row({"Job URL": LINKEDIN})
+    path.unlink()
+    with pytest.raises(TrackerError, match="changed on disk"):
+        tr.save()
+
+
+def test_lone_surrogates_and_noncharacters_are_dropped_so_the_file_still_loads(path, tr):
+    tr.add_row({"Job URL": LINKEDIN, "Job Title": "Ops\ud800 An\udfffalyst￾￿", "Notes": "\udc00"})
+    tr.save()
+    row = Tracker(path).rows()[0]
+    assert (row["Job Title"], row["Notes"]) == ("Ops Analyst", None)
+
+
+def test_a_replace_in_the_same_clock_tick_is_still_seen(path, tr):
+    import os
+
+    tr.add_row({"Job URL": LINKEDIN})
+    tr.save()
+    stale = Tracker(path)
+    other = Tracker(path)
+    other.set_cell(1, "Company", "Written by another run")
+    other.save()
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, stale._loaded_at[2]))  # same mtime as when `stale` loaded; inode/size differ
+    stale.add_row({"Job URL": INDEED})
+    with pytest.raises(TrackerError, match="changed on disk"):
+        stale.save()
+
+
+def test_the_check_runs_again_after_the_slow_write_and_before_the_replace(path, tr, monkeypatch):
+    tr.add_row({"Job URL": LINKEDIN})
+    tr.save()
+    mine = Tracker(path)
+    mine.add_row({"Job URL": INDEED})
+    real_save = Workbook.save
+
+    def slow_save(self, filename):
+        monkeypatch.setattr(Workbook, "save", real_save)  # only the first save is the slow one
+        real_save(self, filename)  # another run saves while this one is still writing its temp file
+        other = Tracker(path)
+        other.set_cell(1, "Company", "Other run")
+        other.save()
+
+    monkeypatch.setattr(Workbook, "save", slow_save)
+    with pytest.raises(TrackerError, match="changed on disk"):
+        mine.save()
+    monkeypatch.undo()
+    assert [r["Company"] for r in Tracker(path).rows()] == ["Other run"]
+    assert [p.name for p in path.parent.iterdir() if p.name.startswith(".")] == []

@@ -1,0 +1,13 @@
+button "Close jump menu" [ref_6] type="button"
+textbox "Search" [ref_8] placeholder="Search"
+main [ref_17]
+ link "Example Co" [ref_19] href="https://www.linkedin.com/company/example/"
+ button "Easy Apply" [ref_30] type="button"
+ button "Save" [ref_31] type="button"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Engineer | Example Co | LinkedIn" ("https://www.linkedin.com/jobs/view/1/")

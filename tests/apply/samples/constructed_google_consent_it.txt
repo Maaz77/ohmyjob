@@ -1,0 +1,11 @@
+main [ref_1]
+ heading "Accedi a Esempio Careers" [ref_2]
+ button "Test User test.user@example.com" [ref_3] type="button"
+ generic "Se continui, Google condividerà il tuo nome, indirizzo email, lingua preferita e immagine del profilo con Esempio Careers." [ref_4]
+ button "Annulla" [ref_5] type="button"
+ button "Continua" [ref_6] type="button"
+
+Tab Context:
+- Executed on tabId: 203
+- Available tabs:
+  • tabId 203: "Accedi - Account Google" ("https://accounts.google.com/signin/oauth/id?authuser=0&part=AJi8&client_id=x")

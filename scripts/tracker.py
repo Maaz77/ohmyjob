@@ -2,20 +2,25 @@
 
 Columns are found by header name, and a row is matched by the job_key of its "Job URL".
 A row's `_index` counts the header row as 0: the first job is 1, and its sheet row is `_index + 1`.
-Every script uses this API only. save() is atomic and refuses while Excel or LibreOffice holds the file open.
+Every script uses this API only. save() is atomic; it refuses while Excel or LibreOffice holds the file open and when
+the file changed on disk since it was loaded (a stale workbook would revert another run's statuses).
+Text written to a cell is always stored as text (scraped "=..." is no formula), without control characters, clipped.
 """
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from job_key import job_key
 
+MAX_CELL_CHARS = 32767  # Excel's limit for one cell
 SHEET_NAME = "Jobs"
 HEADERS = ["Job URL", "Status", "Company", "Job Title", "Date Found", "Location", "Source", "Match Score", "Notes"]
 STATUSES = (
@@ -28,11 +33,50 @@ class TrackerError(Exception):
     pass
 
 
-def _save_atomically(workbook: Workbook, path: Path) -> None:
+_STALE = (
+    "{name} changed on disk since this run loaded it (another run or Excel saved it). "
+    "Nothing was saved; run the command again."
+)
+
+
+_UNSTORABLE_RE = re.compile("[\ud800-\udfff\ufffe\uffff]")  # lone surrogates, U+FFFE/U+FFFF: saved, but the file never loads
+
+
+def _clean(value: Any) -> Any:
+    """Text without the control characters xlsx cannot hold, clipped to one cell; other values unchanged."""
+    if isinstance(value, str):
+        return _UNSTORABLE_RE.sub("", ILLEGAL_CHARACTERS_RE.sub("", value))[:MAX_CELL_CHARS]
+    return value
+
+
+def _put(cell, value: Any) -> None:
+    """Write a value; text stays text even when it starts with "=" (a scraped title must never become a formula)."""
+    value = _clean(value)
+    cell.value = value
+    if isinstance(value, str):
+        cell.data_type = "s"
+
+
+def _stamp(path: Path) -> Optional[tuple]:
+    """(inode, size, mtime_ns) of the file, None when it is missing: one tick of the clock cannot hide a replace."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return (info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _save_atomically(workbook: Workbook, path: Path, expect: Optional[tuple] = None, check: bool = False) -> Optional[tuple]:
+    """Write a temp file, then (when `check`) make sure `path` still has the stamp `expect`, then replace it.
+    Returns the stamp of the file that now sits at `path` (taken from the temp file, before the replace)."""
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         workbook.save(tmp)
+        stamp = _stamp(tmp)
+        if check and _stamp(path) != expect:
+            raise TrackerError(_STALE.format(name=path.name))
         os.replace(tmp, path)
+        return stamp
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -43,6 +87,7 @@ class Tracker:
         if not self.path.exists():
             raise TrackerError(f"Tracker not found: {path}")
         try:
+            self._loaded_at = _stamp(self.path)  # before the load: a replace during it counts as a change
             self.workbook = load_workbook(self.path)
         except Exception as exc:  # noqa: BLE001
             raise TrackerError(f"Could not open tracker {path}: {exc}") from exc
@@ -93,14 +138,15 @@ class Tracker:
             raise TrackerError(f"Unknown column '{column}'. Columns: {HEADERS}")
         if not 1 <= index < self.sheet.max_row:
             raise TrackerError(f"Row {index} does not exist")
-        self.sheet.cell(row=index + 1, column=self.col[column] + 1).value = value
+        _put(self.sheet.cell(row=index + 1, column=self.col[column] + 1), value)
 
     def set_status(self, index: int, status: str, note_line: Optional[str]) -> None:
         self._check_status(status)
         self.set_cell(index, "Status", status)
         if note_line:
             current = self.sheet.cell(row=index + 1, column=self.col["Notes"] + 1).value or ""
-            self.set_cell(index, "Notes", f"{current}\n{note_line}" if current else note_line)
+            combined = f"{current}\n{note_line}" if current else note_line
+            self.set_cell(index, "Notes", ILLEGAL_CHARACTERS_RE.sub("", combined)[-MAX_CELL_CHARS:])  # a long history loses its oldest lines
 
     def add_row(self, values: dict) -> int:
         """Append a row from {header: value} (unknown headers, None and "" are skipped); returns its `_index`."""
@@ -113,7 +159,7 @@ class Tracker:
         while last > 1 and all(c.value in (None, "") for c in self.sheet[last]):
             last -= 1  # blank rows at the end (cleared in Excel) are reused
         for name, value in known.items():
-            self.sheet.cell(row=last + 1, column=self.col[name] + 1).value = value
+            _put(self.sheet.cell(row=last + 1, column=self.col[name] + 1), value)
         return last
 
     def save(self) -> None:
@@ -122,7 +168,9 @@ class Tracker:
             raise TrackerError(
                 f"Close the tracker in Excel/LibreOffice first ({lock.name} exists). Nothing was saved."
             )
-        _save_atomically(self.workbook, self.path)
+        if _stamp(self.path) != self._loaded_at:
+            raise TrackerError(_STALE.format(name=self.path.name))
+        self._loaded_at = _save_atomically(self.workbook, self.path, self._loaded_at, check=True)
 
     def _lock_file(self) -> Optional[Path]:
         """The file Excel (~$ + the name, sometimes without its first letters) or LibreOffice (.~lock.<name>#) keeps while the tracker is open."""
