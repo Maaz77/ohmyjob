@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "description": "Job search pipeline for Claude Code: find jobs on the job boards, screen them against your profile, tailor a resume for each match, fill the application forms up to the final submit button, and keep the tracker in step.",
   "author": {
-    "name": "<github-owner>",
-    "url": "https://github.com/<github-owner>"
+    "name": "Maaz77",
+    "url": "https://github.com/Maaz77"
   },
-  "homepage": "https://github.com/<github-owner>/ohmyjob",
-  "repository": "https://github.com/<github-owner>/ohmyjob",
+  "homepage": "https://github.com/Maaz77/ohmyjob",
+  "repository": "https://github.com/Maaz77/ohmyjob",
   "license": "MIT",
   "keywords": ["jobs", "job-search", "resume", "applications", "automation"]
 }

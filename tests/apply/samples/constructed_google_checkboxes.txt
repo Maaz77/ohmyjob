@@ -1,0 +1,10 @@
+main [ref_1]
+ heading "Esempio Careers vuole accedere al tuo Account Google" [ref_2]
+ checkbox "Visualizzare i tuoi file di Google Drive" [ref_3] type="checkbox"
+ button "Annulla" [ref_5] type="button"
+ button "Continua" [ref_6] type="button"
+
+Tab Context:
+- Executed on tabId: 204
+- Available tabs:
+  • tabId 204: "Accedi - Account Google" ("https://accounts.google.com/signin/oauth/v2/consentsummary?authuser=0&part=x")

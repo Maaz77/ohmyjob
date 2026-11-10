@@ -1,0 +1,5 @@
+{"availableTabs":[{"tabId":501,"title":"New Tab","url":"chrome://newtab/"}],"tabGroupId":9}
+
+Tab Context:
+- Available tabs:
+  • tabId 501: "New Tab" ("chrome://newtab/")

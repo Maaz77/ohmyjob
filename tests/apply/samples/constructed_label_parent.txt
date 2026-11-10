@@ -1,0 +1,16 @@
+textbox [ref_1] type="text"
+textbox [ref_2] type="tel"
+radio "small" [ref_3] type="radio"
+ label "Extra cheese" [ref_4]
+  checkbox [ref_5] type="checkbox"
+ label "Agree to terms and conditions" [ref_6]
+  checkbox [ref_7] type="checkbox"
+combobox [ref_8]
+button "Submit order" [ref_9] type="submit"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 501
+- Available tabs:
+  • tabId 501: "Order form" ("https://shop.example/form")

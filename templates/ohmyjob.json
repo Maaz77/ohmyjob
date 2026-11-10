@@ -1,9 +1,10 @@
 {
+  "_template": "OHMYJOB-TEMPLATE: replace the mock values with yours, then delete this line",
   "search": {
     "sources": ["linkedin", "indeed"],
-    "search_query": [],
-    "location": "",
-    "country": "",
+    "search_query": ["Operations Analyst"],
+    "location": "Berlin, Germany",
+    "country": "germany",
     "recency_days": 1,
     "results_per_term": 30,
     "employment_types": ["fulltime", "parttime", "contract"],
@@ -11,15 +12,7 @@
     "exclude_seniority_level": [],
     "filter_title_terms": [],
     "title_filter": "strict",
-    "title_aliases": {},
-    "title_only_aliases": {},
     "languages": ["en"],
-    "uk_sponsor_only": false,
-    "git_snapshot": false
-  },
-  "pipeline": {
-    "max_parallel_workers": 5,
-    "resume_max_pages": 1,
-    "resume_paper": "a4"
+    "uk_sponsor_only": false
   }
 }

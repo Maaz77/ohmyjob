@@ -1,0 +1,11 @@
+dialog "Apply to Example Co" [ref_40]
+ generic "Review your application" [ref_70]
+ button "Back" [ref_71] type="button"
+ button "Submit application" [ref_49] type="submit"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Apply | Example Co" ("https://www.linkedin.com/jobs/view/1/apply/")

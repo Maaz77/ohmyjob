@@ -54,7 +54,7 @@ def uv(tmp_path):
 
 def run(plugin, *args, cwd, **env_extra):
     env = {"PATH": "/usr/bin:/bin", "OHMYJOB_PY": sys.executable, **env_extra}
-    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True)
+    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=60)
 
 
 def report(proc):
@@ -99,31 +99,74 @@ def test_the_workspace_is_found_from_a_folder_inside_it(plugin, workspace):
     assert Path(out["OHMYJOB_WORKSPACE"]).resolve() == workspace.resolve()
 
 
-def test_the_environment_beats_the_walk_up_in_the_same_order_as_find_root(plugin, workspace, tmp_path):
+def test_the_environment_beats_the_walk_up_from_the_cwd(plugin, workspace, tmp_path):
+    """The Bash tool sets no CLAUDE_PROJECT_DIR: the cwd is what production walks up from."""
     other = tmp_path / "other"
     other.mkdir()
     (other / "ohmyjob.json").write_text("{}")
-    out = report(run(plugin, "prep", "next", cwd=workspace, CLAUDE_PROJECT_DIR=str(other)))
+    out = report(run(plugin, "prep", "next", cwd=other))
     assert out["OHMYJOB_WORKSPACE"] == str(other)
-    out = report(run(plugin, "prep", "next", cwd=workspace, CLAUDE_PROJECT_DIR=str(other), OHMYJOB_WORKSPACE=str(workspace)))
-    assert out["OHMYJOB_WORKSPACE"] == str(workspace)
-    plain = tmp_path / "plain"
-    plain.mkdir()  # a CLAUDE_PROJECT_DIR without the marker is skipped
-    out = report(run(plugin, "prep", "next", cwd=workspace, CLAUDE_PROJECT_DIR=str(plain)))
-    assert Path(out["OHMYJOB_WORKSPACE"]).resolve() == workspace.resolve()
-
-
-def test_a_claude_project_dir_inside_the_workspace_leads_to_it(plugin, workspace, tmp_path):
-    inner = workspace / "Applications" / "4399000001_Lumenfield-Logistics_Operations-Analyst"
-    out = report(run(plugin, "prep", "next", cwd=tmp_path, CLAUDE_PROJECT_DIR=str(inner)))
+    out = report(run(plugin, "prep", "next", cwd=other, OHMYJOB_WORKSPACE=str(workspace)))
     assert out["OHMYJOB_WORKSPACE"] == str(workspace)
 
 
-def test_a_claude_project_dir_that_is_not_inside_a_workspace_does_not_hang(plugin, tmp_path):
+def test_a_cwd_that_is_not_inside_a_workspace_is_the_one_line_error(plugin, tmp_path):
     (tmp_path / "plain").mkdir()
-    for project in ("relative", ".", "a/b", "/", "//", "/nonexistent/deep/folder/"):
+    proc = run(plugin, "prep", "next", cwd=tmp_path / "plain")
+    assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json")
+
+
+def test_claude_project_dir_is_not_a_start_folder(plugin, workspace, tmp_path):
+    """The Bash tool never sets CLAUDE_PROJECT_DIR, so the walk starts from the cwd only; a stray value changes nothing."""
+    (tmp_path / "plain").mkdir()
+    for project in (str(workspace), "relative", "/", "//", "/nonexistent/deep/folder/"):
         proc = run(plugin, "prep", "next", cwd=tmp_path / "plain", CLAUDE_PROJECT_DIR=project)
-        assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json")
+        assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json"), project
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ohmyjob.json").write_text("{}")
+    out = report(run(plugin, "prep", "next", cwd=other, CLAUDE_PROJECT_DIR=str(workspace)))
+    assert Path(out["OHMYJOB_WORKSPACE"]).resolve() == other.resolve()
+
+
+@pytest.fixture
+def project(tmp_path, workspace):
+    """A project folder as setup leaves it: the workspace is its subfolder ohmyjob/."""
+    folder = tmp_path / "project"
+    folder.mkdir()
+    workspace.rename(folder / "ohmyjob")
+    (folder / "notes").mkdir()
+    return folder
+
+
+@pytest.mark.parametrize("start", [".", "notes", "ohmyjob", "ohmyjob/Applications",
+                                   "ohmyjob/Applications/4399000001_Lumenfield-Logistics_Operations-Analyst"])
+def test_the_workspace_is_the_ohmyjob_folder_of_the_project(plugin, project, start):
+    """Claude starts in the project folder; a shell can also be inside ohmyjob/ or any folder under it."""
+    out = report(run(plugin, "prep", "next", cwd=project / start))
+    assert Path(out["OHMYJOB_WORKSPACE"]).resolve() == (project / "ohmyjob").resolve()
+
+
+def test_a_project_folder_without_the_workspace_marker_is_no_workspace(plugin, tmp_path):
+    project = tmp_path / "project"
+    (project / "ohmyjob" / "Applications").mkdir(parents=True)  # an ohmyjob/ folder without ohmyjob.json
+    for cwd in (project, project / "ohmyjob", project / "ohmyjob" / "Applications"):
+        proc = run(plugin, "prep", "next", cwd=cwd)
+        assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: no ohmyjob.json"), cwd
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ohmyjob").write_text("a file, not the folder")
+    assert run(plugin, "prep", "next", cwd=other).returncode == 3
+
+
+def test_a_folder_with_its_own_marker_wins_over_its_ohmyjob_subfolder(plugin, tmp_path):
+    outer = tmp_path / "outer"
+    (outer / "ohmyjob").mkdir(parents=True)
+    (outer / "ohmyjob.json").write_text("{}")
+    (outer / "ohmyjob" / "ohmyjob.json").write_text("{}")
+    assert Path(report(run(plugin, "prep", "next", cwd=outer))["OHMYJOB_WORKSPACE"]).resolve() == outer.resolve()
+    inner = outer / "ohmyjob"
+    assert Path(report(run(plugin, "prep", "next", cwd=inner))["OHMYJOB_WORKSPACE"]).resolve() == inner.resolve()
 
 
 def test_outside_a_workspace_it_is_fatal_with_the_hint(plugin, tmp_path):
@@ -136,27 +179,67 @@ def test_outside_a_workspace_it_is_fatal_with_the_hint(plugin, tmp_path):
 # --------------------------------------------------------------------------- env.sh
 
 
-def test_env_sh_gives_the_python_and_its_variables_reach_the_script(plugin, workspace):
-    (workspace / ".ohmyjob").mkdir()
-    (workspace / ".ohmyjob" / "env.sh").write_text(
-        f"OHMYJOB_PY='{sys.executable}'\nOHMYJOB_DATA=/data/ohmyjob\nOHMYJOB_UV=/bin/uv\nOHMYJOB_LUALATEX=/tex/lualatex\n")
-    proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env={"PATH": "/usr/bin:/bin"},
-                          capture_output=True, text=True)
-    out = report(proc)
-    assert (out["OHMYJOB_DATA"], out["OHMYJOB_UV"], out["OHMYJOB_LUALATEX"]) == ("/data/ohmyjob", "/bin/uv", "/tex/lualatex")
+@pytest.fixture
+def data_dir(tmp_path):
+    """A data folder (with a space in its path) whose venv/bin/python runs the test interpreter."""
+    python = tmp_path / "da ta" / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    python.chmod(0o755)
+    return python.parents[2]
 
 
-def test_a_broken_env_sh_ends_in_one_line_not_in_silence(plugin, workspace):
-    (workspace / ".ohmyjob").mkdir()
-    env_sh = workspace / ".ohmyjob" / "env.sh"
-    env_sh.write_text(f"OHMYJOB_PY='{sys.executable}'\nOHMYJOB_DATA=$NEVER_SET/data\nOHMYJOB_UV=/bin/uv\n")
-    clean = {"PATH": "/usr/bin:/bin"}  # a line that reads an unset variable is not an error
-    proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env=clean, capture_output=True, text=True)
-    assert report(proc)["OHMYJOB_DATA"] == "/data"
-    env_sh.write_text(f"OHMYJOB_PY='{sys.executable}'\nfalse\n")
-    proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env=clean, capture_output=True, text=True)
-    assert proc.returncode == 3
-    assert proc.stdout.startswith("ohmyjob: ") and "env.sh failed" in proc.stdout
+def _run_env_sh(plugin, workspace, text):
+    (workspace / ".ohmyjob").mkdir(exist_ok=True)
+    (workspace / ".ohmyjob" / "env.sh").write_text(text)
+    return subprocess.run([str(plugin / "bin" / "ohmyjob"), "scrape"], cwd=workspace, env={"PATH": "/usr/bin:/bin"},
+                          capture_output=True, text=True, timeout=60)
+
+
+def _good(data_dir, extra=""):
+    return f"OHMYJOB_DATA='{data_dir}'\nOHMYJOB_PY='{data_dir}/venv/bin/python'\n{extra}"
+
+
+def test_env_sh_gives_the_python_and_its_variables_reach_the_script(plugin, workspace, data_dir):
+    out = report(_run_env_sh(plugin, workspace, _good(data_dir, "OHMYJOB_UV=/bin/uv\nOHMYJOB_LUALATEX=/tex/lualatex\n")))
+    assert (out["OHMYJOB_DATA"], out["OHMYJOB_UV"], out["OHMYJOB_LUALATEX"]) == (str(data_dir), "/bin/uv", "/tex/lualatex")
+
+
+def test_env_sh_is_parsed_not_sourced(plugin, workspace, tmp_path, data_dir):
+    """The agents can write env.sh and Bash(ohmyjob *) is pre-allowed: nothing in the file may run or expand."""
+    marker = tmp_path / "ran"
+    for bad in (f"touch {marker}\n", f"OHMYJOB_DATA=$(touch {marker})\n", f"OHMYJOB_DATA=`touch {marker}`\n",
+                "OHMYJOB_DATA=$NEVER_SET/data\n", "OHMYJOB_DATA=a b\n", "OHMYJOB_DATA='it''s'\n", "false\n",
+                "OTHER='x'\n", "OHMYJOB_DATA=\"x\"\n", f"OHMYJOB_DATA=x; touch {marker}\n"):
+        proc = _run_env_sh(plugin, workspace, _good(data_dir, bad))
+        assert proc.returncode == 3, bad
+        assert proc.stdout.startswith("ohmyjob: ") and "env.sh" in proc.stdout and proc.stdout.count("\n") == 1, bad
+        assert not marker.exists(), bad
+
+
+@pytest.mark.parametrize("program", ["/usr/bin/find", "/bin/sh", "/usr/bin/env", "python", "/usr/bin/python3"])
+def test_env_sh_cannot_name_another_program_as_the_interpreter(plugin, workspace, tmp_path, data_dir, program):
+    """`ohmyjob prep -exec sh -c '...' \\;` would run a command if OHMYJOB_PY were /usr/bin/find."""
+    marker = tmp_path / "ran"
+    (workspace / ".ohmyjob").mkdir(exist_ok=True)
+    (workspace / ".ohmyjob" / "env.sh").write_text(f"OHMYJOB_DATA='{data_dir}'\nOHMYJOB_PY='{program}'\n")
+    proc = subprocess.run([str(plugin / "bin" / "ohmyjob"), "prep", "-exec", "touch", str(marker), ";"], cwd=workspace,
+                          env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True, timeout=60)
+    assert (proc.returncode, proc.stdout) == (3, "ohmyjob: environment missing or stale, run /ohmyjob:setup\n")
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("extra", ["OHMYJOB_UV=/bin/sh\n", "OHMYJOB_UV=/usr/bin/find\n", "OHMYJOB_LUALATEX=/bin/sh\n",
+                                   "OHMYJOB_LUALATEX=/usr/bin/xelatex\n"])
+def test_env_sh_uv_and_lualatex_must_keep_their_names(plugin, workspace, data_dir, extra):
+    proc = _run_env_sh(plugin, workspace, _good(data_dir, extra))
+    assert proc.returncode == 3 and proc.stdout.startswith("ohmyjob: ") and "env.sh" in proc.stdout
+
+
+def test_env_sh_takes_quoted_values_literally_and_allows_comments_and_spaces(plugin, workspace, data_dir):
+    text = "# written by setup\n\n" + _good(data_dir, "OHMYJOB_UV='/Users/a b/.local/bin/uv'\nOHMYJOB_LUALATEX=''\n")
+    out = report(_run_env_sh(plugin, workspace, text))
+    assert (out["OHMYJOB_DATA"], out["OHMYJOB_UV"]) == (str(data_dir), "/Users/a b/.local/bin/uv")
 
 
 STALE = "ohmyjob: environment missing or stale, run /ohmyjob:setup\n"
@@ -165,7 +248,7 @@ STALE = "ohmyjob: environment missing or stale, run /ohmyjob:setup\n"
 def run_clean(plugin, *args, cwd, **env_extra):
     """Like run(), but with no OHMYJOB_PY from the caller: only .ohmyjob/env.sh can say where Python is."""
     env = {"PATH": "/usr/bin:/bin", **env_extra}
-    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True)
+    return subprocess.run([str(plugin / "bin" / "ohmyjob"), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=60)
 
 
 def test_without_env_sh_it_prints_the_one_line_and_exits_3(plugin, workspace):

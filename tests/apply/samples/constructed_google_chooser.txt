@@ -1,0 +1,11 @@
+main [ref_1]
+ heading "Choose an account" [ref_2]
+ link "Test User test.user@example.com" [ref_3] href="#"
+ link "Use another account" [ref_4] href="#"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 201
+- Available tabs:
+  • tabId 201: "Sign in - Google Accounts" ("https://accounts.google.com/v3/signin/accountchooser")
