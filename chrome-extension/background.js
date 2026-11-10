@@ -20,12 +20,6 @@
 const VERSION = chrome.runtime.getManifest().version; // the preflight warns when it differs from the plugin's manifest
 const KEY = "aaRunGroups";
 const OWNERS = "aaRunOwners"; // run group id -> the tab that registered it (the master's home tab)
-// Tab ids that makeGroups put into "Needs Attention". Kept in storage.local (an extension reload keeps it) and
-// cleared when Chrome starts: Chrome gives new tab ids after a restart, and an old id can then be another tab.
-const PARKED = "aaNeedsAttention";
-
-chrome.runtime.onStartup.addListener(() => chrome.storage.local.set({ [PARKED]: [] }));
-
 // The tab that really opened a tab (window.open or a link), from webNavigation. Chrome's tab.openerTabId is the tab
 // that was active at that moment, not the opener: workers click in background tabs, so several Google pop-ups
 // would get "[AA from <the previous pop-up>]" and no worker would find its sign-in tab. One key per tab: no lost writes.
@@ -40,10 +34,6 @@ async function sourceTab(tabId) {
   return Number.isInteger(value) ? value : null;
 }
 
-async function parkedTabs() {
-  const data = await chrome.storage.local.get(PARKED);
-  return Array.isArray(data[PARKED]) ? data[PARKED] : null; // null: never recorded (tabs grouped by version 1.1)
-}
 const MARKER = "#aa-popups-as-tabs";
 const GROUPS = "#aa-groups=";
 const ADOPT = "#aa-adopt=";
@@ -79,11 +69,6 @@ async function makeGroups(href, tab) {
         : await chrome.tabs.group({ tabIds, createProperties: { windowId: tab.windowId } });
       await chrome.tabGroups.update(groupId, { title, color: COLORS[title], collapsed: false });
       moved += tabIds.length;
-      if (title === "Needs Attention") {
-        const parked = new Set((await parkedTabs()) || []);
-        tabIds.forEach((id) => parked.add(id));
-        await chrome.storage.local.set({ [PARKED]: [...parked] });
-      }
     } catch (e) {
       // a tab closed in the meantime: the other title still gets its group
     }
@@ -134,34 +119,26 @@ async function groupRequest(msg, tab, marker) {
   return owners[tab.groupId] === tab.id;
 }
 
-// /continue-applying: the listed tabs that are in a group "Needs Attention" go back into the run group of the home tab,
-// where Claude in Chrome (and so the workers) can use them again. Any other tab is left alone.
-async function adoptTabs(href, tab) {
-  let ids;
-  try {
-    ids = JSON.parse(decodeURIComponent(href.slice(href.indexOf(ADOPT) + ADOPT.length)));
-  } catch (e) {
-    return 0;
-  }
-  const waiting = new Set((await chrome.tabGroups.query({ title: "Needs Attention" })).map((g) => g.id));
-  const known = await parkedTabs();
-  const parked = known === null ? null : new Set(known);
+// /continue-applying: every tab of every group "Needs Attention" goes back into the run group of the home tab, where
+// Claude in Chrome (and so the workers) can use it again. This includes tabs that the candidate opened or moved there
+// themselves: 'ohmyjob apply adopted' matches them to jobs by page address afterwards. The tab ids in the page address
+// (older versions moved only those) are not used. Tabs of any other group are left alone.
+async function adoptTabs(tab) {
+  const waiting = await chrome.tabGroups.query({ title: "Needs Attention" });
   let moved = 0;
-  for (const id of Array.isArray(ids) ? ids : []) {
-    if (!Number.isInteger(id) || id === tab.id || (parked && !parked.has(id))) continue;
-    try {
-      const t = await chrome.tabs.get(id);
-      if (!waiting.has(t.groupId)) continue;
-      await chrome.tabs.group({ groupId: tab.groupId, tabIds: [id] }); // one at a time: a closed tab stops no other
-      moved += 1;
-      parked?.delete(id);
-      // the page was loaded outside a run group: let it ask again, so pop-ups open as tabs (bridge.js)
-      chrome.tabs.sendMessage(id, { type: "aa-recheck" }).catch(() => {});
-    } catch (e) {
-      // the tab is closed, or it cannot be grouped
+  for (const group of waiting) {
+    for (const t of await chrome.tabs.query({ groupId: group.id })) {
+      if (t.id === tab.id) continue;
+      try {
+        await chrome.tabs.group({ groupId: tab.groupId, tabIds: [t.id] }); // one at a time: a closed tab stops no other
+        moved += 1;
+        // the page was loaded outside a run group: let it ask again, so pop-ups open as tabs (bridge.js)
+        chrome.tabs.sendMessage(t.id, { type: "aa-recheck" }).catch(() => {});
+      } catch (e) {
+        // the tab is closed, or it cannot be grouped
+      }
     }
   }
-  if (parked) await chrome.storage.local.set({ [PARKED]: [...parked] });
   return moved;
 }
 
@@ -172,7 +149,7 @@ async function check(msg, tab) {
     return { enabled: false, tag: `[AA grouped ${moved}] `, retry: false };
   }
   if (await groupRequest(msg, tab, ADOPT)) {
-    const moved = await adoptTabs(msg.href, tab);
+    const moved = await adoptTabs(tab);
     return { enabled: false, tag: `[AA adopted ${moved}] `, retry: false };
   }
   const marked = groupId !== -1 && typeof msg.href === "string" && isMarker(msg.href);

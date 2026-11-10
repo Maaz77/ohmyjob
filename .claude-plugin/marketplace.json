@@ -8,7 +8,8 @@
     {
       "name": "ohmyjob",
       "source": "./",
-      "description": "Job search pipeline for Claude Code: find jobs, screen them, tailor resumes, fill applications up to the final submit button."
+      "description": "Job search pipeline for Claude Code: find jobs, screen them, tailor resumes, fill applications up to the final submit button.",
+      "version": "0.2.0"
     }
   ]
 }

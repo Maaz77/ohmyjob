@@ -18,6 +18,8 @@ import collections
 import contextlib
 import datetime as _dt
 import fcntl
+import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -32,6 +34,7 @@ from job_key import LINKEDIN_ID_RE, is_linkedin_url, job_key  # noqa: F401  (job
 ROOT = W.ROOT
 RUN_BASE = W.RUN_APPLY
 ATS_DIR = W.ATS_DIR
+USER_ATS_DIR = W.USER_ATS_DIR
 APPLICATIONS = W.APPLICATIONS
 PENDING_REVIEW = W.PENDING_REVIEW
 NEEDS_ATTENTION = W.NEEDS_ATTENTION
@@ -56,8 +59,108 @@ def __getattr__(name: str) -> Any:
 
 LOST_SECONDS = 60       # a printed worker whose Agent call did not come by then is printed again
 NEXT_SECONDS = 90       # 'next' returns by then even with no free slot: under the 120 s default Bash timeout
-WORKER_SECONDS = 17 * 60  # a worker's time limit, from the master's Agent call: then the guard denies every tool call
-STALE_SECONDS = 20 * 60   # 'next' gives up on a worker's report: its job is recorded as missing (time limit + 3 min to report)
+WORKER_SECONDS = 17 * 60  # prep workers only: a prep worker's time limit, from the master's Agent call
+STALE_SECONDS = 20 * 60   # prep workers only: 'next' gives up on a prep worker's report (time limit + 3 min to report)
+
+# Sign-in lease: one Google sign-in at a time per host. Two workers that sign in to the same host at once lose each
+# other's session (the site keeps one cookie per host), so the second one waits and then reloads its page.
+LEASE_SECONDS = 90          # a pending sign-in that is not finished by then is taken over by the next worker
+SIGNIN_WAIT_SECONDS = 15    # how long the waiting worker waits before it loads its page again
+
+# --------------------------------------------------------------------------- the progress watchdog (application workers)
+# An application worker has no wall-clock limit. It is stopped by a lack of progress instead: a new page, the first
+# fill of a field, the first click on a choice control, an upload and a Google sign-in step are progress. The values
+# come from Worker_Limits.json in the workspace; a missing file, key or bad value falls back to these defaults.
+LIMITS_PATH = W.ROOT / "Worker_Limits.json"
+_LIMITS_DEFAULTS = {
+    "stall_nudge_calls": 15,   # calls without progress before a nudge is added to the tool result
+    "stall_stop_calls": 25,    # calls without progress before the worker is stopped
+    "repeat_deny_stop": 5,     # equal denials in a row (sign-in lease waits excluded) before the worker is stopped
+    "call_budget": 150,        # Chrome and Read calls in one worker
+    "idle_minutes": 6,         # a worker with no call for this long loses its slot
+}
+LIMITS_FILE = "Worker_Limits.json"
+
+
+def _agent_max_turns() -> int:
+    """`maxTurns` of agents/application-worker.md, else 120: the call budget must stay under it."""
+    try:
+        text = (W.PLUGIN_ROOT / "agents" / "application-worker.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 120
+    for line in text.splitlines()[:30]:
+        match = re.match(r"maxTurns:\s*(\d+)\s*$", line.strip())
+        if match:
+            return int(match.group(1))
+    return 120
+
+
+def worker_limits() -> dict:
+    """Worker_Limits.json read on every call: every key, with the default for a missing or unusable value.
+
+    `_warnings` names the keys that fell back, so `preflight` can print one WARN line.
+    """
+    damaged = False
+    try:
+        raw = read_json(LIMITS_PATH, {})
+    except DataError:
+        raw, damaged = {}, True  # a damaged file: every key falls back, and preflight says so
+    if not isinstance(raw, dict):
+        raw, damaged = {}, True
+    out: dict[str, Any] = {}
+    warnings: list[str] = list(_LIMITS_DEFAULTS) if damaged else []
+    for key, default in _LIMITS_DEFAULTS.items():
+        value = raw.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            out[key] = value
+        else:
+            out[key] = default
+            if key in raw:
+                warnings.append(key)
+    if out["stall_nudge_calls"] >= out["stall_stop_calls"]:
+        # the nudge must come before the stop; fix the nudge, then the stop if it is still not after it
+        if "stall_nudge_calls" not in warnings:
+            warnings.append("stall_nudge_calls")
+        out["stall_nudge_calls"] = _LIMITS_DEFAULTS["stall_nudge_calls"]
+        if out["stall_nudge_calls"] >= out["stall_stop_calls"]:
+            if "stall_stop_calls" not in warnings:
+                warnings.append("stall_stop_calls")
+            out["stall_stop_calls"] = _LIMITS_DEFAULTS["stall_stop_calls"]
+    if out["call_budget"] > _agent_max_turns() - 10:
+        if "call_budget" not in warnings:
+            warnings.append("call_budget")
+        out["call_budget"] = min(_LIMITS_DEFAULTS["call_budget"], _agent_max_turns() - 10)
+    out["_warnings"] = warnings
+    return out
+
+
+def page_fingerprint(snapshot_text: str, url: str) -> str:
+    """sha1 of the host and path, the names of its fields, and the names of its headings: a page the worker has not
+    seen yet. Two reads of the same form give the same fingerprint, so a re-read is not progress."""
+    parts = urlsplit(url or "")
+    host_path = (parts.hostname or "") + (parts.path or "")
+    refs = parse_refs(snapshot_text)
+    fields = sorted({item["name"] for item in refs.values()
+                     if item.get("role") in (TYPE_ROLES | TICK_ROLES) and item.get("name")})
+    headings = sorted({item["name"] for item in refs.values() if item.get("role") == "heading" and item.get("name")})
+    blob = host_path + "\0" + "\0".join(fields) + "\0" + "\0".join(headings)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+
+def init_watchdog() -> dict:
+    return {"stall": 0, "nudged": False, "progress": 0, "max_stall": 0, "calls": 0,
+            "fingerprints": [], "fills": [], "choices": [],
+            "deny_reason": "", "deny_count": 0, "pending_nudge": False}
+
+
+def reset_worker_slot(job: dict) -> None:
+    """A job that goes to a NEW worker: clear everything the last worker left, so the new one starts clean.
+
+    Without this the second worker of a retried job is counted as ended (and `next` prints `done` too early), keeps
+    the old stall count, and inherits the old stop.
+    """
+    for key in ("ended_at", "stopped_by", "last_call_at", "watchdog"):
+        job.pop(key, None)
 
 
 # --------------------------------------------------------------------------- time
@@ -74,11 +177,19 @@ def today() -> str:
 # --------------------------------------------------------------------------- files
 
 
+class DataError(W.WorkspaceError):
+    """A file that the user can edit is damaged. A CLI command prints it as one FATAL line (main catches
+    WorkspaceError); a caller that has a fallback (worker_limits) catches it itself."""
+
+
 def read_json(path: Path, default: Any) -> Any:
+    """The parsed file, or `default` when it does not exist. A damaged file raises DataError that names it."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return default
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise DataError(f"{path} is damaged ({exc}); fix the file or delete it, then run the command again") from exc
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -372,6 +483,90 @@ def greenhouse_form_url(url: str) -> Optional[str]:
 USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 
 
+def agent_usage(transcript: Optional[str], master_id: Optional[str]) -> list[dict]:
+    """One record per agent of this run: {agent_id, agent_type, description, transcript, model, usage}.
+
+    Read from the transcripts Claude Code writes (<session>/subagents/agent-<id>.jsonl, with the agent type and the
+    parent in agent-<id>.meta.json). One API response is written as several lines: the largest usage of each counts.
+    """
+    records: list[dict] = []
+    if not transcript or not master_id:
+        return records
+    path = Path(transcript)
+    folder = path.parent if path.parent.name == "subagents" else path.with_suffix("") / "subagents"
+    for f in sorted(folder.glob("agent-*.jsonl")):
+        meta = read_json(f.with_name(f.stem + ".meta.json"), {})
+        if f.stem != f"agent-{master_id}" and meta.get("parentAgentId") != master_id:
+            continue
+        calls: dict = {}
+        for line in f.open(encoding="utf-8"):
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            m = d.get("message")
+            if d.get("type") != "assistant" or not isinstance(m, dict) or not m.get("usage"):
+                continue
+            mid = m.get("id") or d.get("requestId")
+            old = calls.get(mid, (None, {}))[1]
+            calls[mid] = (m.get("model"), {k: max(old.get(k, 0), m["usage"].get(k) or 0) for k in USAGE_KEYS})
+        usage: collections.Counter = collections.Counter()
+        model = "?"
+        for m_name, u in calls.values():
+            model = m_name or model
+            usage["calls"] += 1
+            usage.update(u)
+        records.append({"agent_id": f.stem.replace("agent-", ""), "agent_type": meta.get("agentType") or "?",
+                        "description": meta.get("description") or "", "transcript": str(f),
+                        "model": model, "usage": usage})
+    return records
+
+
+def folder_from_prompt(text: str) -> Optional[str]:
+    """The job folder in a worker's first message (`folder=<name> tab=<id> brief=<path>`)."""
+    match = re.search(r"(?:^|\s)folder=(\S+)", text or "")
+    return match.group(1) if match else None
+
+
+def worker_prompt_texts(agent_id: Optional[str], transcript_path: str):
+    """The text of every user message of a worker: its own transcript first, then the session's."""
+    session = Path(transcript_path)
+    paths = [session]
+    if agent_id:
+        paths.insert(0, session.with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl")
+    for path in paths:
+        try:
+            with path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(event, dict) or event.get("type") not in ("user", "human"):
+                        continue
+                    message = event.get("message")
+                    content = message.get("content") if isinstance(message, dict) else message
+                    if isinstance(content, str):
+                        yield content
+                    else:
+                        for part in content or []:
+                            if isinstance(part, str):
+                                yield part
+                            elif isinstance(part, dict):
+                                yield part.get("text") or ""
+        except (OSError, UnicodeError, TypeError):
+            continue
+
+
+def worker_folder_from_transcript(agent_id: str, transcript_path: str, known_folders: set) -> Optional[str]:
+    """The job folder of a worker whose tab is gone from the state (its first message names it)."""
+    for text in worker_prompt_texts(agent_id, transcript_path):
+        folder = folder_from_prompt(text)
+        if folder and folder in known_folders:
+            return folder
+    return None
+
+
 def usage_table(transcript: Optional[str], master_id: Optional[str], extra: Optional[dict] = None) -> str:
     """Tokens of one run: the master and every agent it started, read from the transcripts Claude Code writes
     (<session>/subagents/agent-<id>.jsonl, with the agent type and parent in agent-<id>.meta.json).
@@ -382,28 +577,9 @@ def usage_table(transcript: Optional[str], master_id: Optional[str], extra: Opti
     if transcript and master_id:
         path = Path(transcript)
         folder = path.parent if path.parent.name == "subagents" else path.with_suffix("") / "subagents"
-        for f in sorted(folder.glob("agent-*.jsonl")):
-            meta = read_json(f.with_name(f.stem + ".meta.json"), {})
-            if f.stem != f"agent-{master_id}" and meta.get("parentAgentId") != master_id:
-                continue
-            kind = meta.get("agentType") or "?"
-            agents[kind] += 1
-            calls: dict = {}  # one API response is written as several lines; keep the largest usage of each
-            for line in f.open(encoding="utf-8"):
-                try:
-                    d = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                m = d.get("message")
-                if d.get("type") != "assistant" or not isinstance(m, dict) or not m.get("usage"):
-                    continue
-                mid = m.get("id") or d.get("requestId")
-                old = calls.get(mid, (None, {}))[1]
-                calls[mid] = (m.get("model"), {k: max(old.get(k, 0), m["usage"].get(k) or 0) for k in USAGE_KEYS})
-            for model, usage in calls.values():
-                row = rows.setdefault((kind, model or "?"), collections.Counter())
-                row["calls"] += 1
-                row.update(usage)
+    for rec in agent_usage(transcript, master_id):
+        agents[rec["agent_type"]] += 1
+        rows.setdefault((rec["agent_type"], rec["model"] or "?"), collections.Counter()).update(rec["usage"])
     for key, counter in (extra or {}).items():
         rows.setdefault(key, collections.Counter()).update(counter)
     if not rows:
@@ -460,6 +636,37 @@ def job_pdf(folder_path: Path) -> Optional[Path]:
 
 def tailored_yamls(folder_path: Path) -> list[Path]:
     return sorted(p for p in folder_path.glob("*.yaml") if p.is_file())
+
+
+def norm_name(text: str) -> str:
+    """A folder name or a typed entry reduced to lowercase letters and digits, for substring matching."""
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def match_folders(text: str, base: Optional[Path] = None) -> tuple[list[str], list[dict]]:
+    """The job folders of `base` (default Applications/) that each comma-separated entry of `text` names, and the skips.
+
+    One rule for `apply start --selected` and `resume build-jobs`: an entry is normalized to lowercase letters and
+    digits and must be a substring of exactly ONE folder name. Returns (folder names in the order typed, skips), where
+    each skip is {"job": <entry as typed>, "reason": "no folder matches" | "ambiguous: <names>"}. An empty entry is
+    skipped silently.
+    """
+    base = APPLICATIONS if base is None else base
+    folders = sorted(p.name for p in base.iterdir() if p.is_dir()) if base.is_dir() else []
+    matched: list[str] = []
+    skipped: list[dict] = []
+    for entry in text.split(","):
+        wanted = norm_name(entry)
+        if not wanted:
+            continue
+        hits = [name for name in folders if wanted in norm_name(name)]
+        if len(hits) == 1:
+            if hits[0] not in matched:  # the same folder typed twice is queued once
+                matched.append(hits[0])
+        else:
+            reason = "no folder matches" if not hits else "ambiguous: " + ", ".join(hits)
+            skipped.append({"job": entry.strip(), "reason": reason})
+    return matched, skipped
 
 
 # --------------------------------------------------------------------------- markdown
@@ -676,6 +883,9 @@ GOOGLE_CHOOSER_RE = re.compile(r"(accountchooser|chooseaccount|oauthchooseaccoun
 # a tag is followed by a space or ends the title.
 HELPER_ON_RE = re.compile(r"^\[AA on(?: (?P<version>[0-9][\w.+-]*))?\](?: |$)")
 CHILD_TITLE_RE = re.compile(r"^\[AA from (\d+)\](?: |$)")
+# A job tab's title ends with "[AA g=N named=M]" (helper 1.7.0): the Google controls the page has, and how many of
+# them have a name. The ledger tells an ACCOUNT_WALL on a page with a Google button (GOOGLE_MISSED) from one without.
+GOOGLE_TAG_RE = re.compile(r"\[AA g=(\d+) named=(\d+)\]")
 
 
 def host_of(url: Optional[str]) -> Optional[str]:
@@ -683,6 +893,53 @@ def host_of(url: Optional[str]) -> Optional[str]:
         return None
     match = re.match(r"^[a-z][a-z0-9+.-]*://([^/?#:]+)", url.strip(), re.I)
     return match.group(1).lower() if match else None
+
+
+# --------------------------------------------------------------------------- ATS notes
+# Each note is a markdown file whose second line is `hosts: <fnmatch patterns>`. The plugin ships the four generic
+# notes; the workspace's own ats/ folder holds the ones this user learned (Dream writes them) and a workspace note
+# replaces the plugin note with the same stem.
+
+HOSTS_LINE_RE = re.compile(r"^hosts:\s*(.*)$", re.I)
+
+
+def _note_files(folder: Path) -> list[Path]:
+    return sorted(p for p in folder.glob("*.md") if p.is_file()) if folder.is_dir() else []
+
+
+def ats_notes() -> list[dict]:
+    """Every ATS note the worker may read: the plugin's, with a workspace note replacing the one of the same stem.
+
+    Returns [{"key", "title", "hosts": [patterns], "path"}] sorted by key. A note without a `hosts:` line has no
+    patterns (it matches no host, but a worker may still read it).
+    """
+    notes: dict[str, dict] = {}
+    for folder in (ATS_DIR, USER_ATS_DIR):  # the workspace folder comes second, so it wins
+        for path in _note_files(folder):
+            title, hosts = path.stem, []
+            try:
+                for line in path.read_text(encoding="utf-8").splitlines()[:4]:
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                    match = HOSTS_LINE_RE.match(line.strip())
+                    if match:
+                        hosts = [p.strip().lower() for p in match.group(1).split(",") if p.strip()]
+            except (OSError, UnicodeDecodeError):
+                continue  # an unreadable note is not offered; the guard refuses the read anyway
+            notes[path.stem] = {"key": path.stem, "title": title, "hosts": hosts, "path": str(path.resolve())}
+    return [notes[k] for k in sorted(notes)]
+
+
+def ats_key(url_or_host: Optional[str]) -> str:
+    """The ATS key of a page: the stem of the first note whose `hosts:` pattern matches, else the host without www."""
+    host = host_of(url_or_host) if "://" in (url_or_host or "") else (url_or_host or "").strip().lower()
+    if not host:
+        return "unknown"
+    for note in ats_notes():
+        for pattern in note["hosts"]:
+            if fnmatch.fnmatch(host, pattern):
+                return note["key"]
+    return host[4:] if host.startswith("www.") else host
 
 
 def is_google_host(host: Optional[str]) -> bool:
@@ -1008,6 +1265,14 @@ RESULT_SCHEMA: dict[str, tuple] = {
 }
 CLOSED = "CLOSED"  # a worker blocker: the job no longer accepts applications
 QUESTIONS_BLOCKER = W.QUESTIONS_BLOCKER  # a worker that stops on questions it cannot answer from the brief
+ALREADY_SUBMITTED = "already submitted"  # /continue-applying: the page says the application is in
+
+# Every blocked report starts with one of these codes (4.9): the ledger counts them, and Dream reads them to learn
+# what stops the workers on a host. The two exact texts above are the only blockers without a code.
+BLOCKER_CODES = (
+    "CLOSED", "UPLOAD_HANG", "ACCOUNT_WALL", "GOOGLE_NO_REF", "CAPTCHA",
+    "NOT_ACCESSIBLE", "LOAD_FAIL", "NO_APPLY_CONTROL", "GOOGLE_MISSED", "STALLED", "OTHER", "TIMEOUT",
+)
 
 
 def extract_json_object(text: Optional[str]) -> Optional[dict]:
@@ -1052,6 +1317,14 @@ def validate_result(obj: Optional[dict], folder: str, tab: Any) -> list[str]:
         errors.append("'status' must be 'parked' or 'blocked'.")
     if obj["status"] == "blocked" and not (obj["blocker"] or "").strip():
         errors.append("A blocked result needs a 'blocker' reason.")
+    elif obj["status"] == "blocked":
+        blocker = (obj["blocker"] or "").strip()
+        plain = re.sub(r"[^a-z ]", "", blocker.casefold()).strip()
+        exact = plain in (QUESTIONS_BLOCKER.casefold(), ALREADY_SUBMITTED)
+        coded = any(blocker == code or blocker.startswith(code + ":") for code in BLOCKER_CODES)
+        if not exact and not coded:
+            errors.append(f"'blocker' must start with a code: {', '.join(BLOCKER_CODES)}, "
+                          f"or be the exact text \"{QUESTIONS_BLOCKER}\" or \"{ALREADY_SUBMITTED}\".")
     for item in obj["drafted"]:
         if not (isinstance(item, dict) and isinstance(item.get("q"), str) and isinstance(item.get("a"), str)):
             errors.append("Each 'drafted' item must be {\"q\": \"...\", \"a\": \"...\"}.")

@@ -23,6 +23,8 @@ How ohmyjob is put together. Exact names, formats and conventions that scripts, 
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers. |
 | `apply-jobs-run`, `continue-applying-run` | Internal; fork the `application-master` agent (the second in continue mode). |
 | `reconcile` | Dry run, confirmation, then apply. |
+| `build-job-resumes` | Runs `ohmyjob resume build-jobs "<names>"`: the tailored resume of each named job folder, built again and set back to `Resume Built`. |
+| `dream` | Forks the `dream-master` agent: the traces since the last dream become the ATS notes of the workspace. |
 
 ### Agents (`agents/`, named `ohmyjob:<name>`)
 
@@ -33,6 +35,8 @@ How ohmyjob is put together. Exact names, formats and conventions that scripts, 
 | `resume-worker` | Sonnet | Tailors one resume yaml (or rejects a mis-matched posting before any edit); the only command it may run is the build of its own job. |
 | `application-master` | Sonnet | Runs the apply steps through `ohmyjob apply` and starts workers; its browser tools are limited to tab handling and the sign-in check. |
 | `application-worker` | Sonnet | Fills one application in one assigned tab, from its brief; stops before the final button; reports one JSON object. |
+| `dream-master` | Opus | Runs `ohmyjob dream start/next/finish/end` and starts one host worker per ATS key. Reads no file. |
+| `dream-host-worker` | Sonnet | Writes ONE ATS note of the workspace from the evidence bundle of its key. Reads its bundle, the notes and the application worker's rules; writes only its own note. |
 
 Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for every call it has validated. The `tools: Agent(...)` entry in an agent's frontmatter does not restrict what it can start, so the guards check the requested agent type themselves.
 
@@ -44,7 +48,9 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. |
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. |
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
-| `ohmyjob resume build`, `build-all` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. |
+| `ohmyjob resume build`, `build-all`, `build-jobs` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. `build-jobs "<names>"` builds the single yaml of each named job folder and sets its row to `Resume Built`. |
+| `ohmyjob dream <cmd>` | `dream.py` (with `ledger.py`) | Group the new traces by ATS key, hand out one worker per key, check the notes, write `Dream_Report.md`, move the watermark; `reject` restores the last backup, `seed` reads the old run notes of the job.md files. |
+| (internal) | `ledger.py` | Blocker codes, outcomes, the ledger lines and the redacted traces that `ohmyjob apply end` writes. |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
 | (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
 
@@ -56,7 +62,7 @@ For each board in `search.sources`, in order, JobSpy is asked for every search t
 
 ### Helper extension (`chrome-extension/`)
 
-A small MV3 extension. In a run's tab group it opens page pop-ups (sign-in windows) as tabs, which Claude in Chrome can then control; it labels icon-only "Continue with Google" buttons; and at the end of a run it moves finished job tabs into the tab groups "Pending Review" and "Needs Attention", and moves fixed tabs back for `continue-applying`. It acts only for pages the master loads and only for tabs of the run group.
+A small MV3 extension. In a run's tab group it opens page pop-ups (sign-in windows) as tabs, which Claude in Chrome can then control; it labels icon-only "Continue with Google" buttons (links and clickable icons too) and writes how many Google controls a job page has into its title (`[AA g=N named=M]`, which the ledger uses); and at the end of a run it moves finished job tabs into the tab groups "Pending Review" and "Needs Attention". For `continue-applying` it moves EVERY tab of the group "Needs Attention" back, also tabs the candidate put there by hand. It acts only for pages the master loads and only for tabs of the run group.
 
 ### Resume build (`resume/`, `resume_build.py`)
 
@@ -115,9 +121,15 @@ Order of writes in every step: `job.md`, then the tracker (saved), then folder d
 3. `next` starts workers in free slots; the first page loads are staggered so that many workers do not hit one account at once. Each worker's report is checked by `handback` or `capture`.
 4. A worker never guesses. On a question about the candidate that the brief does not answer, it stops with status `blocked` and the questions word for word; `finish` records them in `questions.json`, and the main session asks them and saves the answers in `Profile.md` (`ohmyjob apply questions` / `answer`).
 5. `finish` checks every result, writes `job.md` notes, moves folders (`Pending-Review/` for a form parked at the final step, `Needs-Attention/` for the rest) and updates the tracker in one save. `group-plan` and `cleanup-plan` let the extension group the tabs and close stray ones (job tabs stay open). `end` prints the token table and removes the run folder.
-6. `continue` mode (`adopt-plan`, `adopted`, `assign --continue`) takes the tabs the candidate fixed by hand back into the run group; each worker continues from the open page. Tabs are matched by Chrome's tab id, so after a Chrome restart those jobs are left alone.
+6. `continue` mode (`adopt-plan`, `adopted`, `assign --continue`) takes every tab of the group "Needs Attention" back into the run group; each worker continues from the open page. `adopted` matches a tab to a job by the page it shows (the address of the last note, the Apply URL and the Job URL, then the shared path segments and the company in the tab title), not by Chrome's tab id, so a Chrome restart and a tab the candidate added are both handled. A job without a matching tab is left alone; a tab that fits no job stays open and goes back to "Needs Attention".
+7. A worker has no wall-clock limit: a progress watchdog stops it when nothing moves (`Worker_Limits.json`, the counters live in the run state). `next` frees the slot of a worker that ended or made no call for `idle_minutes`; a late report of such a worker is still accepted.
+8. `end` also writes the ledger and the traces (`ledger.py`) into `.ohmyjob/traces/`, before the run folder is deleted, and says when enough new traces are waiting for `/ohmyjob:dream`.
 
-A worker that is stopped by an upload hang (a hidden browser alert) is retried once with a shortened file name.
+A worker that is stopped by an upload hang (a hidden browser alert) is retried once with a shortened file name (never over an existing file of that name); the new worker starts with clean counters.
+
+### Dream (`ohmyjob dream`)
+
+`start` groups the ledger lines since the watermark by ATS key, writes one evidence bundle per key into `.ohmyjob/run/dream/`, copies a plugin note into `ohmyjob/ats/` when only the plugin has it, and backs up the notes, the report and the watermark to `.ohmyjob/dream/backup/`. `next` hands out one worker per key (slots as above; a worker that sends no report within 20 minutes is given up on). A worker is bound to its key by the first Read of its bundle: the guard then lets it write that one note. `finish` checks every changed note (at most 40 lines, one H1, a `hosts:` line, no email address, no Profile.md header value), puts a note that breaks a rule back, and writes `Dream_Report.md`. `end` moves the watermark and deletes the run folder; `reject` restores the backup.
 
 ## State and files
 
@@ -130,7 +142,10 @@ The workspace is the `ohmyjob/` folder inside the project folder (the folder Cla
 | `Job_Tracker.xlsx` | One row per job: Job URL, Status, Company, Job Title, Date Found, Location, Source, Match Score, Notes. Statuses: `Found`, `Matched`, `Skipped-LowFit`, `Resume Built`, `Resume Failed`, `Pending Review`, `Needs Attention`, `Submitted`, `Deleted`. |
 | `Default_Resume_Files/` | `Template.yaml` and `Template.pdf` (never used for jobs); one complete `<Field>.yaml` per resume with its built `<Field>.pdf`; optional ready-made `<Field>.pdf` without a yaml. Named by field by the user; never edited by the pipeline. |
 | `Applications/`, `Pending-Review/`, `Needs-Attention/`, `Submitted/` | One folder per job named `<job_key>_<Company>_<Title>`, holding `job.md`, the tailored yaml and PDF. |
-| `.ohmyjob/` | `env.sh`, run state (`run/prep`, `run/apply`), `build/`, `catalog/` (the screening text catalog), `questions.json`, `last_report.txt`. Do not edit. |
+| `ats/` | The ATS notes this workspace learned (Dream writes them). A note here replaces the plugin's note of the same name; the plugin ships only four generic notes. |
+| `Worker_Limits.json` | The progress watchdog of the application workers: `stall_nudge_calls`, `stall_stop_calls`, `repeat_deny_stop`, `call_budget`, `idle_minutes`. A missing file, key or unusable value falls back to the default. |
+| `Dream_Report.md` | What the last dream pass found: the metrics per ATS, the lessons, the proposals and the bugs. |
+| `.ohmyjob/` | `env.sh`, run state (`run/prep`, `run/apply`, `run/dream`), `build/`, `catalog/` (the screening text catalog), `questions.json`, `last_report.txt`, `traces/` (`ledger.jsonl` and the redacted traces; never deleted with a run folder) and `dream/` (the watermark and the backup of the last dream). Do not edit. |
 | `.claude/settings.json` | Plugin enablement, environment, the `Bash(ohmyjob *)` allowance and the `javascript_tool` deny; merged by setup. |
 
 In the plugin data folder (`${CLAUDE_PLUGIN_DATA}`, survives updates): the virtualenv, uv's own Python and cache, `uv` if it was missing, TinyTeX if no system LaTeX built the template, the LaTeX font caches (`texmf-var/`) and a stable copy of the extension. Nothing is installed on the user's `PATH`, in `~/.local`, in `~/.cache` or in a system folder; `bin/ohmyjob` and the resume build pass the same scoped `UV_*` and `TEXMF*` settings to every later run. Its path depends on how the plugin is loaded, which is why setup writes it into `env.sh` on every run.

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import itertools
 import json
 import re
 import shutil
@@ -38,8 +39,11 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from typing import Any, Optional
 
+import yaml
+
 import aa_lib as L
 import judge as J
+import ledger
 import workspace as W
 from tracker import Tracker, TrackerError
 
@@ -104,6 +108,7 @@ def job_folder(job: dict) -> Path:
 
 
 TAB_NOTE_RE = re.compile(r"^Tab (\d+) in the run window", re.M)
+NOTE_URL_RE = re.compile(r"^Tab \d+ in the run window \| URL: (\S+)", re.M)
 
 
 def last_note(job_md: str) -> str:
@@ -124,7 +129,9 @@ def continue_section(job_md: str) -> str:
 The candidate fixed this job by hand after the last run (for example, signed in or created the account). Your tab
 still shows the page where the candidate left it. Do not navigate first: call read_page on your tab and go on with the
 application from that page (Flow step 2). If the page says that the application was sent or submitted, stop at
-once with status "blocked" and blocker "already submitted": never start this job again. Navigate to the Apply
+once with status "blocked" and blocker "already submitted": never start this job again. If the tab shows a sign-in or
+account page (not an application form), navigate the tab to its current address once and call read_page before you
+report `ACCOUNT_WALL`. Navigate to the Apply
 URL (else the Job URL) of the brief only when the tab shows no application for this job (an empty or error page, or a page about something else).
 The last run stopped as follows:
 
@@ -132,9 +139,38 @@ The last run stopped as follows:
 """
 
 
+def resume_head(yaml_path: Path) -> Optional[str]:
+    """The `title` and `introduction` of a tailored resume yaml, as a small yaml block; None when it cannot be read.
+
+    A `document: cv` yaml has no introduction: its title alone. The keys are read by their names, never by splitting
+    the text on `experience:` (the yamls have no fixed key order).
+    """
+    try:
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    head = {key: data[key] for key in ("title", "introduction") if isinstance(data.get(key), str) and data[key].strip()}
+    if not head:
+        return None
+    return yaml.safe_dump(head, sort_keys=False, allow_unicode=True, width=1000).strip()
+
+
+def ats_note_lines() -> str:
+    """One line per ATS note the worker may read: `- <title> (hosts: <patterns>): <absolute path>`."""
+    lines = []
+    for note in L.ats_notes():
+        hosts = ", ".join(note["hosts"]) or "the employer's own host"
+        lines.append(f"  - {note['title']} (hosts: {hosts}): {note['path']}")
+    return "\n".join(lines) if lines else "  (no ATS notes found)"
+
+
 def write_brief(run_dir: Path, job: dict) -> Path:
-    """The worker's only source: the full Profile.md (with its Follow Up Questions), the full tailored resume
-    YAML, and the Overview and the Job Description of job.md (its match notes and resume-prep notes stay out)."""
+    """The worker's only source: the full Profile.md (with its Follow Up Questions), the title and introduction of
+    the tailored resume YAML, and the Overview and the Job Description of job.md (its match notes and resume-prep
+    notes stay out). The rest of the YAML (roles, dates, projects, skills) repeats Profile.md, which the resume-worker
+    never changes."""
     folder_path = job_folder(job)
     profile_text = L.PROFILE.read_text(encoding="utf-8").strip()
     if not profile_text:
@@ -143,13 +179,16 @@ def write_brief(run_dir: Path, job: dict) -> Path:
     overview = L.md_section_body(job_md, r"(1\.\s*)?Overview", 2) or "(no Overview section in job.md)"
     jd = L.job_description(job_md) or "(no Job Description section in job.md)"
     yamls = L.tailored_yamls(folder_path)
-    if len(yamls) == 1:
+    head = resume_head(yamls[0]) if len(yamls) == 1 else None
+    if head is not None:
+        resume_title = f"Tailored resume for this job ({yamls[0].name}, title and introduction)"
+        resume_text = "```yaml\n" + head + "\n```"
+    elif len(yamls) == 1:  # a yaml that cannot be parsed, or holds neither key: keep today's text
         resume_title = f"Tailored resume for this job ({yamls[0].name}, full text)"
         resume_text = "```yaml\n" + yamls[0].read_text(encoding="utf-8").strip() + "\n```"
     else:
         resume_title = "Tailored resume for this job"
         resume_text = f"(expected 1 resume yaml in the job folder, found {len(yamls)})"
-    ats = L.ATS_DIR
     apply_line = (f"\n- Apply URL (the employer's own application address: navigate to it first, instead of the Job URL): "
                   f"{job['apply_url']}" if job.get("apply_url") else "")
     text = f"""# Brief: {job['company']} | {job['title']}
@@ -159,15 +198,7 @@ def write_brief(run_dir: Path, job: dict) -> Path:
 - Job URL: {job['url']}{apply_line}
 - Resume PDF to upload (exact path): {job['pdf']}
 - ATS notes. When you reach one of these, Read the note once:
-  - LinkedIn Easy Apply: {ats / 'linkedin-easy-apply.md'}
-  - a *.myworkdayjobs.com page: {ats / 'workday.md'}
-  - a Greenhouse form (greenhouse.io): {ats / 'greenhouse.md'}
-  - a Phenom careers site (Apply Now button with an href, upload on the apply page): {ats / 'phenom.md'}
-
-## How to use this brief
-- Facts about the candidate come only from Profile.md (with its "Follow Up Questions") and the tailored resume below.
-  Copy values exactly. A question about the candidate that they do not answer goes to the candidate: never guess (see your rules).
-- The tailored resume is the text of the PDF that you upload. For this job, prefer its wording.
+{ats_note_lines()}
 
 {continue_section(job_md) if job.get("continue") else ""}
 ## Job: Overview (from job.md)
@@ -255,6 +286,33 @@ def tracker_note(verdict: str, result: Optional[dict], reasons: list[str]) -> st
 # --------------------------------------------------------------------------- commands
 
 
+def match_score(row: dict) -> float:
+    """The tracker Match Score as a number; a row without one ranks last (and keeps its place among its equals)."""
+    try:
+        return float(row["Match Score"])
+    except (TypeError, ValueError):
+        return float("-inf")
+
+
+def pick_rows(rows: list[dict], args: argparse.Namespace) -> tuple[list[dict], list[dict]]:
+    """The "Resume Built" rows to check, in tracker order, and the skips of the --selected entries."""
+    ready = [row for row in rows if (row["Status"] or "").strip() == "Resume Built"]
+    if args.selected is None:
+        return ready, []
+    names, skipped = L.match_folders(args.selected)
+    chosen: list[dict] = []
+    for name in names:
+        key = L.folder_id(name)
+        found = [row for row in ready if key is not None and row["_key"] == key]
+        if found:
+            chosen.extend(found)
+        elif key is not None and any(row["_key"] == key for row in rows):
+            skipped.append({"job": name, "reason": "not at Resume Built"})
+        else:
+            skipped.append({"job": name, "reason": "no tracker row for this job id"})
+    return chosen, skipped
+
+
 def continue_queue(rows: list[dict], by_key: dict) -> tuple[list[dict], list[dict]]:
     """/continue-applying: every job in Needs-Attention/ at "Needs Attention", with the tab its last note names."""
     folders: dict[str, list[Path]] = {}
@@ -283,10 +341,7 @@ def continue_queue(rows: list[dict], by_key: dict) -> tuple[list[dict], list[dic
         if "CHECK THIS JOB NOW" in note.split("\n", 1)[0]:
             skipped.append({"job": label, "folder": folder.name, "reason": "the last run saw a submission message: check it by hand"})
             continue
-        tabs = TAB_NOTE_RE.findall(note)
-        if not tabs:
-            skipped.append({"job": label, "folder": folder.name, "reason": "the last note of job.md names no tab"})
-            continue
+        tabs = TAB_NOTE_RE.findall(note)  # may be empty: a tab the candidate added is matched by its page (match_tabs)
         overview = L.job_overview(job_md)
         queue.append({
             "folder": folder.name, "company": row["Company"] or overview.get("Company", ""),
@@ -294,7 +349,10 @@ def continue_queue(rows: list[dict], by_key: dict) -> tuple[list[dict], list[dic
             "url": overview.get("Job URL") or row["Job URL"], "apply_url": overview.get("Apply URL") or "",
             "pdf": str(pdf.resolve()),
             "location": str(overview.get("Location") or row["Location"] or ""),
-            "continue": True, "prev_tab": int(tabs[-1]),
+            "continue": True, "prev_tab": int(tabs[-1]) if tabs else None,
+            # the pages this job used, best first: the address of the last note, the Apply URL, the Job URL
+            "urls": [u for u in (*NOTE_URL_RE.findall(note)[-1:], overview.get("Apply URL"),
+                                 overview.get("Job URL") or row["Job URL"]) if u],
         })
     return queue, skipped
 
@@ -309,6 +367,14 @@ def cmd_start(args: argparse.Namespace) -> None:
     if W.has_template_marker(W.PROFILE):
         fatal("Profile.md still has the template marker (the mock data of the template): fill in your own details, then "
               "delete the marker line, and run this again.")
+    if args.cont and (args.selected is not None or args.top_k is not None):
+        fatal("--continue takes no --selected and no --top-k-match")
+    if args.selected is not None and args.top_k is not None:
+        fatal("give --selected or --top-k-match, not both")
+    if args.top_k is not None:
+        if not args.top_k.strip().isdecimal() or int(args.top_k) < 1:
+            fatal(f"--top-k-match takes a whole number of 1 or more, got {args.top_k!r}")
+        args.top_k = int(args.top_k)
     W.load_config()  # reads ohmyjob.json now: a bad config stops the run here (main prints FATAL), not in the middle of it
     # A run that stopped early leaves its folder. Its jobs are still at "Resume Built", so they are queued again.
     delete_run_folders()
@@ -329,9 +395,10 @@ def cmd_start(args: argparse.Namespace) -> None:
             if fid:
                 folders.setdefault(fid, []).append(path)
     queue, skipped = continue_queue(rows, by_key) if args.cont else ([], [])
-    for row in rows:
-        if args.cont or (row["Status"] or "").strip() != "Resume Built":
-            continue
+    ready, selection_skips = ([], []) if args.cont else pick_rows(rows, args)
+    skipped.extend(selection_skips)
+    scores: dict[str, float] = {}
+    for row in ready:
         label = f"{row['Company']} | {row['Job Title']}"
         if len(by_key[row["_key"]]) > 1:
             skipped.append({"job": label, "reason": "more than one tracker row has this job id"})
@@ -356,6 +423,7 @@ def cmd_start(args: argparse.Namespace) -> None:
             skipped.append({"job": label, "folder": folder.name, "reason": "no job URL"})
             continue
         location = overview.get("Location") or row["Location"] or ""
+        scores[folder.name] = match_score(row)
         queue.append(
             {
                 "folder": folder.name,
@@ -367,6 +435,8 @@ def cmd_start(args: argparse.Namespace) -> None:
                 "location": str(location),
             }
         )
+    if args.top_k is not None:  # the best K of the jobs that can be queued; the rest stay at "Resume Built"
+        queue = sorted(queue, key=lambda q: scores[q["folder"]], reverse=True)[: args.top_k]  # stable on ties
     # The LinkedIn sign-in is checked only when a queued job starts on linkedin.com (its Apply URL when it has one).
     needs_linkedin = (not args.cont) and any(L.is_linkedin_url(q.get("apply_url") or q["url"]) for q in queue)
     home_url = FEED_MARKER_URL if needs_linkedin else ROBOTS_MARKER_URL
@@ -445,6 +515,17 @@ def helper_note(helper: bool, title: str) -> str:
     return "pop-up helper: on"
 
 
+def limits_note() -> str:
+    """The worker limits for the preflight line: `OK limits: {...}`, or `WARN limits: ...` for a value that fell back."""
+    limits = L.worker_limits()
+    warnings = limits.get("_warnings") or []
+    values = {k: v for k, v in limits.items() if k != "_warnings"}
+    if warnings:
+        return ("WARN limits: " + ", ".join(f"{k} unusable, using {values[k]}" for k in warnings)
+                + f" (edit {L.LIMITS_PATH.name} in your workspace)")
+    return f"OK limits: {values}"
+
+
 def cmd_preflight(args: argparse.Namespace) -> None:
     """One line: OK (or SIGNED_OUT / UNKNOWN), then the state of the pop-up helper and of the Haiku check."""
     run_dir = need_run()
@@ -494,6 +575,7 @@ def cmd_preflight(args: argparse.Namespace) -> None:
     notes.append(helper_note(helper, title))
     notes.append(f"Haiku check: OK ({judge_note})" if judge_ok else
                  f"WARN Haiku check: not available ({judge_note}); button names that no word list knows will be blocked")
+    notes.append(limits_note())
     with L.locked(run_dir):
         state = L.load_state(run_dir)
         state["preflight"] = {"helper": helper, "judge": judge_ok, "judge_note": judge_note,
@@ -510,26 +592,86 @@ def cmd_adopt_plan(args: argparse.Namespace) -> None:
         state = L.load_state(run_dir)
         if state.get("mode") != "continue" or state.get("home_tab") is None:
             fatal("adopt-plan is for /continue-applying, after 'preflight'")
-        claims = collections.Counter(state["jobs"][f]["prev_tab"] for f in state["queue"])
-        tabs = sorted(t for t, n in claims.items() if n == 1)  # a tab that two jobs name stays where it is
+        # the helper extension brings back every tab of the group "Needs Attention", also one the candidate added; the
+        # ids in the address only serve an older version, which moved just the tabs it had grouped itself
+        tabs = sorted({state["jobs"][f]["prev_tab"] for f in state["queue"]} - {None})
         # the query makes it a new page: the home tab is on robots.txt#aa-popups-as-tabs, and a change after '#' alone does
         # not load a page again, so the extension would never see the plan
         url = ("https://www.linkedin.com/robots.txt?aa-adopt#aa-adopt=" + quote(json.dumps(tabs, separators=(",", ":")), safe="")
-               if tabs else None)
+               if state["queue"] else None)
         state["adopt_url"] = url  # the guard lets the master load this page only
         L.save_state(run_dir, state)
-    emit({"tab": state["home_tab"], "url": url, "tabs": len(tabs)})
+    emit({"tab": state["home_tab"], "url": url, "jobs": len(state["queue"])})
+
+
+def site_key(url: Optional[str]) -> Optional[str]:
+    """Where a page is: its host. A LinkedIn job page also gets its job id (every LinkedIn job shares the host)."""
+    host = L.host_of(url)
+    job_id = re.search(r"/jobs/view/(?:[^/?#]*-)?(\d+)", url or "")
+    return f"{host}/{job_id.group(1)}" if host and job_id and host.endswith("linkedin.com") else host
+
+
+def _segments(url: Optional[str]) -> list[str]:
+    return [x for x in urlsplit(url or "").path.split("/") if x]
+
+
+def _name(text: Optional[str]) -> str:
+    """Letters and digits only, without a legal suffix: "Acme, Inc." and "Acme | Careers" both contain "acme"."""
+    return re.sub(r"[^a-z0-9]+", "", re.sub(r"\b(inc|llc|ltd|gmbh|ag|corp|plc|pty|limited)\b", "", (text or "").casefold()))
+
+
+def _fit(job: dict, tab: dict) -> tuple[int, bool]:
+    """How well a tab on a host of the job fits it: the leading path segments it shares with a page of the job (on a
+    shared ATS host the path holds the company and the job id), then the company name in the tab title."""
+    here = _segments(tab["url"])
+    shared = max((sum(1 for _ in itertools.takewhile(lambda p: p[0] == p[1], zip(_segments(u), here)))
+                  for u in job.get("urls") or [] if site_key(u) == site_key(tab["url"])), default=0)
+    company = _name(job.get("company"))
+    return shared, bool(company) and company in _name(tab.get("title"))
+
+
+def _top(scores: dict) -> Any:
+    """The key with the one highest score, or None when two share it."""
+    ranked = sorted(scores, key=scores.get, reverse=True)
+    return ranked[0] if ranked and (len(ranked) == 1 or scores[ranked[0]] > scores[ranked[1]]) else None
+
+
+def match_tabs(jobs: dict[str, dict], tabs: list[dict]) -> dict[str, int]:
+    """/continue-applying: folder -> the id of the tab that holds the job's application.
+
+    First the tab that the last note names, but only when its page fits the job (a host of a page the job used): after
+    a Chrome restart that id can be another tab. Then the tabs the candidate added, round by round: a tab is on a host
+    of the job, and each is the other's best fit (see _fit). With no better sign, a lone tab on a job's host is that
+    job's tab. A tab that two jobs fit equally goes to neither; a match leaves the other jobs and tabs fewer, so the
+    next round can settle them."""
+    keys = {f: {k for k in map(site_key, j.get("urls") or []) if k} for f, j in jobs.items()}
+    by_id = {t["id"]: t for t in tabs}
+    named = {f: j["prev_tab"] for f, j in jobs.items()
+             if j.get("prev_tab") in by_id and (not keys[f] or site_key(by_id[j["prev_tab"]]["url"]) in keys[f])}
+    taken = collections.Counter(named.values())
+    out = {f: t for f, t in named.items() if taken[t] == 1}
+    while True:
+        fit = {(f, t["id"]): _fit(jobs[f], t) for f in jobs if f not in out for t in tabs
+               if t["id"] not in out.values() and site_key(t["url"]) in keys[f]}
+        new = {}
+        for f in {f for f, _ in fit}:
+            t = _top({u: s for (g, u), s in fit.items() if g == f})
+            if t is not None and _top({g: s for (g, u), s in fit.items() if u == t}) == f:
+                new[f] = t
+        if not new:
+            return out
+        out.update(new)
 
 
 def cmd_adopted(args: argparse.Namespace) -> None:
-    """After the adopt page and tabs_context_mcp: keep only the jobs whose tab came back. A job whose tab is not open
-    in the group "Needs Attention" (finished by hand with the tab closed, for example) is left alone: it leaves
-    the run, and its folder and row stay as they are for reconcile."""
+    """After the adopt page and tabs_context_mcp: keep only the jobs whose tab came back (see 'match_tabs'). A job
+    without an open tab in the group "Needs Attention" (finished by hand with the tab closed, for example) is left
+    alone: it leaves the run, and its folder and row stay as they are for reconcile. A tab that fits no job stays the
+    candidate's: the run keeps it open and puts it back in the group "Needs Attention"."""
     run_dir = need_run()
     seen = L.read_json(L.snap_dir(run_dir) / "tabs_context.json", None)
     if seen is None:
         fatal("no tabs_context result is saved; call tabs_context_mcp after the adopt page loaded")
-    present = {int(t["id"]) for t in seen}
     with L.locked(run_dir):
         state = L.load_state(run_dir)
         if state.get("status") != "running" or state.get("mode") != "continue" or "adopt_url" not in state:
@@ -540,17 +682,21 @@ def cmd_adopted(args: argparse.Namespace) -> None:
             state["adopt_retries"] = state.get("adopt_retries", 0) + 1
             L.save_state(run_dir, state)
             if state["adopt_retries"] > 2:
-                fatal("the helper extension did not confirm the adopt page: reload it in chrome://extensions "
-                      "(the plugin's version), then run /continue-applying again")
+                fatal(f"the helper extension did not confirm the adopt page: reload it in chrome://extensions "
+                      f"(version {L.extension_version()} or later), then run /continue-applying again")
             print("RETRY wait 3 seconds, call tabs_context_mcp, then run adopted again")
             return
-        claims = collections.Counter(state["jobs"][f]["prev_tab"] for f in state["queue"])
-        kept, left = [], []
-        for folder in state["queue"]:
-            tab = state["jobs"][folder]["prev_tab"]
-            (kept if claims[tab] == 1 and tab in present else left).append(folder)
+        # the tabs that came back: all but the home tab and the tabs that were in Claude's group before the run
+        before = {int(t) for t in state.get("initial_tabs") or []} | {int(state["home_tab"])}
+        back = [t for t in seen if int(t["id"]) not in before]
+        found = match_tabs({f: state["jobs"][f] for f in state["queue"]}, back)
+        kept = [f for f in state["queue"] if f in found]
+        left = [f for f in state["queue"] if f not in found]
         for folder in left:
             del state["jobs"][folder]
+        for folder in kept:
+            state["jobs"][folder]["prev_tab"] = found[folder]
+        state["extra_tabs"] = [int(t["id"]) for t in back if int(t["id"]) not in found.values()]
         state["queue"] = kept
         state["left_alone"] = left
         state["adopted"] = True
@@ -657,14 +803,32 @@ def cmd_next(args: argparse.Namespace) -> None:
             for j in lost:
                 j["started_at"] = None
             waiting = [j["worker"] for j in lost] + (state.get("waiting") or []) + retry
+            # the progress watchdog has no wall-clock limit: a slot is free when its worker ended (capture) or made
+            # no tool call for idle_minutes (Worker_Limits.json)
+            limits = L.worker_limits()
+            for folder, job in state["jobs"].items():
+                if not job.get("started_at") or job.get("recorded") or job.get("stopped_by") \
+                        or (L.job_dir(run_dir, folder) / "result.json").exists():
+                    continue
+                if job.get("ended_at"):
+                    job["stopped_by"] = "ended"
+                    L.log(run_dir, "give-up", folder=folder, reason="the worker ended without a report")
+                    continue
+                last = job.get("last_call_at") or job.get("spawned_at") or job["started_at"]
+                if now - last > limits["idle_minutes"] * 60:
+                    job["stopped_by"] = "idle"
+                    L.log(run_dir, "give-up", folder=folder,
+                          reason=f"no tool call for {limits['idle_minutes']} minutes")
             running = [f for f, j in state["jobs"].items() if j.get("started_at") and not j.get("recorded")
-                       and now - j["started_at"] < L.STALE_SECONDS
+                       and not j.get("ended_at") and j.get("stopped_by") not in ("idle", "ended")
                        and not (L.job_dir(run_dir, f) / "result.json").exists()]
             free = max(0, L.SLOTS - len(running))
             take, state["waiting"] = waiting[:free], waiting[free:]
             for w in take:
-                state["jobs"][w["folder"]].update({"started_at": now, "spawned": False, "worker": w,
-                                                  "brief_agent": None})  # a new worker claims the brief
+                job = state["jobs"][w["folder"]]
+                job.update({"started_at": now, "spawned": False, "worker": w,
+                            "brief_agent": None})  # a new worker claims the brief
+                L.reset_worker_slot(job)  # nothing of the last worker counts for this one (4.7 defect 2)
             L.save_state(run_dir, state)
         if take:
             return emit({"workers": take})
@@ -691,9 +855,18 @@ def retry_workers(run_dir: Path) -> list:
             short = f"{W.file_prefix()}_" + re.sub(r"^\d+_", "", folder).split("_")[0]
             if pdf.stem == short:
                 continue  # the name is short already: not the cause, the job stays blocked
-            for old in [pdf, *(y for y in L.tailored_yamls(pdf.parent) if y.stem == pdf.stem)]:
+            olds = [pdf, *(y for y in L.tailored_yamls(pdf.parent) if y.stem == pdf.stem)]
+            clash = [o for o in olds if o.with_name(short + o.suffix).exists()]
+            if clash:
+                # renaming would overwrite another resume of this job: leave both files and the job blocked
+                job["error"] = (f"cannot shorten the resume name: {clash[0].with_name(short + clash[0].suffix).name} "
+                                f"exists already in the job folder")
+                L.log(run_dir, "retry-skip", folder=folder, reason=job["error"])
+                continue
+            for old in olds:
                 old.rename(old.with_name(short + old.suffix))
             job.update({"pdf": str(pdf.with_name(short + ".pdf")), "renamed": True, "capture_blocks": 0})
+            L.reset_worker_slot(job)  # the second worker of this job starts clean (4.7 defect 2)
             result_path.unlink()
             state["tabs"][L.tab_key(job["tab"])].update(
                 {"agent_id": None, "started": False, "google_clicks": 0,
@@ -723,6 +896,11 @@ def cmd_finish(args: argparse.Namespace) -> None:
             results[folder] = L.read_json(L.job_dir(run_dir, folder) / "result.json", None)
             job["verdict"], job["reasons"] = L.check_result(run_dir, state, job, results[folder])
             job.pop("error", None)
+        # the sign-in lease of a worker that has returned is free again (4.8)
+        returned = {L.tab_key(state["jobs"][f]["tab"]) for f in todo if state["jobs"][f].get("tab") is not None}
+        for host, lease in list((state.get("signin_hosts") or {}).items()):
+            if isinstance(lease, dict) and lease.get("status") == "pending" and lease.get("holder") in returned:
+                del state["signin_hosts"][host]
         stop = None
         if todo:
             stop = record_all(state, todo, results)
@@ -763,7 +941,7 @@ def record_all(state: dict, folders: list[str], results: dict) -> Optional[str]:
                 shutil.move(str(dest), str(src))
             (src / "job.md").write_text(original_md, encoding="utf-8")
             state["jobs"][folder]["error"] = f"could not save the tracker ({exc}); folder moved back, job.md restored"
-        return str(exc) if isinstance(exc, TrackerError) else None
+        return f"could not save the tracker: {exc}"
     for folder, src, dest, _orig in done:
         job = state["jobs"][folder]
         if job["verdict"] == "CLOSED":
@@ -852,6 +1030,8 @@ def cmd_group_plan(args: argparse.Namespace) -> None:
             title = GROUP_TITLES.get(job.get("dest") or "")
             if title and job.get("recorded") and job.get("tab") is not None:
                 groups.setdefault(title, []).append(int(job["tab"]))
+        for tab in state.get("extra_tabs") or []:  # a tab that fits no job: back where the candidate had it
+            groups.setdefault("Needs Attention", []).append(int(tab))
         url = None
         if groups and state.get("home_tab") is not None:
             # the query makes it a new page: in /continue-applying the home tab is on robots.txt?aa-adopt#aa-adopt=..., and a
@@ -1003,16 +1183,31 @@ def cmd_end(args: argparse.Namespace) -> None:
         judge: dict = {}
         log = run_dir / "judge_usage.jsonl"
         for line in (log.read_text(encoding="utf-8").splitlines() if log.exists() else []):
-            entry = json.loads(line)
+            try:  # a damaged line must not stop 'end': the run folder holds copies of personal data
+                entry = json.loads(line)
+                usage = entry["usage"]
+                counts = {k: usage.get(k) or 0 for k in L.USAGE_KEYS}
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+                continue
             row = judge.setdefault(("Haiku check", entry.get("model") or "?"), collections.Counter())
             row["calls"] += 1
-            row.update({k: entry["usage"].get(k) or 0 for k in L.USAGE_KEYS})
+            row.update(counts)
         table = L.usage_table(master.get("transcript"), master.get("agent_id"), judge)
         print(table)
         L.save_report(table)
-        note = grouped_note(run_dir, L.load_state(run_dir))
+        state = L.load_state(run_dir)
+        note = grouped_note(run_dir, state)
         if note:
             print(note)
+        # the ledger and the traces are written BEFORE the run folder goes (it holds the reports and the pages)
+        try:
+            lines = ledger.write_ledger_and_traces(run_dir, state, master.get("transcript"), master.get("agent_id"))
+            print(f"Ledger: {lines} lines in {ledger.LEDGER_PATH}")
+            hint = ledger.dream_hint()
+            if hint:
+                print(hint)
+        except Exception as exc:  # noqa: BLE001  (nothing about the ledger may stop 'end')
+            print(f"WARN the ledger was not written ({exc})")
     delete_run_folders()
     print("RUN FOLDER DELETED")
 
@@ -1034,6 +1229,7 @@ def cmd_cleanup_plan(args: argparse.Namespace) -> None:
         return
     initial = {str(t) for t in (state.get("initial_tabs") or [])}
     fixed = {str(j["prev_tab"]) for j in state["jobs"].values() if j.get("prev_tab") is not None}  # tabs fixed by hand
+    fixed |= {str(t) for t in (state.get("extra_tabs") or [])}  # tabs of the candidate's own: never ours to close
     close, keep = [], []
     for tab in seen:
         tid = str(tab["id"])
@@ -1071,6 +1267,9 @@ def summary(state: dict) -> str:
         else:
             where = "Needs-Attention/ at Needs Attention" if j.get("continue") else "Applications/ at Resume Built"
             lines.append(f"- NOT RECORDED {j['folder']} (still in {where}): {j.get('error') or 'unknown error'}")
+    if state.get("extra_tabs"):
+        lines.append(f"Extra tabs: {len(state['extra_tabs'])} open tabs fitted no job; they stay open and go back to the "
+                     "group 'Needs Attention'")
     if state.get("left_alone"):
         lines.append(f"Left alone: {len(state['left_alone'])} jobs in Needs-Attention/ without an open tab in the group "
                      "'Needs Attention' (finished by hand or closed; reconcile handles them)")
@@ -1100,6 +1299,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("start")
     p.add_argument("--continue", dest="cont", action="store_true")
+    p.add_argument("--selected", default=None, help='job folder names, comma separated: "Acme, Lumenfield"')
+    p.add_argument("--top-k-match", dest="top_k", default=None, help="queue only the N jobs with the best Match Score")
     p = sub.add_parser("preflight")
     p.add_argument("--tab", type=int, required=True)
     p.add_argument("--home-only", action="store_true")

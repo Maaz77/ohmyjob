@@ -100,7 +100,7 @@ def _root_or_cwd() -> Path:
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-ATS_DIR = PLUGIN_ROOT / "ats"
+ATS_DIR = PLUGIN_ROOT / "ats"  # the plugin's generic notes (the only ones it ships)
 TEMPLATES_DIR = PLUGIN_ROOT / "templates"
 
 ROOT = _root_or_cwd()
@@ -124,6 +124,9 @@ BUILD_DIR = STATE_DIR / "build"  # one folder per resume build
 CATALOG_DIR = STATE_DIR / "catalog"  # the screening catalog: the text of every usable resume (prep start writes it)
 QUESTIONS_FILE = STATE_DIR / "questions.json"
 REPORT_FILE = STATE_DIR / "last_report.txt"
+TRACES_DIR = STATE_DIR / "traces"  # ledger.jsonl and one trace per interesting job: what Dream learns from
+DREAM_DIR = STATE_DIR / "run" / "dream"  # the dream run's own folder (bundles, results, state)
+USER_ATS_DIR = ROOT / "ats"  # the notes this user learned (Dream writes them); a note here replaces the plugin's with the same stem
 
 # --------------------------------------------------------------------------- agents and guard commands
 
@@ -132,7 +135,10 @@ SCREEN_WORKER = "ohmyjob:screen-worker"
 RESUME_WORKER = "ohmyjob:resume-worker"
 APPLICATION_MASTER = "ohmyjob:application-master"
 APPLICATION_WORKER = "ohmyjob:application-worker"
+DREAM_MASTER = "ohmyjob:dream-master"
+DREAM_WORKER = "ohmyjob:dream-host-worker"
 PREP_AGENTS = frozenset({PREP_MASTER, SCREEN_WORKER, RESUME_WORKER})
+DREAM_AGENTS = frozenset({DREAM_MASTER, DREAM_WORKER})
 PREP_WORKERS = frozenset({SCREEN_WORKER, RESUME_WORKER})
 APPLICATION_AGENTS = frozenset({APPLICATION_MASTER, APPLICATION_WORKER})
 
@@ -141,16 +147,25 @@ APPLICATION_AGENTS = frozenset({APPLICATION_MASTER, APPLICATION_WORKER})
 MASTER_WORKERS = {
     PREP_MASTER: frozenset({SCREEN_WORKER, RESUME_WORKER}),
     APPLICATION_MASTER: frozenset({APPLICATION_WORKER}),
+    DREAM_MASTER: frozenset({DREAM_WORKER}),
 }
 
 # The only Bash commands the guards let an agent run (matched against the stripped command).
 PREP_MASTER_CMD_RE = re.compile(r"^ohmyjob prep (start|next|record|end|assign-(screen|build)( --max \d+)?)$", re.ASCII)
 RESUME_BUILD_CMD_RE = re.compile(r"^ohmyjob prep build (\d+)$", re.ASCII)  # group 1: the job key
+# --selected takes one double-quoted list of job names: letters, digits, spaces and , . _ & + ( ) - only. No quote, $,
+# backtick, backslash, ! or ; can reach the shell from it. --top-k-match is a small whole number.
+SELECTED_TEXT_RE = r"[A-Za-z0-9 ,._&+()-]{1,300}"
 APPLICATION_MASTER_CMD_RE = re.compile(
-    r"^ohmyjob apply (start( --continue)?|preflight --tab \d+( --home-only)?|assign( --tabs \d+(,\d+)*)?( --continue)?"
+    r"^ohmyjob apply (start( --continue)?"
+    rf'|start --top-k-match [1-9]\d{{0,3}}'
+    rf'|start --selected "{SELECTED_TEXT_RE}"'
+    r"|preflight --tab \d+( --home-only)?|assign( --tabs \d+(,\d+)*)?( --continue)?"
     r"|next|retry-plan|finish|group-plan|cleanup-plan|end|adopt-plan|adopted)$",
     re.ASCII,
 )
+
+DREAM_MASTER_CMD_RE = re.compile(r"^ohmyjob dream (start|next|finish|end)$", re.ASCII)
 
 # A worker that stops on questions it cannot answer from the brief reports this blocker.
 QUESTIONS_BLOCKER = "questions for the candidate"

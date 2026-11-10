@@ -11,6 +11,8 @@
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
+  const CONTROLS = 'button, [role="button"], input[type="submit"], input[type="button"], a, [role="link"]';
+  const GOOGLE_TAG_RE = /\[AA g=\d+ named=\d+\]/;
   let tries = 0;
   let naming = false;
 
@@ -70,15 +72,96 @@
     return false;
   }
 
+  function hasName(el) {
+    return !!(el.textContent.trim() || el.value || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby"));
+  }
+
+  function isClickable(el) {
+    if (el.hasAttribute("tabindex") || el.hasAttribute("onclick")) return true;
+    try {
+      return getComputedStyle(el).cursor === "pointer";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // A <div> or <span> around an icon: some sites build their Google button that way. Only these are looked at, never
+  // every element of the page: getComputedStyle on the whole document ran on every mutation and froze big forms.
+  function iconHolders() {
+    const out = new Set();
+    for (const node of document.querySelectorAll("svg, img")) {
+      const holder = node.closest("div, span");
+      if (holder) out.add(holder);
+    }
+    return out;
+  }
+
   function nameGoogleButtons() {
-    for (const el of document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]')) {
-      if (el.textContent.trim() || el.value || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby")) continue;
+    for (const el of document.querySelectorAll(CONTROLS)) {
+      if (hasName(el)) continue;
       const label = el.closest("label");
       if (label && label.textContent.trim()) continue;
       if (!hasGoogleIcon(label || el)) continue;
       el.setAttribute("aria-label", GOOGLE_NAME);
-      if (label) label.setAttribute("aria-label", GOOGLE_NAME); // the button can be hidden: its label takes the click
+      // the control can be hidden: its label takes the click
+      if (label && !hasName(label)) label.setAttribute("aria-label", GOOGLE_NAME);
     }
+    for (const el of iconHolders()) {
+      if (hasName(el) || !isClickable(el) || !hasGoogleIcon(el)) continue;
+      el.setAttribute("aria-label", GOOGLE_NAME);
+      const label = el.closest("label");
+      if (label && !hasName(label)) label.setAttribute("aria-label", GOOGLE_NAME);
+    }
+  }
+
+  // The title tag of a job tab: how many Google controls the page has, and how many of them have a name. The guard
+  // uses it to tell a page with a Google sign-in from one without (GOOGLE_MISSED in the ledger).
+  function countGoogleControls() {
+    let count = 0;
+    let named = 0;
+    const seen = new Set();
+    const add = (el, isNamed) => {
+      if (seen.has(el)) return;
+      seen.add(el);
+      count += 1;
+      if (isNamed) named += 1;
+    };
+    const candidates = [...document.querySelectorAll(CONTROLS), ...iconHolders()];
+    for (const el of candidates) {
+      const label = el.closest("label");
+      if (hasGoogleIcon(label || el)) {
+        add(el, hasName(el) || !!(label && label.textContent.trim()));
+        continue;
+      }
+      const text = `${el.textContent} ${el.getAttribute("aria-label") || ""} ${el.title || ""} ${el.getAttribute("alt") || ""}`;
+      if (/google/i.test(text)) {
+        add(el, hasName(el));
+        continue;
+      }
+      let background = "";
+      try {
+        background = getComputedStyle(el).backgroundImage || "";
+      } catch (e) {
+        background = "";
+      }
+      // the host googleusercontent.com serves user pictures, not the Google logo
+      if (/google/i.test(background) && !/googleusercontent\.com/i.test(background)) add(el, hasName(el));
+    }
+    // Google's own sign-in widget: its button lives in a cross-origin frame, so it has no name here
+    for (const frame of document.querySelectorAll('iframe[src*="accounts.google.com/gsi/"]')) add(frame, false);
+    return { count, named };
+  }
+
+  function updateGoogleTag() {
+    if (!isTop) return;
+    const title = document.title || "";
+    if (TAG_RE.test(title)) return;  // the home tab and a sign-in tab keep their own tag
+    const { count, named } = countGoogleControls();
+    const tag = `[AA g=${count} named=${named}]`;
+    const current = title.match(GOOGLE_TAG_RE);
+    if (current && current[0] === tag) return;
+    const cleaned = title.replace(GOOGLE_TAG_RE, "").trim();
+    document.title = cleaned + (cleaned ? " " : "") + tag;
   }
 
   function keepNamingGoogleButtons(root) {
@@ -87,9 +170,13 @@
     let timer = null;
     new MutationObserver(() => {
       clearTimeout(timer);
-      timer = setTimeout(nameGoogleButtons, 150);
+      timer = setTimeout(() => {
+        nameGoogleButtons();
+        updateGoogleTag();
+      }, 150);
     }).observe(root, { subtree: true, childList: true });
     nameGoogleButtons();
+    updateGoogleTag();
   }
 
   function ask() {

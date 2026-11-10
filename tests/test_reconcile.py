@@ -279,10 +279,9 @@ def test_failed_move_after_save_is_healed_by_the_next_run(workspace, rc, monkeyp
         raise PermissionError("denied")
 
     monkeypatch.setattr(rc.shutil, "move", broken)
-    with pytest.raises(SystemExit) as exc:
-        rc.main(["--apply"])
-    assert exc.value.code == 3
-    assert "FATAL: denied" in capsys.readouterr().err
+    rc.main(["--apply"])
+    out = capsys.readouterr().out
+    assert "2 folder(s) were not moved" in out and "1023_Acme_Analyst (denied)" in out
     assert status(workspace, 1)["Status"] == "Submitted"  # saved, folders not moved
     monkeypatch.undo()
     r = run(workspace)
@@ -293,6 +292,22 @@ def test_failed_move_after_save_is_healed_by_the_next_run(workspace, rc, monkeyp
     assert (workspace / "Submitted" / "1023_Acme_Analyst").is_dir()
     assert (workspace / "Submitted" / "1024_Acme_Analyst").is_dir()
     assert "Invariant: 2 Submitted rows == 2 Submitted folders  PASS" in run(workspace).stdout
+
+
+def test_a_tracker_save_that_fails_moves_no_folder(workspace, rc, monkeypatch, capsys):
+    """Spec 5: the tracker is saved first, so a failed save leaves every folder where it is."""
+    make(workspace, [(url(1123), "Pending Review")])
+    src = folder(workspace, "Pending-Review", 1123)
+
+    def broken(self):
+        raise rc.TrackerError("the workbook is open elsewhere")
+
+    monkeypatch.setattr(rc.Tracker, "save", broken)
+    with pytest.raises(SystemExit) as exc:
+        rc.main(["--apply"])
+    assert exc.value.code == 3
+    assert "the workbook is open elsewhere" in capsys.readouterr().err
+    assert src.is_dir() and not (workspace / "Submitted" / src.name).exists()
 
 
 def test_collision_precheck_refuses_before_any_write(workspace, rc, capsys):

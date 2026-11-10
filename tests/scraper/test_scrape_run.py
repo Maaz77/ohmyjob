@@ -178,8 +178,12 @@ def test_existing_folder_and_row_are_skipped_never_overwritten(setup, capsys):
     pending.mkdir()
     boards["linkedin"] = frame(post(), post(url="https://www.linkedin.com/jobs/view/222", company="Done"))
     scrape.run(root, configure())
+    out = capsys.readouterr().out
     assert (folder / "job.md").read_text(encoding="utf-8") == "MINE" and rows(root) == []
-    assert "2 known dropped" in capsys.readouterr().out
+    assert "2 known dropped" in out
+    # the folder makes the job known, so it is dropped before the write; the WARNING of scrape.py covers the race
+    # where a folder appears after that check (it cannot be produced from here without patching the scan)
+
 
 
 def test_same_posting_twice_keeps_one_key(setup, capsys):

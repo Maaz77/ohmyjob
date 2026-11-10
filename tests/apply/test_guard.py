@@ -330,7 +330,7 @@ class TestTrackerStop(T.Base):
             self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://www.linkedin.com/jobs/view/1"}, W, agent))
             report = {"folder": fold, "tab": tab, "status": "blocked", "where": "job page", "final_button": "",
                       "url": "https://www.linkedin.com/jobs/view/1", "filled": [], "uploaded": None, "drafted": [],
-                      "open": [], "declarations": [], "blocker": "Account wall"}
+                      "open": [], "declarations": [], "blocker": "ACCOUNT_WALL: the site wants an account"}
             self.assertAllowed(self.handback(json.dumps(report), agent_id=agent))
         lock = self.root / "~$Job_Tracker.xlsx"
         lock.write_text("")
@@ -439,6 +439,82 @@ class TestSkillText(unittest.TestCase):
             self.assertIn("apostrophe inside the JSON as " + chr(92) + "u0027", text)
 
 
+class TestBriefClaim(T.Base):
+    """A worker's brief: the claim, the hint in a refused Read, and the brief of a second worker (4.12)."""
+
+    def read(self, path, agent="A1"):
+        return self.hook("guard", {"hook_event_name": "PreToolUse", "tool_name": "Read",
+                                   "tool_input": {"file_path": str(path)}, "agent_type": W, "agent_id": agent})
+
+    def test_a_refused_read_names_the_brief_this_worker_claimed(self):
+        self.aa_json("start")
+        (folder, _tab, brief), (folder2, _t2, brief2) = self.assign(101, 102)
+        self.assertExplicitAllow(self.read(brief))
+        # another job's brief, and a file that is no brief at all: refused, with the path of its own brief
+        for path in (brief2, self.root / "Profile.md"):
+            proc = self.read(path)
+            self.assertDenied(proc, "may read only")
+            self.assertTrue(proc.stderr.strip().endswith(f"Your brief is {brief}"), proc.stderr)
+        # a worker with no brief yet gets no hint
+        proc = self.read(self.root / "Profile.md", agent="A9")
+        self.assertDenied(proc, "may read only")
+        self.assertNotIn("Your brief is", proc.stderr)
+
+    def test_a_second_worker_of_a_retried_job_claims_the_brief_again(self):
+        self.aa_json("start")
+        (folder, tab, brief), *_rest = self.assign(101, 102)
+        self.assertExplicitAllow(self.read(brief))
+        self.assertDenied(self.read(brief, agent="B1"), "may read only")  # claimed by the first worker
+        # the job goes to a new worker: 'next' clears the claim, and the new worker takes it
+        self.set_job(folder, brief_agent=None, started_at=T.time.time())
+        self.assertExplicitAllow(self.read(brief, agent="B1"))
+        self.assertEqual(self.state()["jobs"][folder]["brief_agent"], "B1")
+
+
+class TestJudgeErrorReported(T.Base):
+    """Spec section 6, bug 1. Its own workspace: the test runs a whole apply run."""
+
+    def test_a_failed_haiku_check_reaches_the_summary(self):
+        """Bug 1: the judge error must be saved under the lock, else `finish` cannot report it."""
+        self.aa_json("start")
+        (folder, tab, _brief), *_rest = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  f'button "Fallisci" [ref_7]\n\nTab Context:\n- tab {tab}', W, "A1")
+        self.assertDenied(self.click(tab, "ref_7", "A1", "Goes on"), "check")
+        self.assertIn("Fallisci", self.state()["jobs"][folder]["judge_error"])
+        self.assertIn("WARN Haiku check failed for", self.aa("finish"))
+
+class TestTrackerSaveFailure(T.Base):
+    """Spec section 6, bug 3. Its own workspace: it damages the tracker."""
+
+    def test_a_tracker_save_failure_is_always_a_fatal_line(self):
+        """Bug 3: `record_all` must return the error text for any save failure, not only a TrackerError."""
+        self.aa_json("start")
+        (folder, tab, _brief), *_rest = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
+        backup = (self.root / "Job_Tracker.xlsx").read_bytes()
+        (self.root / "Job_Tracker.xlsx").write_bytes(b"not a workbook")  # the load or the save raises
+        try:
+            proc = self.run_aa("finish")
+        finally:
+            (self.root / "Job_Tracker.xlsx").write_bytes(backup)
+        self.assertEqual(proc.returncode, 3, proc.stdout)
+        self.assertIn("FATAL", proc.stdout)
+
+class TestDamagedQuestionsFile(T.Base):
+    """Spec section 6, bug 5. Its own workspace: it damages questions.json."""
+
+    def test_a_damaged_questions_file_names_the_file(self):
+        """Bug 5: a file the candidate can edit must never raise a traceback."""
+        self.aa_json("start")
+        (self.root / ".ohmyjob" / "questions.json").write_text("{not json", encoding="utf-8")
+        proc = self.run_aa("questions")
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn("questions.json", proc.stdout)
+        self.assertIn("FATAL", proc.stdout)
+
+
 class TestWorkerBypasses(T.Base):
     """The worker's own rules, one bypass each (keys, typed text, addresses, click fields, page writes, reads)."""
 
@@ -455,6 +531,7 @@ class TestWorkerBypasses(T.Base):
         self.start()
         for keys in ["NumpadEnter", "KP_Return", "KP_Enter", "ISO_Enter", "\r", "\n", "Return", "space", "cmd+Enter", "F5"]:
             self.assertDenied(self.key(keys), "press only")
+            self.clear_watchdog()  # the same denial repeated would stop the worker (4.7)
         for keys in ["Tab", "shift+Tab", "Escape", "ctrl+a"]:
             self.assertExplicitAllow(self.key(keys))
 
@@ -465,6 +542,7 @@ class TestWorkerBypasses(T.Base):
         for text in ["x\t ", "x\ty", "a\rb", "a\nb", "a\x1bb", "a\x7fb"]:
             self.assertDenied(self.guard(C + "computer", {"tabId": 101, "action": "type", "text": text}, W, "A1"),
                               "control characters")
+            self.clear_watchdog()  # the same denial repeated would stop the worker (4.7)
         self.assertExplicitAllow(self.guard(C + "computer", {"tabId": 101, "action": "type", "text": "Alex Example"}, W, "A1"))
 
     def test_addresses_with_control_characters_are_refused(self):
@@ -472,6 +550,7 @@ class TestWorkerBypasses(T.Base):
         for url in ["java\tscript:alert(1)", "javascript\n:alert(1)", "\x01javascript:alert(1)", "javascript:alert(1)",
                     "https://example.com/\x00x", "ht\ntps://example.com"]:
             self.assertDenied(self.guard(C + "navigate", {"tabId": 101, "url": url}, W, "A1"), "http")
+            self.clear_watchdog()  # the same denial repeated would stop the worker (4.7)
         batch = {"actions": [{"name": "navigate", "input": {"tabId": 101, "url": "java\tscript:alert(1)"}}]}
         self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "item 1")
         self.assertExplicitAllow(self.guard(C + "navigate", {"tabId": 101, "url": "https://example.com/ok"}, W, "A1"))
@@ -539,6 +618,12 @@ class TestWorkerBypasses(T.Base):
         self.assertDenied(self.guard("Read", {"file_path": str(ATS / "workday.md") + "\n"}, W, "A1"))
         self.assertDenied(self.guard("Read", {"file_path": None}, W, "A1"))
         self.assertDenied(self.guard("Read", {"file_path": ["a"]}, W, "A1"))
+        # the workspace's own notes (learned by Dream) are readable too, by an absolute path
+        user_ats = self.root / "ats"
+        user_ats.mkdir(exist_ok=True)
+        (user_ats / "workday.md").write_text("# Workday\nhosts: *.myworkdayjobs.com\n", encoding="utf-8")
+        self.assertExplicitAllow(self.guard("Read", {"file_path": str(user_ats / "workday.md")}, W, "A1"))
+        self.assertDenied(self.guard("Read", {"file_path": str(user_ats / ".." / "Profile.md")}, W, "A1"))
         # a new worker for the same job (UPLOAD_HANG retry, or a dropped worker printed again) may claim the brief again
         (jobs / self.f1 / "result.json").unlink()
         state = self.state()

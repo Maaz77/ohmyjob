@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ohmyjob: pop-ups as tabs",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "For /ohmyjob:apply-jobs: in the tab group of a run, a page pop-up (for example Sign in with Google) opens as a tab in the same group; at the end of a run, the job tabs go to the groups Pending Review and Needs Attention; /ohmyjob:continue-applying brings the Needs Attention tabs back.",
   "minimum_chrome_version": "119",
   "permissions": [

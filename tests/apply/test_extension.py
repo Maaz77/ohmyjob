@@ -306,5 +306,64 @@ class TestPopupsAsTabs(unittest.TestCase):
                 ctx.close()
 
 
+    def test_a_hand_added_tab_comes_back_too(self):
+        """Helper 1.7.0: the adopt page moves every tab of every group "Needs Attention", not only the listed ids."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                extra = ctx.new_page()
+                extra.goto("http://127.0.0.1:8001/other.html")
+                extra_id = sw.evaluate("async () => (await chrome.tabs.query({})).map(t => t.id).sort((a, b) => b - a)[0]")
+                parked = sw.evaluate(f"""async () => {{
+                    const g = await chrome.tabs.group({{tabIds: [{job_id}, {extra_id}], createProperties: {{}}}});
+                    await chrome.tabGroups.update(g, {{title: "Needs Attention"}});
+                    return g; }}""")
+                self.assertNotEqual(parked, gid)
+                # the plan names the job tab only; the tab the candidate added comes back as well
+                plan = quote(json.dumps([job_id], separators=(",", ":")), safe="")
+                home.goto("https://www.linkedin.com/robots.txt?aa-adopt#aa-adopt=" + plan)
+                time.sleep(1.2)
+                self.assertTrue(home.title().startswith("[AA adopted 2]"), home.title())
+                for tab in (job_id, extra_id):
+                    self.assertEqual(sw.evaluate(f"async () => (await chrome.tabs.get({tab})).groupId"), gid)
+            finally:
+                ctx.close()
+
+    def test_google_links_are_named_and_the_title_counts_them(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                job.goto("http://127.0.0.1:8001/google-link.html")
+                time.sleep(1.0)
+                names = job.evaluate("Object.fromEntries(['glink', 'gdiv', 'plain'].map("
+                                     "id => [id, document.getElementById(id).getAttribute('aria-label')]))")
+                self.assertEqual(names, {"glink": "Continue with Google", "gdiv": "Continue with Google", "plain": None})
+                # two Google controls, both named by the helper itself
+                self.assertRegex(job.title(), r"\[AA g=2 named=2\]$")
+
+                job.goto("http://127.0.0.1:8001/no-google.html")
+                time.sleep(1.0)
+                self.assertRegex(job.title(), r"\[AA g=0 named=0\]$")
+            finally:
+                ctx.close()
+
+    def test_a_sign_in_tab_gets_no_google_count(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                with ctx.expect_page() as info:
+                    job.click("#pop")
+                child = info.value
+                child.wait_for_load_state()
+                time.sleep(1.2)
+                self.assertTrue(child.title().startswith(f"[AA from {job_id}] "), child.title())
+                self.assertNotIn("[AA g=", child.title())
+                self.assertNotIn("[AA g=", home.title())
+            finally:
+                ctx.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 [project]
 name = "ohmyjob"
-version = "0.1.0"
+version = "0.2.0"
 description = "Job search pipeline for Claude Code: scrape, screen, tailor a resume, fill applications, reconcile."
 license = "MIT"
 requires-python = ">=3.11"

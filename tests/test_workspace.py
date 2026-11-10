@@ -141,7 +141,7 @@ def test_the_path_constants_follow_the_workspace(workspace):
         "import workspace as W, json\n"
         "names = 'ROOT CONFIG_FILE PROFILE TRACKER DEFAULT_RESUMES APPLICATIONS PENDING_REVIEW "
         "NEEDS_ATTENTION SUBMITTED CLAUDE_MD SETTINGS_FILE STATE_DIR ENV_FILE RUN_PREP RUN_APPLY BUILD_DIR "
-        "CATALOG_DIR QUESTIONS_FILE REPORT_FILE PLUGIN_ROOT ATS_DIR'.split()\n"
+        "CATALOG_DIR QUESTIONS_FILE REPORT_FILE TRACES_DIR DREAM_DIR PLUGIN_ROOT ATS_DIR USER_ATS_DIR'.split()\n"
         "print(json.dumps({**{n: str(getattr(W, n)) for n in names}, 'has_base': hasattr(W, 'BASE_YAML')}))",
         workspace=workspace,
     )
@@ -160,10 +160,13 @@ def test_the_path_constants_follow_the_workspace(workspace):
         "RUN_APPLY": root / ".ohmyjob" / "run" / "apply", "BUILD_DIR": root / ".ohmyjob" / "build",
         "CATALOG_DIR": root / ".ohmyjob" / "catalog",
         "QUESTIONS_FILE": root / ".ohmyjob" / "questions.json", "REPORT_FILE": root / ".ohmyjob" / "last_report.txt",
+        "USER_ATS_DIR": root / "ats", "TRACES_DIR": root / ".ohmyjob" / "traces",
+        "DREAM_DIR": root / ".ohmyjob" / "run" / "dream",
     } == {name: p[name] for name in (
         "CONFIG_FILE", "PROFILE", "TRACKER", "DEFAULT_RESUMES", "APPLICATIONS", "PENDING_REVIEW",
         "NEEDS_ATTENTION", "SUBMITTED", "CLAUDE_MD", "SETTINGS_FILE", "STATE_DIR", "ENV_FILE", "RUN_PREP",
-        "RUN_APPLY", "BUILD_DIR", "CATALOG_DIR", "QUESTIONS_FILE", "REPORT_FILE")}
+        "RUN_APPLY", "BUILD_DIR", "CATALOG_DIR", "QUESTIONS_FILE", "REPORT_FILE", "USER_ATS_DIR",
+        "TRACES_DIR", "DREAM_DIR")}
     assert p["PLUGIN_ROOT"] == SCRIPTS.parent
     assert p["ATS_DIR"] == SCRIPTS.parent / "ats"
 
@@ -572,8 +575,10 @@ def test_each_master_may_start_only_its_own_workers():
     assert W.MASTER_WORKERS == {
         "ohmyjob:prep-master": {"ohmyjob:screen-worker", "ohmyjob:resume-worker"},
         "ohmyjob:application-master": {"ohmyjob:application-worker"},
+        "ohmyjob:dream-master": {"ohmyjob:dream-host-worker"},
     }
-    assert set(W.MASTER_WORKERS) | set().union(*W.MASTER_WORKERS.values()) == W.PREP_AGENTS | W.APPLICATION_AGENTS
+    assert (set(W.MASTER_WORKERS) | set().union(*W.MASTER_WORKERS.values())
+            == W.PREP_AGENTS | W.APPLICATION_AGENTS | W.DREAM_AGENTS)
 
 
 def test_questions_blocker_text():
@@ -611,6 +616,9 @@ def test_resume_worker_may_run_only_a_build_with_a_job_key():
     "ohmyjob apply assign --tabs 11,12,13", "ohmyjob apply assign --continue", "ohmyjob apply assign --tabs 11,12 --continue",
     "ohmyjob apply next", "ohmyjob apply retry-plan", "ohmyjob apply finish", "ohmyjob apply group-plan",
     "ohmyjob apply cleanup-plan", "ohmyjob apply end", "ohmyjob apply adopt-plan", "ohmyjob apply adopted",
+    "ohmyjob apply start --top-k-match 1", "ohmyjob apply start --top-k-match 2", "ohmyjob apply start --top-k-match 9999",
+    'ohmyjob apply start --selected "Acme"', 'ohmyjob apply start --selected "Acme, Lumenfield-Logistics"',
+    'ohmyjob apply start --selected "Acme & Co. (Berlin) + R&D_2"',
 ])
 def test_application_master_may_run(command):
     assert W.APPLICATION_MASTER_CMD_RE.match(command)
@@ -621,6 +629,23 @@ def test_application_master_may_run(command):
     "ohmyjob apply assign --tabs 11,", "ohmyjob apply assign --tabs a", "ohmyjob apply start --continue now",
     "ohmyjob apply next; ls", "ohmyjob apply next && ls", "ohmyjob apply end\nls", "ohmyjob prep next",
     "ohmyjob scrape", "ohmyjob apply", "ohmyjob apply finish `id`",
+    # --top-k-match: a whole number from 1 to 9999, nothing else
+    "ohmyjob apply start --top-k-match 0", "ohmyjob apply start --top-k-match 10000", "ohmyjob apply start --top-k-match",
+    "ohmyjob apply start --top-k-match a", "ohmyjob apply start --top-k-match 2x", "ohmyjob apply start --top-k-match -1",
+    "ohmyjob apply start --top-k-match 1.5", "ohmyjob apply start --top-k-match 2 --continue",
+    # --selected: one double-quoted list of letters, digits, spaces and , . _ & + ( ) - only
+    "ohmyjob apply start --selected Acme", "ohmyjob apply start --selected \"\"",
+    'ohmyjob apply start --selected "a$b"', 'ohmyjob apply start --selected "a`b"', 'ohmyjob apply start --selected "a\\b"',
+    'ohmyjob apply start --selected "a!b"', 'ohmyjob apply start --selected "a;b"', 'ohmyjob apply start --selected "a|b"',
+    'ohmyjob apply start --selected "a&b; id"', 'ohmyjob apply start --selected "a"b"',
+    'ohmyjob apply start --selected "a" --top-k-match 2', 'ohmyjob apply start --selected "a" --continue',
+    "ohmyjob apply start --selected \"" + "a" * 301 + "\"",
 ])
 def test_application_master_may_not_run(command):
     assert not W.APPLICATION_MASTER_CMD_RE.match(command)
+
+
+@pytest.mark.parametrize("char", ["$", "`", "\\", "!", ";", "|", "'", "%", "^", "*", "?", "~", "<", ">", "{", "}", "[", "]", "=", "#", "@", ":", "/"])
+def test_every_shell_active_character_is_refused_in_selected(char):
+    command = f'ohmyjob apply start --selected "Acme{char}Co"'
+    assert not W.APPLICATION_MASTER_CMD_RE.match(command), command

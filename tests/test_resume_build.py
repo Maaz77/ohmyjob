@@ -583,3 +583,144 @@ def test_paper_is_a4_unless_the_yaml_sets_it(env):
 def test_build_all_empty_dir(workspace, tmp_path):
     code, out = cli(workspace, "build-all", "--dir", str(tmp_path))
     assert code == 1 and out.startswith("FATAL: no resume yaml files") and out.count("\n") == 1
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# build-jobs: the tailored resume of a named job folder (spec 3.1)
+
+LUMENFIELD = "4399000001_Lumenfield-Logistics_Operations-Analyst"
+QUILLON = "969845171025937_Quillon-Systems_Project-Coordinator"
+
+
+def tailored(workspace, folder: str, source: str = "Operations-Analyst", stem: str | None = None) -> Path:
+    """Put one tailored yaml in a job folder, as the resume worker leaves it, and name its matched resume."""
+    job = workspace / "Applications" / folder
+    path = job / f"{stem or 'Alex_' + folder.split('_')[1]}.yaml"
+    shutil.copy2(workspace / "Default_Resume_Files" / f"{source}.yaml", path)
+    md = job / "job.md"
+    text = md.read_text(encoding="utf-8")
+    md.write_text(re.sub(r"(?m)^(- \*{0,2}Matched Resume:\*{0,2}).*$", rf"\1 {source}.pdf", text), encoding="utf-8")
+    return path
+
+
+def set_row(workspace, folder: str, status: str) -> None:
+    from tracker import Tracker
+
+    path = workspace / "Job_Tracker.xlsx"
+    tracker = Tracker(path) if path.exists() else Tracker.create(path)
+    rows = tracker.rows_for_key(folder.split("_")[0])
+    if rows:
+        tracker.set_status(rows[0]["_index"], status, None)
+    else:
+        md = (workspace / "Applications" / folder / "job.md").read_text(encoding="utf-8")
+        url = re.search(r"Job URL:\**\s*(\S+)", md).group(1)
+        tracker.add_row({"Job URL": url, "Status": status,
+                         "Company": folder.split("_")[1], "Job Title": folder.split("_")[2]})
+    tracker.save()
+
+
+def row_status(workspace, folder: str) -> str:
+    from tracker import Tracker
+
+    return Tracker(workspace / "Job_Tracker.xlsx").rows_for_key(folder.split("_")[0])[0]["Status"]
+
+
+def test_build_jobs_refuses_a_name_that_matches_no_folder_or_two(workspace):
+    code, out = cli(workspace, "build-jobs", "Nothing Here")
+    assert code == 1 and out.strip() == "FAIL Nothing Here - no folder matches"
+    # "o" is inside both folder names
+    code, out = cli(workspace, "build-jobs", "o")
+    assert code == 1 and out.startswith("FAIL o - ambiguous: ")
+    assert LUMENFIELD in out and QUILLON in out
+
+
+def test_build_jobs_refuses_a_folder_with_two_yamls(workspace):
+    tailored(workspace, LUMENFIELD)
+    tailored(workspace, LUMENFIELD, stem="Second")
+    code, out = cli(workspace, "build-jobs", "Lumenfield")
+    assert code == 1 and "expected 1 yaml in the job folder, found 2" in out
+
+
+@needs_tex
+def test_build_jobs_builds_the_pdf_and_sets_the_row(workspace):
+    pdf = tailored(workspace, LUMENFIELD).with_suffix(".pdf")
+    set_row(workspace, LUMENFIELD, "Resume Failed")
+    code, out = cli(workspace, "build-jobs", " lumenfield logistics ")
+    assert code == 0, out
+    assert out.strip() == f"OK {LUMENFIELD}"
+    assert pdf.exists()
+    assert row_status(workspace, LUMENFIELD) == "Resume Built"
+
+
+@needs_tex
+def test_build_jobs_keeps_a_row_that_is_further_on(workspace):
+    tailored(workspace, LUMENFIELD)
+    set_row(workspace, LUMENFIELD, "Submitted")
+    code, out = cli(workspace, "build-jobs", "Lumenfield")
+    assert code == 1 and f"FAIL {LUMENFIELD} - row is at Submitted" in out
+    assert row_status(workspace, LUMENFIELD) == "Submitted"
+
+
+@needs_tex
+def test_build_jobs_refuses_a_resume_longer_than_the_matched_one(workspace):
+    path = tailored(workspace, LUMENFIELD)
+    data = yaml.safe_load(path.read_text())
+    data["experience"] = (data.get("experience") or []) * 12  # far more than one page
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    cli(workspace, "build-all")  # the matched resume's own PDF, for its page count
+    set_row(workspace, LUMENFIELD, "Matched")
+    code, out = cli(workspace, "build-jobs", "Lumenfield")
+    assert code == 1 and "pages, the matched resume has" in out
+    assert not path.with_suffix(".pdf").exists()
+    assert row_status(workspace, LUMENFIELD) == "Matched"
+
+
+@needs_tex
+def test_build_jobs_warns_when_the_matched_resume_has_no_pdf(workspace):
+    job = workspace / "Applications" / LUMENFIELD
+    tailored(workspace, LUMENFIELD)
+    md = job / "job.md"
+    md.write_text(re.sub(r"(?m)^(- \*{0,2}Matched Resume:\*{0,2}).*$", r"\1 Gone.pdf", md.read_text(encoding="utf-8")),
+                  encoding="utf-8")
+    set_row(workspace, LUMENFIELD, "Matched")
+    code, out = cli(workspace, "build-jobs", "Lumenfield")
+    assert code == 0, out
+    assert "WARNING" in out and "built without a page check" in out
+
+
+def test_build_jobs_sets_the_rows_without_latex(workspace, monkeypatch, capsys):
+    """The tracker path of build-jobs, with the LaTeX build replaced: OK lines, the row guard, a tracker failure."""
+    import aa_lib as L
+    import tracker as tk
+
+    monkeypatch.setattr(W, "APPLICATIONS", workspace / "Applications")
+    monkeypatch.setattr(W, "DEFAULT_RESUMES", workspace / "Default_Resume_Files")
+    monkeypatch.setattr(W, "TRACKER", workspace / "Job_Tracker.xlsx")
+    monkeypatch.setattr(L, "APPLICATIONS", workspace / "Applications")
+    tailored(workspace, LUMENFIELD)
+    tailored(workspace, QUILLON, source="Project-Coordinator")
+    set_row(workspace, LUMENFIELD, "Resume Failed")
+    set_row(workspace, QUILLON, "Submitted")
+
+    def fake_build(role_yaml, out_pdf, *, max_pages=None, paper=None):
+        Path(out_pdf).write_bytes(b"%PDF-1.4\n")
+        return "OK", 1, str(out_pdf)
+
+    monkeypatch.setattr(rb, "build", fake_build)
+    assert rb.build_jobs("Lumenfield, Quillon") == 1
+    out = capsys.readouterr().out
+    assert f"OK {LUMENFIELD}" in out
+    assert f"FAIL {QUILLON} - row is at Submitted" in out
+    assert row_status(workspace, LUMENFIELD) == "Resume Built"
+    assert row_status(workspace, QUILLON) == "Submitted"
+
+    # a tracker that cannot be saved: one FATAL line, no OK line, exit 1
+    def broken(self):
+        raise tk.TrackerError("the workbook is open elsewhere")
+
+    set_row(workspace, LUMENFIELD, "Matched")
+    monkeypatch.setattr(tk.Tracker, "save", broken)
+    assert rb.build_jobs("Lumenfield") == 1
+    out = capsys.readouterr().out
+    assert out.strip().splitlines()[-1].startswith("FATAL:") and "open elsewhere" in out
+    assert f"OK {LUMENFIELD}" not in out
