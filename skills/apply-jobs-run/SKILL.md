@@ -8,3 +8,4 @@ background: false
 ---
 
 Run the application queue now.
+Options from /ohmyjob:apply-jobs (none when empty): $ARGUMENTS

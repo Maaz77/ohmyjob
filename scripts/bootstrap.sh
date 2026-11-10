@@ -115,6 +115,12 @@ if [ ! -e "$WORKSPACE/ohmyjob.json" ]; then
   cp "$TEMPLATES/ohmyjob.json" "$WORKSPACE/ohmyjob.json"
   say "created ohmyjob.json"
 fi
+# The application worker's progress limits. A missing file is fine (the defaults apply); this only gives the user the
+# values to edit.
+if [ ! -e "$WORKSPACE/Worker_Limits.json" ]; then
+  cp "$TEMPLATES/Worker_Limits.json" "$WORKSPACE/Worker_Limits.json"
+  say "created Worker_Limits.json"
+fi
 
 # --- 4. LaTeX ---------------------------------------------------------------------------------------------------------
 # warmup <lualatex path or empty>: builds the plugin's templates/Template.yaml and Template-CV.yaml in a throwaway
@@ -271,7 +277,7 @@ else:
 PYEOF
 
 # --- 8. scaffold (never overwrite) ------------------------------------------------------------------------------------
-for d in Default_Resume_Files Applications Pending-Review Needs-Attention Submitted; do
+for d in Default_Resume_Files Applications Pending-Review Needs-Attention Submitted ats; do
   mkdir -p "$WORKSPACE/$d"
 done
 if [ ! -e "$WORKSPACE/Job_Tracker.xlsx" ]; then

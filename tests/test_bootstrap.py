@@ -512,7 +512,10 @@ def test_layout_in_the_project_folder(env):
     assert sorted(p.name for p in env.proj.iterdir()) == [".claude", "ohmyjob"]
     names = {p.name for p in env.ws.iterdir()}
     assert names == {"ohmyjob.json", "Profile.md", "CLAUDE.md", ".gitignore", "Job_Tracker.xlsx", "Default_Resume_Files",
-                     "Applications", "Pending-Review", "Needs-Attention", "Submitted", ".ohmyjob"}
+                     "Applications", "Pending-Review", "Needs-Attention", "Submitted", ".ohmyjob",
+                     "Worker_Limits.json", "ats"}
+    assert json.loads((env.ws / "Worker_Limits.json").read_text())["call_budget"] == 150
+    assert list((env.ws / "ats").iterdir()) == []  # the user's learned notes land here (Dream writes them)
     assert sorted(p.name for p in (env.ws / "Default_Resume_Files").iterdir()) == [
         "Template-CV.pdf", "Template-CV.yaml", "Template.pdf", "Template.yaml"]
     assert (env.ws / "Profile.md").read_text().startswith("<!-- OHMYJOB-TEMPLATE:")

@@ -169,6 +169,15 @@ class Base(unittest.TestCase):
         return self.hook("handback", {"hook_event_name": "PreToolUse", "tool_name": "SubagentHandback",
                                       "tool_input": {"message": message}, "agent_type": W, "agent_id": agent_id})
 
+    def clear_watchdog(self) -> None:
+        """Drop the progress watchdog counters of every job (a test that repeats one denied call on purpose)."""
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text())
+        for job in state["jobs"].values():
+            job.pop("watchdog", None)
+            job.pop("stopped_by", None)
+        path.write_text(json.dumps(state))
+
     def set_job(self, folder: str, **fields) -> None:
         """Change a job entry in state.json (test set-up only)."""
         path = self.run_dir() / "state.json"
@@ -212,9 +221,17 @@ class TestFlow(Base):
         (folder, tab1, brief1), (folder2, tab2, _brief2) = self.assign(101, 102)
         self.assertEqual((tab1, tab2), (101, 102))
         brief = Path(brief1).read_text()
-        for heading in ("## How to use this brief", "## Job: Overview",
-                        "## Job: Job Description", "## Profile.md (full text)", "## Tailored resume for this job"):
+        for heading in ("## Job: Overview", "## Job: Job Description", "## Profile.md (full text)",
+                        "## Tailored resume for this job"):
             self.assertIn(heading, brief)
+        # 4.3: the brief carries only the title and introduction of the tailored yaml, and no "how to use" section
+        self.assertNotIn("## How to use this brief", brief)
+        self.assertIn("title: Operations Analyst", brief)
+        self.assertIn("introduction: ", brief)
+        self.assertNotIn("experience:", brief)  # the rest of the yaml repeats Profile.md
+        # 4.4: the ATS notes come from ats_notes(), one line each with its hosts
+        self.assertIn("(hosts: *.myworkdayjobs.com)", brief)
+        self.assertIn(str(ATS / "workday.md"), brief)
         self.assertIn((self.root / "Profile.md").read_text(encoding="utf-8").strip()[:200], brief)
         self.assertIn("Follow Up Questions", brief)
         self.assertIn("```yaml", brief)
@@ -361,7 +378,7 @@ class TestFlow(Base):
         # second job: blocked, reported as final text (Claude Code without hand-backs)
         proc = self.hook("capture", {**stop, "agent_id": "A2", "last_assistant_message": "done"})
         self.assertEqual(json.loads(proc.stdout)["decision"], "block")
-        blocked = {**result, "folder": folder2, "tab": 102, "status": "blocked", "blocker": "Workday account wall",
+        blocked = {**result, "folder": folder2, "tab": 102, "status": "blocked", "blocker": "ACCOUNT_WALL: a Workday account wall",
                    "open": [], "final_button": ""}
         proc = self.hook("capture", {**stop, "agent_id": "A2", "last_assistant_message": "```json\n" + json.dumps(blocked) + "\n```"})
         self.assertEqual(proc.stdout.strip(), "", proc.stdout)
@@ -425,7 +442,7 @@ class TestCleanupWaitsForTheGroups(Base):
             self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://www.linkedin.com/jobs/view/1"}, W, agent))
             self.assertAllowed(self.handback(json.dumps({"folder": fold, "tab": tab, "status": "blocked", "where": "x", "final_button": "",
                                "url": "https://www.linkedin.com/jobs/view/1", "filled": [], "uploaded": None, "drafted": [], "open": [],
-                               "declarations": [], "blocker": "Job is closed"}), agent_id=agent))
+                               "declarations": [], "blocker": "CLOSED: the posting is closed"}), agent_id=agent))
         self.aa("finish")
         self.aa_json("group-plan")
         old_home = '{"tabId":40,"title":"' + ON + ' Feed | LinkedIn","url":"https://www.linkedin.com/feed/"}'
@@ -482,19 +499,6 @@ class TestRetry(Base):
         finally:
             del self.env["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"]
 
-    def test_worker_time_limit(self):
-        self.aa_json("start")
-        self.master_setup()
-        self.aa_json("assign", "--tabs", "101,102")
-        w = self.aa_json("next")["workers"][0]
-        self.assertAllowed(self.guard("Agent", {"subagent_type": W, **w}, M, "M1"))
-        tab = int(re.search(r"tab=(\d+)", w["prompt"]).group(1))
-        state = self.state()
-        state["tabs"][str(tab)]["agent_id"] = "A1"
-        state["jobs"][w["folder"]]["spawned_at"] -= 17 * 60 + 1  # the limit is 17 minutes (aa_lib.WORKER_SECONDS)
-        (self.run_dir() / "state.json").write_text(json.dumps(state))
-        self.assertDenied(self.guard(C + "read_page", {"tabId": tab, "filter": "interactive"}, W, "A1"), "Time is up")
-
     def test_next_prints_a_dropped_worker_again(self):
         self.aa_json("start")
         self.master_setup()
@@ -550,7 +554,7 @@ class TestContinue(Base):
         self.master_setup(MARKER_ROBOTS)
         # the adopt page: only the exact one, only in the home tab
         plan = self.aa_json("adopt-plan")
-        self.assertEqual((plan["tab"], plan["tabs"]), (49, 2))
+        self.assertEqual((plan["tab"], plan["jobs"]), (49, 2))
         self.assertIn("%5B701%2C702%5D", plan["url"])
         # the home tab shows start's home_url (robots.txt#aa-popups-as-tabs): the adopt page must be a NEW page, so it
         # differs from it before the '#' (a change after '#' alone loads nothing, and the extension would never see it)
@@ -666,14 +670,179 @@ class TestContinueSkips(TestContinue):
         self.aa_json("start", "--continue")
         self.master_setup(MARKER_ROBOTS)
         plan = self.aa_json("adopt-plan")
-        self.assertIsNone(plan["url"])
+        self.assertEqual(plan["jobs"], 2)  # the page brings back every parked tab; the jobs are matched afterwards
         self.post("tabs_context_mcp", {}, '{"availableTabs":[{"tabId":49,"title":"[AA adopted 1] robots.txt",'
                   '"url":"https://www.linkedin.com/robots.txt"},{"tabId":701,"url":"https://x.myworkdayjobs.com/a"}],'
                   '"tabGroupId":7}\n', M, "M1")
         out = self.aa_json("adopted")
         md.write_text(text, encoding="utf-8")
-        self.assertEqual(plan["tabs"], 0)  # the tab that two jobs name is not brought back
+        # both jobs name tab 701 and fit its page equally well: it goes to neither (4.6)
         self.assertEqual((out["count"], out["left_alone"]), (0, 2))
+
+
+class TestContinueCustomTab(TestContinue):
+    """4.6: a tab that the candidate put in the group "Needs Attention" is found by its page, not by a tab id."""
+
+    def test_continue_in_the_fixed_tabs(self):
+        pass  # the flow itself runs in TestContinue
+
+    def test_custom_tabs(self):
+        first, second = self.folders
+        md = self.root / "Needs-Attention" / second / "job.md"
+        text = md.read_text(encoding="utf-8")
+        md.write_text(text.replace("URL: https://x.myworkdayjobs.com/a", "URL: https://y.example.com/apply"), encoding="utf-8")
+        self.aa_json("start", "--continue")
+        md.write_text(text, encoding="utf-8")
+        self.master_setup(MARKER_ROBOTS)
+        self.assertTrue(self.aa_json("adopt-plan")["url"])
+        # 701: after a restart the old id is another page (not job 1's host): the candidate's own tab, no job takes it.
+        # 777, 778: tabs the candidate opened for job 2 and job 1, named in no note. 888: an unrelated tab.
+        tabs = [(49, "[AA adopted 4] robots.txt", "https://www.linkedin.com/robots.txt"),
+                (701, "Docs", "https://other.example/page"), (777, "Apply", "https://y.example.com/apply/step2"),
+                (778, "Apply", "https://x.myworkdayjobs.com/b"), (888, "News", "https://example.org/")]
+        context = ('{"availableTabs":[' + ",".join(f'{{"tabId":{i},"title":"{t}","url":"{u}"}}' for i, t, u in tabs)
+                   + '],"tabGroupId":7}\n')
+        self.post("tabs_context_mcp", {}, context, M, "M1")
+        adopted = self.aa_json("adopted")
+        self.assertEqual((adopted["count"], adopted["left_alone"]), (2, 0))
+        self.assertEqual(self.aa_json("assign", "--continue")["queued"], 2)
+        prompts = {w["folder"]: w["prompt"] for w in self.aa_json("next")["workers"]}
+        self.assertTrue(prompts[first].startswith(f"folder={first} tab=778 brief="))
+        self.assertTrue(prompts[second].startswith(f"folder={second} tab=777 brief="))
+        self.assertEqual(self.state()["extra_tabs"], [701, 888])
+        # a tab of no job is never closed, and goes back to the group "Needs Attention" with the others
+        self.assertEqual(self.aa_json("cleanup-plan"), {"close": [49], "keep": [701, 777, 778, 888]})
+        state = self.state()
+        state["status"] = "done"
+        (self.run_dir() / "state.json").write_text(json.dumps(state))
+        self.assertEqual(self.aa_json("group-plan")["groups"], {"Needs Attention": 2})
+        self.assertIn("Extra tabs: 2", self.aa("finish"))
+
+
+class TestMatchTabs(unittest.TestCase):
+    """match_tabs: a tab a note names counts only when its page fits; the candidate's own tabs by host and path."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(SCRIPTS))
+        import aa  # noqa: E402
+
+        cls.match = staticmethod(aa.match_tabs)
+
+    def job(self, tab, *urls):
+        return {"prev_tab": tab, "urls": list(urls)}
+
+    def tab(self, i, url):
+        return {"id": i, "url": url}
+
+    def test_rules(self):
+        li = "https://www.linkedin.com/jobs/view/"
+        jobs = {"a": self.job(5, "https://x.com/1", li + "11/"), "b": self.job(None, "https://y.com/2", li + "22/")}
+        # the named tab, on its host: matched; a job without a note: matched by host
+        self.assertEqual(self.match(jobs, [self.tab(5, "https://x.com/z"), self.tab(9, "https://y.com/q")]), {"a": 5, "b": 9})
+        # the named tab shows another page now (a Chrome restart): not job a's, and job a has no other tab
+        self.assertEqual(self.match(jobs, [self.tab(5, "https://z.com/")]), {})
+        # two tabs on one job's host, or one tab that two jobs fit: no match
+        self.assertEqual(self.match({"b": jobs["b"]}, [self.tab(8, "https://y.com/a"), self.tab(9, "https://y.com/b")]), {})
+        same = {"a": self.job(None, "https://x.com/p"), "b": self.job(None, "https://x.com/p")}
+        self.assertEqual(self.match(same, [self.tab(8, "https://x.com/p")]), {})
+        # two jobs name one tab: only a job whose host fits gets it; when both fit, neither
+        both = {"a": self.job(5, "https://x.com/1"), "b": self.job(5, "https://y.com/2")}
+        self.assertEqual(self.match(both, [self.tab(5, "https://x.com/1")]), {"a": 5})
+        both["b"] = self.job(5, "https://x.com/1")
+        self.assertEqual(self.match(both, [self.tab(5, "https://x.com/1")]), {})
+        # a shared ATS host: the path breaks the tie (the company and the job id), also after a redirect deeper in the site
+        gh = {"a": self.job(None, "https://ats.io/acme/jobs/1"), "b": self.job(None, "https://ats.io/beta/jobs/2")}
+        tabs = [self.tab(8, "https://ats.io/beta/jobs/2/apply"), self.tab(9, "https://ats.io/acme/jobs/1/apply")]
+        self.assertEqual(self.match(gh, tabs), {"a": 9, "b": 8})
+        # the paths tie: the company in the tab title breaks it, with or without a legal suffix
+        co = {"a": {**self.job(None, "https://ats.io/jobs"), "company": "Acme, Inc."},
+              "b": {**self.job(None, "https://ats.io/jobs"), "company": "Beta GmbH"}}
+        tabs = [{**self.tab(8, "https://ats.io/jobs"), "title": "Beta | Careers"},
+                {**self.tab(9, "https://ats.io/jobs"), "title": "Senior Dev - Acme"}]
+        self.assertEqual(self.match(co, tabs), {"a": 9, "b": 8})
+        # a tab with no sign but its host still goes to the one job left (a matched tab leaves the round)
+        tabs = [self.tab(8, "https://ats.io/acme/jobs/1/apply"), self.tab(9, "https://ats.io/other")]
+        self.assertEqual(self.match(gh, tabs), {"a": 8, "b": 9})
+        # a title of another company decides nothing, and a tie stays open
+        tabs = [{**self.tab(8, "https://ats.io/jobs"), "title": "Gamma"}, {**self.tab(9, "https://ats.io/jobs"), "title": "Delta"}]
+        self.assertEqual(self.match(co, tabs), {})
+        # a LinkedIn page matches by its job id, not by its host
+        self.assertEqual(self.match({"a": jobs["a"]}, [self.tab(7, li + "22/apply"), self.tab(8, li + "11/apply")]), {"a": 8})
+
+
+class TestSelection(Base):
+    """`start --selected` and `start --top-k-match`: which jobs a run queues."""
+
+    def setUp(self):
+        # These tests change tracker rows, so each one gets its own workspace (Base shares one per class).
+        self.root = make_project(self.jobs)
+        self.env = {**self.env, "OHMYJOB_WORKSPACE": str(self.root)}
+
+    def tearDown(self):
+        shutil.rmtree(self.root.parent, ignore_errors=True)
+
+    def set_score(self, folder: str, score) -> None:
+        from tracker import Tracker
+
+        tracker = Tracker(self.root / "Job_Tracker.xlsx")
+        for row in tracker.rows():
+            if row["_key"] == folder.split("_")[0]:
+                tracker.set_cell(row["_index"], "Match Score", score)
+        tracker.save()
+
+    def test_selected_queues_only_the_named_folders(self):
+        start = self.aa_json("start", "--selected", "Lumenfield")
+        self.assertEqual([j["folder"] for j in start["jobs"]], [LINKEDIN_JOB])
+
+    def test_selected_takes_several_entries_in_the_order_typed(self):
+        start = self.aa_json("start", "--selected", "Quillon, Lumenfield")
+        self.assertEqual([j["folder"] for j in start["jobs"]], [INDEED_JOB, LINKEDIN_JOB])
+
+    def test_selected_reports_no_match_and_ambiguous(self):
+        start = self.aa_json("start", "--selected", "Nothing-Here, s, Lumenfield")
+        reasons = {s["job"]: s["reason"] for s in start["skipped"]}
+        self.assertEqual(reasons["Nothing-Here"], "no folder matches")
+        self.assertTrue(reasons["s"].startswith("ambiguous: "), reasons)
+        self.assertEqual([j["folder"] for j in start["jobs"]], [LINKEDIN_JOB])
+
+    def test_selected_refuses_a_job_that_is_not_at_resume_built(self):
+        from tracker import Tracker
+
+        tracker = Tracker(self.root / "Job_Tracker.xlsx")
+        for row in tracker.rows():
+            if row["_key"] == LINKEDIN_JOB.split("_")[0]:
+                tracker.set_status(row["_index"], "Pending Review", None)
+        tracker.save()
+        start = self.aa_json("start", "--selected", "Lumenfield")
+        self.assertEqual(start["count"], 0)
+        self.assertEqual(start["skipped"][0]["reason"], "not at Resume Built")
+
+    def test_top_k_keeps_the_best_match_scores(self):
+        self.set_score(LINKEDIN_JOB, 9)
+        self.set_score(INDEED_JOB, 4)
+        start = self.aa_json("start", "--top-k-match", "1")
+        self.assertEqual([j["folder"] for j in start["jobs"]], [LINKEDIN_JOB])
+        start = self.aa_json("start", "--top-k-match", "2")
+        self.assertEqual([j["folder"] for j in start["jobs"]], [LINKEDIN_JOB, INDEED_JOB])
+
+    def test_top_k_puts_a_job_without_a_score_last(self):
+        self.set_score(LINKEDIN_JOB, None)
+        self.set_score(INDEED_JOB, 1)
+        start = self.aa_json("start", "--top-k-match", "1")
+        self.assertEqual([j["folder"] for j in start["jobs"]], [INDEED_JOB])
+
+    def test_the_options_are_checked_before_anything_is_written(self):
+        for args, text in (
+            (("--continue", "--selected", "Lumenfield"), "--continue takes no --selected"),
+            (("--continue", "--top-k-match", "2"), "--continue takes no --selected"),
+            (("--selected", "Lumenfield", "--top-k-match", "2"), "give --selected or --top-k-match, not both"),
+            (("--top-k-match", "0"), "whole number of 1 or more"),
+            (("--top-k-match", "abc"), "whole number of 1 or more"),
+        ):
+            proc = self.run_aa("start", *args)
+            self.assertNotEqual(proc.returncode, 0, args)
+            self.assertIn(text, proc.stdout + proc.stderr, args)
 
 
 class TestContinueRetry(TestContinue):
@@ -1176,7 +1345,8 @@ class TestEndTokens(Base):
         out = self.aa("end")
         self.assertRegex(out, r"ohmyjob:application-worker\s+claude-haiku-5-5\s+1\s+1\s+2\s+100\s+50\s+9\n")
         self.assertRegex(out, r"Haiku check\s+haiku\s+1\s+10\s+0\s+0\s+5\n")
-        self.assertRegex(out, r"TOTAL\s+2\s+3\s+14\s+200\s+100\s+17\nRUN FOLDER DELETED$")
+        self.assertRegex(out, r"TOTAL\s+2\s+3\s+14\s+200\s+100\s+17\n")
+        self.assertRegex(out, r"Ledger: \d+ lines in .*ledger\.jsonl\nRUN FOLDER DELETED$")
 
         # the Stop hook of the main session: it blocks until the reply has the table, then the file is gone
         report = self.root / ".ohmyjob" / "last_report.txt"
@@ -1222,7 +1392,7 @@ class TestFinishErrorsAndCleanup(Base):
             self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://www.linkedin.com/jobs/view/1"}, W, agent))
             report = {"folder": fold, "tab": tab, "status": "blocked", "where": "LinkedIn job page", "final_button": "",
                       "url": "https://www.linkedin.com/jobs/view/1", "filled": [], "uploaded": None, "drafted": [],
-                      "open": [], "declarations": [], "blocker": "Job is closed"}
+                      "open": [], "declarations": [], "blocker": "LOAD_FAIL: the job page shows an error"}
             self.assertAllowed(self.handback(json.dumps(report), agent_id=agent))
         # an old copy of the first job is still in Needs-Attention 
         (self.root / "Needs-Attention" / folder).mkdir(parents=True)

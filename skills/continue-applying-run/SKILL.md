@@ -7,4 +7,4 @@ agent: ohmyjob:application-master
 background: false
 ---
 
-Run the application queue now in continue mode ("continue"): follow "Continue mode (/continue-applying)" in your steps.
+Run the application queue now in continue mode ("continue"): follow "Continue mode (/ohmyjob:continue-applying)" in your steps.

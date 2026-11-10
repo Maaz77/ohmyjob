@@ -250,8 +250,16 @@ def apply_changes(tracker: Tracker, changes: list[Change]) -> None:
         tracker.save()
     if moves:
         W.SUBMITTED.mkdir(parents=True, exist_ok=True)
+    left = []
     for src, dest in moves:
-        shutil.move(str(src), str(dest))
+        try:
+            shutil.move(str(src), str(dest))
+        except OSError as exc:
+            # the tracker is saved already: the folders that stayed are listed, and the next run moves them
+            left.append(f"{src.name} ({exc.strerror or exc})")
+    if left:
+        print(f"WARNING {len(left)} folder(s) were not moved to Submitted/ and stay where they are; the next "
+              f"reconcile moves them: {', '.join(left)}")
 
 
 def run(args) -> int:

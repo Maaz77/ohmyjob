@@ -509,6 +509,106 @@ def build_all(directory: Path, name: str | None = None) -> int:
     return 0 if counts["OK"] == len(files) else 1
 
 
+def build_jobs(text: str) -> int:
+    """`ohmyjob resume build-jobs "<name, name, ...>"`: build the PDF of each named job folder and set its row.
+
+    The candidate corrected a tailored yaml by hand (after a "Resume Failed", for example). Each entry names exactly
+    one folder of Applications/ (aa_lib.match_folders, the rule of `apply start --selected`); the folder must hold
+    exactly one *.yaml, and the PDF with the same stem is built next to it. One line per entry; exit 1 when one of
+    them failed."""
+    import aa_lib as L
+    from tracker import Tracker, TrackerError
+
+    matched, skipped = L.match_folders(text)
+    lines = [f"FAIL {item['job']} - {item['reason']}" for item in skipped]
+    built: list[tuple[str, Path]] = []
+    for name in matched:
+        folder = W.APPLICATIONS / name
+        yamls = [p for p in sorted(folder.glob("*.yaml")) if p.is_file()]
+        if len(yamls) != 1:
+            lines.append(f"FAIL {name} - expected 1 yaml in the job folder, found {len(yamls)}")
+            continue
+        pages, note = _job_max_pages(folder)
+        if note:
+            lines.append(note)
+        try:
+            status, got, detail = build(yamls[0], yamls[0].with_suffix(".pdf"), max_pages=pages)
+        except Exception as exc:  # noqa: BLE001  (one broken job must not stop the others)
+            status, got, detail = "FAIL", None, f"{type(exc).__name__}: {exc}"
+        if status == "OK":
+            built.append((name, yamls[0].with_suffix(".pdf")))
+        elif status == "OVERFLOW":
+            lines.append(f"FAIL {name} - {got} pages, the matched resume has {pages}")
+        else:
+            lines.append(f"FAIL {name} - {_one_line(detail)}")
+    failed_rows = _record_built(built)
+    fatal = [line for line in failed_rows if line.startswith("FATAL:")]
+    lines += [line for line in failed_rows if not line.startswith("FATAL:")]
+    ok = [] if fatal else [name for name, _pdf in built
+                           if not any(line.startswith(f"FAIL {name} ") for line in failed_rows)]
+    lines += [f"OK {name}" for name in ok]
+    for line in sorted(lines, key=lambda text: text.split(" ", 2)[1] if " " in text else text):
+        print(line)
+    for line in fatal:  # the tracker could not be read or saved: nothing was recorded
+        print(line)
+    return 0 if not fatal and len(ok) == len(matched) and not skipped else 1
+
+
+def _job_max_pages(folder: Path) -> tuple[int | None, str | None]:
+    """The page count of the resume that the screening matched to this job: the page rule of ohmyjob.
+
+    Returns (max_pages, WARNING line). Without a usable "Matched Resume" the build runs with no page check."""
+    import aa_lib as L
+    import pj
+
+    try:
+        matched = L.job_overview((folder / "job.md").read_text(encoding="utf-8")).get("Matched Resume") or ""
+    except OSError:
+        matched = ""
+    source = W.DEFAULT_RESUMES / (Path(matched).stem + ".pdf") if matched.strip() else None
+    if source is None or not source.is_file():
+        return None, (f"WARNING {folder.name}: the matched resume "
+                      f"'{matched.strip() or '(blank)'}' has no PDF in Default_Resume_Files/; built without a page check")
+    try:
+        return pj.pdf_pages(source), None
+    except Exception as exc:  # noqa: BLE001  (a damaged PDF is no reason to refuse the build)
+        return None, f"WARNING {folder.name}: {source.name} cannot be read ({exc}); built without a page check"
+
+
+def _record_built(built: list[tuple[str, Path]]) -> list[str]:
+    """Set each built job's row to "Resume Built": one tracker load, one save. Returns the FAIL lines."""
+    import aa_lib as L
+    from tracker import Tracker, TrackerError
+
+    if not built:
+        return []
+    allowed = ("Matched", "Resume Failed", "Resume Built")
+    try:
+        tracker = Tracker(W.TRACKER)
+    except TrackerError as exc:
+        return [f"FATAL: {exc}"]
+    failures = []
+    changed = False
+    for name, _pdf in built:
+        key = L.folder_id(name)
+        rows = tracker.rows_for_key(key) if key else []
+        if len(rows) != 1:
+            failures.append(f"FAIL {name} - {len(rows)} tracker rows have this job id")
+            continue
+        status = (rows[0]["Status"] or "").strip()
+        if status not in allowed:
+            failures.append(f"FAIL {name} - row is at {status or '(blank)'}")
+            continue
+        tracker.set_status(rows[0]["_index"], "Resume Built", None)
+        changed = True
+    if changed:
+        try:
+            tracker.save()
+        except TrackerError as exc:
+            return [f"FATAL: {exc}"]
+    return failures
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="ohmyjob resume")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -518,6 +618,8 @@ def main(argv=None) -> int:
     a = sub.add_parser("build-all", help="build every *.yaml of a folder into a PDF next to it")
     a.add_argument("name", nargs="?", default=None, help="build only this yaml file name (default: every file)")
     a.add_argument("--dir", type=Path, default=None, help="folder (default: Default_Resume_Files)")
+    j = sub.add_parser("build-jobs", help="build the resume of each named job folder and set its tracker row")
+    j.add_argument("names", help='job folder names, comma separated: "Acme, Lumenfield"')
     m = sub.add_parser("master", help="draft the # Resume section of Profile.md from the resume files (no model)")
     m.add_argument("--apply", action="store_true", help="replace the # Resume section of Profile.md with the draft")
     args = ap.parse_args(argv)
@@ -525,6 +627,12 @@ def main(argv=None) -> int:
         import master_resume
 
         return master_resume.run(args.apply)
+    if args.cmd == "build-jobs":
+        try:
+            return build_jobs(args.names)
+        except W.WorkspaceError as exc:
+            print(f"FATAL: {exc}")
+            return 1
     if args.cmd == "build-all":
         try:
             return build_all(args.dir or W.DEFAULT_RESUMES, args.name)

@@ -298,6 +298,37 @@ def element(ctx: Ctx, tab: Any, ref: Optional[str]) -> dict:
 BOX_ROLES = {"checkbox", "switch", "menuitemcheckbox"}
 
 
+def check_signin_lease(ctx: Ctx, tab: Any) -> None:
+    """One Google sign-in at a time per host: the first tab takes the lease, the next one waits and then reloads.
+
+    `since` is stored as a timestamp (time.time()), so no string is parsed on every call."""
+    host = ctx.host(tab)
+    if not host:
+        return
+    hosts = ctx.state.setdefault("signin_hosts", {})
+    entry = hosts.get(host)
+    tab_key = L.tab_key(tab)
+    stale = isinstance(entry, dict) and entry.get("status") == "pending" \
+        and time.time() - float(entry.get("since") or 0) > L.LEASE_SECONDS
+    if not isinstance(entry, dict) or stale:
+        hosts[host] = {"holder": tab_key, "since": time.time(), "status": "pending", "hinted": []}
+        ctx.dirty = True
+        L.log(ctx.run_dir, "lease-take", tab=int(tab), host=host)
+        return
+    if entry["status"] == "pending" and entry["holder"] != tab_key:
+        L.log(ctx.run_dir, "lease-wait", tab=int(tab), host=host, holder=int(entry["holder"]))
+        raise Deny(f"Tab {entry['holder']} is signing in to {host}. Use computer wait for "
+                   f"{L.SIGNIN_WAIT_SECONDS} seconds, then navigate your tab to the same address again "
+                   "and call read_page. Do not click the Google option before that.")
+    if entry["status"] == "signed_in" and tab_key not in (entry.get("hinted") or []):
+        entry.setdefault("hinted", []).append(tab_key)
+        ctx.dirty = True
+        L.log(ctx.run_dir, "lease-reload-hint", tab=int(tab), host=host)
+        raise Deny(f"{host} is signed in already in another tab. Navigate your tab to the same address "
+                   "again and call read_page first.")
+    L.log(ctx.run_dir, "lease-own" if entry["holder"] == tab_key else "lease-shared", tab=int(tab), host=host)
+
+
 def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     name = item.get("name") or ""
     role = item.get("role") or ""
@@ -331,9 +362,12 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "page has one, else stop with status 'blocked'.")
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
+    if google and not filled:
+        check_signin_lease(ctx, tab)  # one Google sign-in at a time per host (4.8)
+        L.log(ctx.run_dir, "google-option", tab=int(tab), host=ctx.host(tab))
+        return
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
-    if not name.strip() or consent or (google and not filled) or (apply_word and not filled and not sticky and not board) \
-            or name in X.SAFE:
+    if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
         return
     if role == "button" or (role == "link" and not L.navigable_href(attrs.get("href"))):
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
@@ -359,6 +393,7 @@ def check_google_click(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         if ctx.counter(tab, "google_clicks") >= 1:
             raise Deny("Only one account click is allowed on Google. Stop with status 'blocked'.")
         ctx.add(tab, "google_clicks")
+        L.log(ctx.run_dir, "google-account", tab=int(tab), host=ctx.host(tab))
         return
     if not inside:
         raise Deny("On Google pages the account entries have no name in the interactive view. Call read_page alone "
@@ -378,6 +413,7 @@ def check_google_click(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if ctx.counter(tab, "google_continue") >= 1:
         raise Deny("A button on this Google page was clicked already. Stop with status 'blocked'.")
     ctx.add(tab, "google_continue")
+    L.log(ctx.run_dir, "google-consent", tab=int(tab), host=ctx.host(tab))
 
 
 def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) -> Optional[dict]:
@@ -780,7 +816,7 @@ def check_any_action(run_dir: Optional[Path], short: str, ti: dict) -> None:
 
 
 def read_allowed(run_dir: Optional[Path], file_path: Any, agent_id: Optional[str] = None) -> bool:
-    """The worker may read the plugin's ATS notes and ITS OWN brief, by an absolute path.
+    """The worker may read the ATS notes (the plugin's and the workspace's) and ITS OWN brief, by an absolute path.
 
     The brief is claimed by the first worker that reads it (a worker has no tab bound yet: it reads the brief first);
     'next' clears the claim when it hands the job to a new worker. One brief per agent. Other briefs and every result.json are refused."""
@@ -791,7 +827,8 @@ def read_allowed(run_dir: Optional[Path], file_path: Any, agent_id: Optional[str
     except (OSError, RuntimeError):
         return False
     ats = W.ATS_DIR.resolve()
-    if target.parent == ats and target.suffix == ".md":
+    user_ats = W.USER_ATS_DIR.resolve()
+    if target.suffix == ".md" and target.parent in (ats, user_ats):
         return True
     if not agent_id or target.name != "brief.md" or target.parent.parent != (run_dir / "jobs").resolve():
         return False
@@ -815,18 +852,388 @@ def read_allowed(run_dir: Optional[Path], file_path: Any, agent_id: Optional[str
     return True
 
 
-TIME_UP = ("Time is up: your 17 minutes are over. Make no more tool calls (the hook denies them all). Send your "
-           "final report now with status \"blocked\", a \"blocker\" that starts with \"TIMEOUT:\" and says what is "
-           "left to do, and everything you filled. The candidate finishes it by hand in your tab.")
+def claimed_brief(run_dir: Optional[Path], agent_id: Optional[str]) -> Optional[Path]:
+    """The brief this worker has claimed: a refused Read names it, so a worker whose context was summarized can
+    Read it again (4.12)."""
+    if run_dir is None or not agent_id:
+        return None
+    state = L.load_state(run_dir)
+    for folder, job in (state.get("jobs") or {}).items():
+        if job.get("brief_agent") == agent_id:
+            return L.job_dir(run_dir, folder) / "brief.md"
+    return None
 
 
-def worker_timed_out(state: dict, agent_id: Optional[str]) -> bool:
-    """The worker's time limit (L.WORKER_SECONDS) is over: counted from the master's Agent call."""
+# --------------------------------------------------------------------------- progress watchdog (application workers)
+# An application worker has no wall-clock limit (4.7): it is stopped for a lack of progress, a repeated denial, or the
+# call budget. The counters live in the job entry's "watchdog" dict (L.init_watchdog()).
+
+_STOP_REASONS = {
+    "stall": "no progress in your last calls",
+    "repeat_deny": "the same denial repeated too many times",
+    "budget": "you reached the call budget",
+    "idle": "you were idle too long and your slot was freed",
+    "ended": "the worker ended without a report",
+}
+
+
+def stop_message(stopped_by: str) -> str:
+    """The denial text for a worker the watchdog stopped: it says which code to report and to stop calling tools."""
+    reason = _STOP_REASONS.get(stopped_by, stopped_by)
+    return (f"Stop now: {reason}. Make no more tool calls (the hook denies them all). Send your final report now "
+            'with status "blocked" and a blocker that starts with the code that fits the wall (for example '
+            "NOT_ACCESSIBLE or LOAD_FAIL), or STALLED if none fits, and say what is left to do. "
+            "The candidate finishes it by hand in your tab.")
+
+
+def worker_job(state: dict, agent_id: Optional[str]) -> Optional[dict]:
+    """The job dict of this worker: the job tab it is bound to (the tab registry key is the tab id)."""
+    if not agent_id:
+        return None
     for entry in state.get("tabs", {}).values():
-        if entry.get("role") == "job" and agent_id and entry.get("agent_id") == agent_id:
-            started = (state.get("jobs", {}).get(entry.get("folder")) or {}).get("spawned_at")
-            return started is not None and time.time() - started > L.WORKER_SECONDS
+        if entry.get("role") == "job" and entry.get("agent_id") == agent_id:
+            folder = entry.get("folder")
+            if folder:
+                return state.get("jobs", {}).get(folder)
+    return None
+
+
+def worker_tab(state: dict, agent_id: Optional[str]) -> Optional[str]:
+    """The tab key of this worker's job tab, or None. (The registry key IS the tab id: an entry has no "tab" key.)"""
+    if not agent_id:
+        return None
+    for key, entry in state.get("tabs", {}).items():
+        if entry.get("role") == "job" and entry.get("agent_id") == agent_id:
+            return key
+    return None
+
+
+def _normalize_reason(text: str) -> str:
+    return re.sub(r"\s+", " ", text[:80]).strip().lower()
+
+
+def is_lease_denial(reason: str, state: dict, agent_id: Optional[str]) -> bool:
+    """True when this denial is a sign-in lease wait for another tab: it is not the worker's own fault."""
+    low = reason.lower()
+    if "is signing in to" not in low and "signed in already" not in low:
+        return False
+    my_tab = worker_tab(state, agent_id)
+    if my_tab is None:
+        return False
+    for lease in (state.get("signin_hosts") or {}).values():
+        if lease.get("status") in ("pending", "signed_in"):
+            holder = lease.get("holder")
+            if holder and str(holder) != str(my_tab):
+                return True
     return False
+
+
+def record_progress(wd: dict) -> None:
+    wd["stall"] = 0
+    wd["nudged"] = False
+    wd["pending_nudge"] = False
+    wd["progress"] = wd.get("progress", 0) + 1
+    wd["deny_reason"] = ""
+    wd["deny_count"] = 0
+
+
+def record_stall(wd: dict, limits: dict, job: dict) -> None:
+    wd["stall"] = wd.get("stall", 0) + 1
+    wd["max_stall"] = max(wd.get("max_stall", 0), wd["stall"])
+    if wd["stall"] >= limits["stall_stop_calls"]:
+        job["stopped_by"] = "stall"
+    elif wd["stall"] >= limits["stall_nudge_calls"] and not wd.get("nudged"):
+        wd["pending_nudge"] = True
+
+
+def record_deny(wd: dict, reason: str, limits: dict, job: dict, state: dict, agent_id: Optional[str]) -> None:
+    """A denial counts as a stall step and as a repeat of the same denial; a sign-in lease wait counts as neither."""
+    if is_lease_denial(reason, state, agent_id):
+        return
+    record_stall(wd, limits, job)
+    norm = _normalize_reason(reason)
+    if norm == wd.get("deny_reason"):
+        wd["deny_count"] = wd.get("deny_count", 0) + 1
+    else:
+        wd["deny_reason"] = norm
+        wd["deny_count"] = 1
+    if wd["deny_count"] >= limits["repeat_deny_stop"]:
+        job["stopped_by"] = "repeat_deny"
+
+
+NUDGE_TEMPLATE = "[AA: no progress in your last {n} calls. If you are stuck, stop now and send your report.]"
+
+_ERROR_TEXT_RE = re.compile(r"^(error|failed|page still loading|showing error page)", re.I)
+
+
+def tool_is_error(tool_response: Any) -> bool:
+    """A tool result that reports a failure (it never counts as progress)."""
+    text = L.tool_text(tool_response).strip()
+    return bool(text) and bool(_ERROR_TEXT_RE.match(text)) and "Tab Context:" not in text
+
+
+def check_progress(state: dict, short: str, ti: dict, text: str, page_saved: bool,
+                   run_dir: Path, agent_id: Optional[str], tool_response: Any) -> bool:
+    """Was this call progress for its job? A new page fingerprint, a first fill of a field, a first click on a choice
+    control, an upload, or a Google sign-in step. A re-read of the same page and a second fill of the same field are not."""
+    tab_id = ti.get("tabId")
+    if tab_id is None:
+        return False
+    tk = L.tab_key(tab_id)
+    job = worker_job(state, agent_id)
+    if job is None:
+        return False
+    wd = job.setdefault("watchdog", L.init_watchdog())
+    if tool_is_error(tool_response):
+        return False
+    url = (state.get("tab_urls") or {}).get(tk, "")
+
+    def fingerprint() -> str:
+        snap = L.snapshot_text(run_dir, tab_id)
+        return L.page_fingerprint(snap, url) if snap else ""
+
+    def first_fill(ref: Optional[str]) -> bool:
+        item = L.snapshot_refs(run_dir, tab_id).get(ref or "", {})
+        pair = [fingerprint(), item.get("name", ref or "")]
+        if pair not in wd.get("fills", []):
+            wd.setdefault("fills", []).append(pair)
+            return True
+        return False
+
+    if short == "read_page" and page_saved and not ti.get("ref_id"):
+        fp = fingerprint()
+        if fp not in wd.get("fingerprints", []):
+            wd.setdefault("fingerprints", []).append(fp)
+            return True
+        return False
+    if short == "form_input":
+        return first_fill(ti.get("ref"))
+    if short == "computer":
+        if (ti.get("action") or "").lower() != "left_click":
+            return False
+        ref = ti.get("ref")
+        if ref:
+            item = L.snapshot_refs(run_dir, tab_id).get(ref, {})
+            if item.get("role") in L.CHOICE_ROLES or item.get("role") == "menuitem":
+                pair = [fingerprint(), item.get("name", "")]
+                if pair not in wd.get("choices", []):
+                    wd.setdefault("choices", []).append(pair)
+                    return True
+        return L.is_google_host(L.host_of(url))
+    if short == "file_upload":
+        return True
+    if short == "browser_batch":
+        progressed = False
+        for action in (ti.get("actions") or []):
+            name = (action.get("name") or "").replace(PREFIX, "")
+            args = action.get("input") or {}
+            if name == "form_input" and first_fill(args.get("ref")):
+                progressed = True
+            elif name == "file_upload":
+                progressed = True
+        return progressed
+    return False
+
+
+def watchdog_count(state: dict, agent_id: Optional[str]) -> Optional[str]:
+    """Count this call for its worker (mutating `state`): the stop message when the worker must stop, else None.
+
+    The caller holds the run lock and saves the state; nothing here takes the lock itself (one lock per call).
+    """
+    job = worker_job(state, agent_id)
+    if job is None:
+        return None
+    job["last_call_at"] = time.time()
+    if job.get("stopped_by"):
+        return stop_message(job["stopped_by"])
+    wd = job.setdefault("watchdog", L.init_watchdog())
+    wd["calls"] = wd.get("calls", 0) + 1
+    if wd["calls"] >= L.worker_limits()["call_budget"]:
+        job["stopped_by"] = "budget"
+        return stop_message("budget")
+    return None
+
+
+def watchdog_deny(state: dict, reason: str, agent_id: Optional[str]) -> str:
+    """Record a denial for its worker (mutating `state`) and return the text to print: the stop message once the
+    worker is stopped. The caller holds the run lock and saves the state."""
+    job = worker_job(state, agent_id)
+    if job is None:
+        return reason
+    wd = job.setdefault("watchdog", L.init_watchdog())
+    record_deny(wd, reason, L.worker_limits(), job, state, agent_id)
+    return stop_message(job["stopped_by"]) if job.get("stopped_by") else reason
+
+
+def watchdog_carry(fresh: dict, state: dict, agent_id: Optional[str]) -> None:
+    """Copy this worker's watchdog bookkeeping from `state` into a freshly loaded `fresh`.
+
+    A denied call must not save what it changed, but its counters must survive: they are the only part of the
+    denied call's state that is kept."""
+    src, dst = worker_job(state, agent_id), worker_job(fresh, agent_id)
+    if src is None or dst is None:
+        return
+    for key in ("watchdog", "last_call_at", "stopped_by"):
+        if key in src:
+            dst[key] = src[key]
+
+
+def watchdog_locked_count(run_dir: Path, agent_id: Optional[str]) -> Optional[str]:
+    """watchdog_count for a call that has no locked block of its own (the worker's Read)."""
+    with L.locked(run_dir):
+        state = L.load_state(run_dir)
+        stopped = watchdog_count(state, agent_id)
+        if worker_job(state, agent_id) is not None:
+            L.save_state(run_dir, state)
+        return stopped
+
+
+def watchdog_locked_deny(run_dir: Path, agent_id: Optional[str], reason: str) -> str:
+    """watchdog_deny for a denial that happens outside the guard's locked block (a failed Haiku check)."""
+    with L.locked(run_dir):
+        state = L.load_state(run_dir)
+        text = watchdog_deny(state, reason, agent_id)
+        if worker_job(state, agent_id) is not None:
+            L.save_state(run_dir, state)
+        return text
+
+
+# --------------------------------------------------------------------------- the dream agents (4.11)
+# The master runs the `ohmyjob dream` commands and starts one worker per ATS key. A worker is bound to its group the
+# way a brief is claimed: the first Read of a bundle path of a spawned, unclaimed group claims that group for this
+# agent id. Nothing is taken from the text of the transcript, so no model can choose another group's note.
+
+
+def dream_run_dir() -> Optional[Path]:
+    import dream
+
+    return dream.run_dir()
+
+
+def dream_group(agent_id: Optional[str], *, bundle: Optional[Path] = None) -> Optional[tuple[Path, str, dict]]:
+    """The (run dir, key, group) this worker has claimed, or the group that `bundle` names and this worker may claim."""
+    import dream
+
+    run_dir = dream.run_dir()
+    if run_dir is None or not agent_id:
+        return None
+    with dream.locked():
+        state = dream.run_state(run_dir)
+        groups = state.get("groups") or {}
+        for key, group in groups.items():
+            if group.get("agent_id") == agent_id:
+                return run_dir, key, group
+        if bundle is None:
+            return None
+        for key, group in groups.items():
+            if group.get("agent_id") or not group.get("spawned") or group.get("done"):
+                continue
+            try:
+                same = Path(group["bundle"]).resolve() == bundle
+            except (OSError, RuntimeError):
+                continue
+            if same:
+                group["agent_id"] = agent_id
+                L.write_json(run_dir / "state.json", state)
+                return run_dir, key, group
+    return None
+
+
+def dream_read_allowed(file_path: Any, agent_id: Optional[str]) -> bool:
+    """A dream worker reads: its bundle (which claims its group), any ATS note, and the worker's own rules."""
+    try:
+        target = Path(str(file_path)).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return False
+    if target.suffix == ".md" and target.parent in (W.ATS_DIR.resolve(), W.USER_ATS_DIR.resolve()):
+        return True
+    if target == (W.PLUGIN_ROOT / "agents" / "application-worker.md").resolve():
+        return True
+    claimed = dream_group(agent_id)
+    if claimed is not None:  # a claimed worker reads its own bundle and nothing else new
+        try:
+            return target == Path(claimed[2]["bundle"]).resolve()
+        except (OSError, RuntimeError):
+            return False
+    return dream_group(agent_id, bundle=target) is not None
+
+
+def dream_write_allowed(file_path: Any, agent_id: Optional[str]) -> bool:
+    """A dream worker writes ONE file: the note of the group it claimed."""
+    claimed = dream_group(agent_id)
+    if claimed is None:
+        return False
+    try:
+        return Path(str(file_path)).expanduser().resolve() == Path(claimed[2]["note"]).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def dream_save_result(inp: dict, message: str) -> Optional[str]:
+    """Save a dream worker's report under the group it claimed (never under the `ats` of the message)."""
+    import dream
+
+    report = L.extract_json_object(message)
+    if report is None:
+        return None
+    claimed = dream_group(inp.get("agent_id"))
+    if claimed is None:
+        return None
+    run_dir, key, _group = claimed
+    with dream.locked():
+        state = dream.run_state(run_dir)
+        group = (state.get("groups") or {}).get(key)
+        if group is None:
+            return None
+        L.write_json(Path(group["bundle"]).with_name(f"{key}.result.json"), {**report, "ats": key})
+        group["done"] = True
+        L.write_json(run_dir / "state.json", state)
+    return key
+
+
+def dream_give_up(agent_id: Optional[str], reason: str) -> None:
+    """The worker ended without a usable report: its group is done with an error, so the dream can end (4.11)."""
+    import dream
+
+    claimed = dream_group(agent_id)
+    if claimed is None:
+        return
+    run_dir, key, _group = claimed
+    with dream.locked():
+        state = dream.run_state(run_dir)
+        group = (state.get("groups") or {}).get(key)
+        if group is not None and not group.get("done"):
+            group.update({"done": True, "error": reason})
+            L.write_json(run_dir / "state.json", state)
+
+
+def dream_guard(inp: dict, tool: str, ti: dict, agent_type: str, agent_id: Optional[str]) -> None:
+    """The dream agents' own rules: everything this does not allow is denied."""
+    if agent_type == W.DREAM_MASTER:
+        if tool == "Bash":
+            command = ti.get("command")
+            if not isinstance(command, str) or not W.DREAM_MASTER_CMD_RE.fullmatch(command.strip()):
+                finish_deny(None, "Run only the 'ohmyjob dream start|next|finish|end' commands of your steps, one "
+                                  "command and nothing else.", tool=tool, agent_type=agent_type)
+            finish_allow()
+        if tool == "Agent":
+            if str(ti.get("subagent_type") or "") != W.DREAM_WORKER:
+                finish_deny(None, f"The dream master starts only {W.DREAM_WORKER} agents.",
+                            tool=tool, agent_type=agent_type)
+            finish_allow()
+        finish_deny(None, "The dream master runs its 'ohmyjob dream' commands and starts its workers; it uses no "
+                          "other tool.", tool=tool, agent_type=agent_type)
+    if tool == "Read":
+        if not dream_read_allowed(ti.get("file_path"), agent_id):
+            finish_deny(None, "The dream host worker reads only its own bundle, the ATS notes and the plugin's "
+                              "agents/application-worker.md, by absolute paths.", tool=tool, agent_type=agent_type)
+        finish_allow()
+    if tool in ("Edit", "Write"):
+        if not dream_write_allowed(ti.get("file_path"), agent_id):
+            finish_deny(None, "The dream host worker writes only the note of its own ATS key (Read your bundle "
+                              "first).", tool=tool, agent_type=agent_type)
+        finish_allow()
+    finish_deny(None, "The dream host worker uses Read, Edit and Write only.", tool=tool, agent_type=agent_type)
 
 
 def master_command_ok(ti: dict) -> bool:
@@ -842,6 +1249,8 @@ def guard(inp: dict) -> None:
     agent_id = inp.get("agent_id")
     run_dir = L.current_run_dir()
 
+    if agent_type in W.DREAM_AGENTS:
+        dream_guard(inp, tool, ti, agent_type, agent_id)
     if agent_type not in W.APPLICATION_AGENTS:
         # the main session and any other agent: only Chrome calls are checked; every other call gets no decision
         if not tool.startswith(PREFIX):
@@ -858,9 +1267,18 @@ def guard(inp: dict) -> None:
 
     # ---- ohmyjob application agents: validate, then allow explicitly (or deny)
     if tool == "Read":
+        if agent_type == L.WORKER and run_dir is not None:
+            # a Read counts toward the call budget too (4.7)
+            stopped = watchdog_locked_count(run_dir, agent_id)
+            if stopped:
+                finish_deny(run_dir, stopped, tool=tool, agent_id=agent_id)
         if agent_type != L.WORKER or not read_allowed(run_dir, ti.get("file_path"), agent_id):
-            finish_deny(run_dir, "The worker may read only its own brief and the ATS notes of the plugin (its ats/ folder), "
-                                 "by absolute paths; the master reads no files.", tool=tool, agent_type=agent_type)
+            reason = ("The worker may read only its own brief and the ATS notes (the plugin's ats/ folder and "
+                      "the workspace's ats/ folder), by absolute paths; the master reads no files.")
+            brief = claimed_brief(run_dir, agent_id) if agent_type == L.WORKER else None
+            if brief is not None:
+                reason += f" Your brief is {brief}"
+            finish_deny(run_dir, reason, tool=tool, agent_type=agent_type)
         finish_allow()
     if tool == "Bash":
         if agent_type != L.MASTER or not master_command_ok(ti):
@@ -891,11 +1309,15 @@ def guard(inp: dict) -> None:
 
     if run_dir is None:
         finish_deny(None, "No active application run. Start it with /ohmyjob:apply-jobs.")
-    if agent_type == L.WORKER and worker_timed_out(L.load_state(run_dir), agent_id):
-        finish_deny(run_dir, TIME_UP, tool=tool, agent_id=agent_id)
+    if agent_type == L.WORKER:
+        # the progress watchdog counts this call and stops a worker that is out of budget or stopped already
+        stopped = watchdog_locked_count(run_dir, agent_id)
+        if stopped is not None:
+            finish_deny(run_dir, stopped, tool=short, agent_id=agent_id, tab=ti.get("tabId"))
     updated = None
     reason = None
     wait = 0.0
+    denied_recorded = False
     for _round in range(MAX_JUDGE_ROUNDS):
         pending: Optional[L.NeedJudge] = None
         with L.locked(run_dir):
@@ -920,6 +1342,15 @@ def guard(inp: dict) -> None:
                 if ctx.dirty and reason is None and pending is None:
                     L.save_state(run_dir, state)
                     wait = ctx.wait
+            if reason is not None and agent_type == L.WORKER:
+                # a fresh load drops what the denied call changed and keeps its watchdog counters (the lock is held,
+                # so nothing else wrote the file meanwhile)
+                fresh = L.load_state(run_dir)
+                watchdog_carry(fresh, state, agent_id)
+                reason = watchdog_deny(fresh, reason, agent_id)
+                denied_recorded = True
+                if worker_job(fresh, agent_id) is not None:
+                    L.save_state(run_dir, fresh)
         if pending is None:
             break
         # the Haiku check runs outside the run lock; the next round finds its result in the cache
@@ -928,12 +1359,14 @@ def guard(inp: dict) -> None:
               agent_id=agent_id)
         if result is None:
             reason = judge_failed(pending.kind, pending.payload, error)
-            # store error in job state so master can report it
+            # the master reports the failed check in its summary: the state must be saved, under the lock
             if ctx.my_tab() is not None:
-                folder = (ctx.entry(ctx.my_tab()) or {}).get("folder")
-                if folder and folder in ctx.state.get("jobs", {}):
-                    ctx.state["jobs"][folder]["judge_error"] = f"{pending.payload.get('name')}: {error}"
-                    ctx.dirty = True
+                with L.locked(run_dir):
+                    fresh = L.load_state(run_dir)
+                    folder = ((fresh.get("tabs") or {}).get(L.tab_key(ctx.my_tab())) or {}).get("folder")
+                    if folder and folder in fresh.get("jobs", {}):
+                        fresh["jobs"][folder]["judge_error"] = f"{pending.payload.get('name')}: {error}"
+                        L.save_state(run_dir, fresh)
             break
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
@@ -943,6 +1376,8 @@ def guard(inp: dict) -> None:
     else:
         reason = "Too many new names in one call. Click one control at a time."
     if reason is not None:
+        if agent_type == L.WORKER and not denied_recorded:
+            reason = watchdog_locked_deny(run_dir, agent_id, reason)
         finish_deny(run_dir, reason, tool=short, agent_type=agent_type, agent_id=agent_id, tab=ti.get("tabId"))
     if wait > 0:
         time.sleep(wait)  # outside the run lock: the other workers go on meanwhile
@@ -974,7 +1409,7 @@ def save_page(run_dir: Path, tab: Any, text: str, partial: bool) -> bool:
     return True
 
 
-def observe_tabs(state: dict, tabs: dict[int, dict]) -> bool:
+def observe_tabs(state: dict, tabs: dict[int, dict], run_dir: Optional[Path] = None) -> bool:
     """Record the URL and title of every tab that a tool result lists. A tab whose title starts
     with "[AA from N]" (the helper extension) and that job tab N opened becomes its sign-in tab."""
     urls = state.setdefault("tab_urls", {})          # best known URL per tab (guard)
@@ -1003,6 +1438,34 @@ def observe_tabs(state: dict, tabs: dict[int, dict]) -> bool:
         entry = registry.get(key)
         if entry is not None and url and L.track_google(entry, url):
             changed = True
+        tag = L.GOOGLE_TAG_RE.search(title)
+        if entry is not None and entry.get("role") == "job" and tag:
+            counts = {"google_count": int(tag.group(1)), "google_named": int(tag.group(2))}
+            if {k: entry.get(k) for k in counts} != counts:
+                entry.update(counts)
+                changed = True
+    # the sign-in lease (4.8): a pending sign-in is finished when its pop-up tab is gone or the job tab is back on the
+    # host. The next worker on that host then gets the reload hint instead of a wait.
+    for host, lease in list((state.get("signin_hosts") or {}).items()):
+        if not isinstance(lease, dict) or lease.get("status") != "pending":
+            continue
+        holder_key = str(lease.get("holder"))
+        holder = registry.get(holder_key)
+        if holder is None or holder.get("role") != "job":
+            continue
+        signin_tab = next((k for k, v in registry.items()
+                           if v.get("role") == "signin" and str(v.get("opener")) == holder_key), None)
+        clicks = int(holder.get("google_clicks") or 0)
+        if signin_tab is not None:  # the account click can happen in the pop-up tab
+            clicks = max(clicks, int((registry.get(signin_tab) or {}).get("google_clicks") or 0))
+        if clicks < 1:
+            continue
+        gone = signin_tab is not None and int(signin_tab) not in tabs
+        back = bool(urls.get(holder_key)) and L.host_of(urls[holder_key]) == host
+        if gone or back:
+            lease["status"] = "signed_in"
+            changed = True
+            L.log(run_dir, "signin-done", tab=int(holder_key), host=host)
     return changed
 
 
@@ -1041,6 +1504,8 @@ def snapshot(inp: dict) -> None:
     short = tool[len(PREFIX):]
     ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
     text = L.tool_text(inp.get("tool_response"))
+    if agent_type in W.DREAM_AGENTS:
+        dream_guard(inp, tool, ti, agent_type, agent_id)
     if agent_type not in W.APPLICATION_AGENTS:
         record_foreign(short, ti, text)  # every other caller: the refs of its reads; nothing in the run, no rewrite
         sys.exit(0)
@@ -1081,7 +1546,7 @@ def snapshot(inp: dict) -> None:
         else:
             # every other result ends with a Tab Context block: URLs and titles of all tabs in the group
             _executed, tabs = L.tab_context(text)
-        if observe_tabs(state, tabs):
+        if observe_tabs(state, tabs, run_dir):
             changed = True
         entry = state.get("tabs", {}).get(L.tab_key(ti["tabId"])) if page_saved else None
         if entry is not None:
@@ -1093,6 +1558,26 @@ def snapshot(inp: dict) -> None:
             if not ti.get("ref_id") and (entry.get("last_click") or entry.get("choice_dirty")):
                 entry["last_click"] = None  # the worker saw the page after its click (a part read may miss that control)
                 entry["choice_dirty"] = False
+                changed = True
+        # ---- progress watchdog: a new page, a first fill, a first choice, an upload or a Google step is progress;
+        # anything else is a stall step, and a nudge is added to the tool result at the nudge limit
+        if inp.get("agent_type") == L.WORKER:
+            snap_agent = inp.get("agent_id")
+            wjob = worker_job(state, snap_agent)
+            if wjob is not None:
+                wjob["last_call_at"] = time.time()
+                wd = wjob.setdefault("watchdog", L.init_watchdog())
+                limits = L.worker_limits()
+                if check_progress(state, short, ti, text, page_saved, run_dir, snap_agent, inp.get("tool_response")):
+                    record_progress(wd)
+                else:
+                    record_stall(wd, limits, wjob)
+                if wd.get("pending_nudge") and text and not tool_is_error(inp.get("tool_response")):
+                    nudge = NUDGE_TEMPLATE.format(n=wd["stall"])
+                    wd["nudged"] = True
+                    wd["pending_nudge"] = False
+                    base = L.tool_text(replace) if replace is not None else text
+                    replace = L.replace_tool_text(inp.get("tool_response"), base + "\n" + nudge)
                 changed = True
         if changed:
             L.save_state(run_dir, state)
@@ -1159,7 +1644,8 @@ def saved_for(run_dir: Path, agent_id: Optional[str]) -> bool:
     """True if a result of this worker is already saved (for example by the handback hook)."""
     if not agent_id:
         return False
-    state = L.load_state(run_dir)
+    with L.locked(run_dir):  # the other workers write their results meanwhile
+        state = L.load_state(run_dir)
     for folder in state.get("jobs", {}):
         result = L.read_json(L.job_dir(run_dir, folder) / "result.json", None)
         if isinstance(result, dict) and result.get("agent_id") == agent_id:
@@ -1172,6 +1658,12 @@ def handback(inp: dict) -> None:
 
     A bad report is refused (exit 2): the worker stays in its tab, corrects it and calls again.
     A good report is saved, and the master gets one short line instead of the full report."""
+    if inp.get("agent_type") == W.DREAM_WORKER:
+        ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
+        key = dream_save_result(inp, str(ti.get("message") or ""))
+        if key:
+            finish_allow({**ti, "message": json.dumps({"ats": key, "result": "saved by the hook"})})
+        sys.exit(0)
     if inp.get("agent_type") != L.WORKER:
         sys.exit(0)
     run_dir = L.current_run_dir()
@@ -1194,8 +1686,23 @@ def handback(inp: dict) -> None:
     sys.exit(0)
 
 
+def mark_ended(run_dir: Path, agent_id: Optional[str]) -> None:
+    """The worker really ended: `next` frees its slot at once instead of waiting for idle_minutes (4.7). Not set when
+    the stop is blocked to get a corrected report: the worker goes on then (4.7 defect 3)."""
+    with L.locked(run_dir):
+        state = L.load_state(run_dir)
+        job = worker_job(state, agent_id)
+        if job is not None:
+            job["ended_at"] = time.time()
+            L.save_state(run_dir, state)
+
+
 def capture(inp: dict) -> None:
     """SubagentStop of a worker: the report is its final text, when Claude Code does not use hand-backs."""
+    if inp.get("agent_type") == W.DREAM_WORKER:
+        if dream_save_result(inp, str(inp.get("last_assistant_message") or "")) is None:
+            dream_give_up(inp.get("agent_id"), "the worker ended without a usable JSON report")
+        sys.exit(0)
     if inp.get("agent_type") != L.WORKER:
         sys.exit(0)
     run_dir = L.current_run_dir()
@@ -1206,13 +1713,15 @@ def capture(inp: dict) -> None:
     if not message.strip() or saved_for(run_dir, agent_id):
         # The last message was the SubagentHandback call (its hook checked the report), or the
         # report is saved already. A block cannot help after a hand-back: the run has ended.
+        mark_ended(run_dir, agent_id)
         sys.exit(0)
     action, reason, _info = process_report(
         run_dir, agent_id, message, again="Reply again with only the corrected JSON object.", source="stop"
     )
     if action == "retry":
         L.log(run_dir, "capture-block", agent_id=agent_id, reason=reason[:300])
-        block_stop(reason)
+        block_stop(reason)  # the worker goes on: it has not ended, so no ended_at
+    mark_ended(run_dir, agent_id)
     sys.exit(0)
 
 

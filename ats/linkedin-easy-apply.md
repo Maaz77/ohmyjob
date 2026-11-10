@@ -1,4 +1,5 @@
 # LinkedIn Easy Apply
+hosts: linkedin.com, *.linkedin.com
 
 - Easy Apply opens a form with several steps in the same tab. Advance with Next or Review.
 - Click Easy Apply once. The dialog shows a "Dismiss" button before its fields load: wait 2 seconds and read again. A second click on Easy Apply closes the dialog.
@@ -11,3 +12,5 @@
 - A step can hold a privacy-notice declaration checkbox. Tick it and list it in `declarations`.
 - A step can hold voluntary diversity questions. Use "Prefer not to say" when it is offered.
 - The last step shows the final submit button. Stop there with status "parked".
+- The guard hook can refuse a click on Easy Apply, Next or Review with the text that the click can send the application. That refusal is final, and the same click is refused again in the next run. Stop at once with status "parked", report the step in `where` and the open dialog in `open`, and do not try the click again or another route to it.
+- A job whose only control is "Apply on company website" links through a safety redirect. Navigate your tab to the href once. If the tab shows a browser error page, reload at most twice, then stop with `LOAD_FAIL`.

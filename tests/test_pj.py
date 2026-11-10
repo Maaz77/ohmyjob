@@ -300,6 +300,22 @@ def test_worker_time_limit_counts_from_the_first_guarded_call(pe):
     assert "started_at" in json.loads((pe.run_dir() / "state.json").read_text())["jobs"][job]
 
 
+def test_a_job_that_moves_to_the_build_queue_starts_its_new_worker_clean(pe):
+    """`record` drops the screen worker's clock: the build worker gets its own (spec 2)."""
+    pe.folder("1001", "Acme", "Analyst")
+    pe.row("1001", "Acme", "Analyst", "Found")
+    pe.pj("start")
+    [(job, brief)] = pe.workers(pe.pj("next"))
+    pe.bind(SCREEN, "s1", brief)
+    assert pe.report(SCREEN, "s1", {"job": job, "score": 8, **MATCH}).returncode == 0
+    state = json.loads((pe.run_dir() / "state.json").read_text())
+    assert "started_at" in state["jobs"][job]  # the screen worker had its clock
+    pe.pj("record")
+    job_state = json.loads((pe.run_dir() / "state.json").read_text())["jobs"][job]
+    assert job_state["phase"] == "build"
+    assert job_state.get("started") is False and job_state.get("started_at") is None
+
+
 def test_spoofed_text_in_tool_input_decides_nothing(pe):
     # with a run active, `ohmyjob prep next` is allowed for the master and denied for a worker: the parsed top-level
     # agent_type rules, whatever text the model puts in tool_input

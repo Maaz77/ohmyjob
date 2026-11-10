@@ -8,7 +8,7 @@ A job-search pipeline for [Claude Code](https://code.claude.com), shipped as a p
 |---|---|---|
 | 1 | `/ohmyjob:find-jobs` | Searches the boards you configured, filters by title, employment type and company, drops duplicates, and adds new jobs to the tracker at `Found`, each with a folder `Applications/<id>_<Company>_<Title>/job.md`. |
 | 2 | `/ohmyjob:prep-jobs` | One small worker per job screens it against `Profile.md` (`Matched` or `Skipped-LowFit`), then one worker per match tailors a copy of your closest resume and builds the PDF (`Resume Built`); a match on a ready-made PDF uses it as it is. |
-| 3 | `/ohmyjob:apply-jobs` | One worker per job fills the application in its own Chrome tab and parks it before the final button (`Pending Review`), or flags it (`Needs Attention`). Questions it cannot answer from `Profile.md` are collected and asked once; your answers are saved for next time. |
+| 3 | `/ohmyjob:apply-jobs` | One worker per job fills the application in its own Chrome tab and parks it before the final button (`Pending Review`), or flags it (`Needs Attention`). Questions it cannot answer from `Profile.md` are collected and asked once; your answers are saved for next time. Options: `--selected "<name, name>"` runs only those job folders, `--top-k-match <N>` only the N jobs with the best Match Score. |
 | 4 | by hand | Open the Chrome tab group "Needs Attention" and fix what blocked each job (sign in, create an account, close a pop-up). |
 | 5 | `/ohmyjob:continue-applying` | Workers continue those tabs from where they stopped. |
 | 6 | by hand | Review each parked form and **submit it yourself**. |
@@ -21,6 +21,8 @@ Other commands:
 | `/ohmyjob:setup` | Prepare the environment and the workspace the first time (safe to run again). |
 | `/ohmyjob:build-resumes [file.yaml]` | Build the PDF of every resume yaml in `Default_Resume_Files/` (never `Template*.yaml`), or only the yaml you name. A tailored resume later has exactly the page count of its source PDF. |
 | `/ohmyjob:master-resume` | Draft the `# Resume` section of `Profile.md` from your resume files. |
+| `/ohmyjob:build-job-resumes <name, name, ...>` | Build the tailored resume of the named job folders again (after you corrected its yaml by hand) and set each row back to `Resume Built`. |
+| `/ohmyjob:dream` | Turn the traces of your last runs into ATS notes in `ohmyjob/ats/`, with a `Dream_Report.md`. Undo the whole pass with `ohmyjob dream reject`. |
 | `/ohmyjob:help` | Print the commands, the `ohmyjob.json` table and the job status life cycle. |
 
 Drop a job at any time by deleting its folder. Details of every component: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -109,6 +111,31 @@ Work in `ohmyjob/`:
 6. Run the daily loop above.
 
 During screening, the usable resumes are every `<name>.yaml` with a built `<name>.pdf` (tailored per job) and every `<name>.pdf` without a yaml (used as is). `Template.*` and any file that still holds the marker are never used. A job that matches a ready-made PDF gets a copy of it in its folder, named `<First>_<Company>_<Title>.pdf`, and goes straight to `Resume Built`; a job that matches a yaml gets a tailored copy (`.yaml` and `.pdf`) from a worker.
+
+### What the application workers learn
+
+- `ohmyjob/ats/` holds the notes about the application systems that **your** runs produced. A note here replaces the
+  plugin's note of the same name, and the workers read it when they reach that site. The plugin ships four generic
+  notes (LinkedIn Easy Apply, Workday, Greenhouse, Phenom); the folder starts empty.
+- `ohmyjob apply end` writes one line per job to `.ohmyjob/traces/ledger.jsonl` and a trace for the jobs worth
+  learning from (no filled values, no drafted answers, no email addresses). When enough new traces are there, the run
+  says so: `/ohmyjob:dream` reads them, writes the notes and a `Dream_Report.md` in the workspace.
+  `ohmyjob dream reject` puts the notes, the report and the watermark back as they were before the last pass, and
+  `ohmyjob dream seed [--dry-run]` reads the run notes of your old `job.md` files into the ledger once, before the
+  first pass.
+- `ohmyjob/Worker_Limits.json` holds the limits of the progress watchdog that stops an application worker that is
+  stuck. A missing file, key or unusable value falls back to the default, and `preflight` prints the values it used:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `stall_nudge_calls` | 15 | calls without progress before the worker is warned in its tool result |
+| `stall_stop_calls` | 25 | calls without progress before the worker is stopped |
+| `repeat_deny_stop` | 5 | the same denial this often in a row stops the worker (a sign-in wait does not count) |
+| `call_budget` | 150 | browser and Read calls in one worker (kept under the agent's `maxTurns`) |
+| `idle_minutes` | 6 | no tool call for this long frees the worker's slot |
+
+Progress is a new page, the first fill of a field, the first click on a choice control, an upload or a Google
+sign-in step. There is no wall-clock limit.
 
 ### The mock guard
 

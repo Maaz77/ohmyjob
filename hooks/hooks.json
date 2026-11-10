@@ -10,6 +10,6 @@
   "Stop": [
     {"hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "report"], "timeout": 30}]}],
   "SubagentStop": [
-    {"matcher": "^ohmyjob:(application-worker|screen-worker|resume-worker)$",
+    {"matcher": "^ohmyjob:(application-worker|screen-worker|resume-worker|dream-host-worker)$",
      "hooks": [{"type": "command", "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh", "capture"], "timeout": 30}]}]
 }}

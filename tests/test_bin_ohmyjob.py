@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-SCRIPT_FILES = {"prep": "pj.py", "apply": "aa.py", "scrape": "scrape.py", "reconcile": "reconcile.py", "resume": "resume_build.py"}
+SCRIPT_FILES = {"prep": "pj.py", "apply": "aa.py", "scrape": "scrape.py", "reconcile": "reconcile.py",
+                "resume": "resume_build.py", "dream": "dream.py"}
 
 # Stands in for the real scripts: reports how it was called.
 STUB_SCRIPT = (
@@ -80,7 +81,7 @@ def test_the_exit_code_of_the_script_is_the_exit_code(plugin, workspace):
 def test_an_unknown_word_prints_the_usage(plugin, workspace, args):
     proc = run(plugin, *args, cwd=workspace)
     assert proc.returncode == 2
-    assert proc.stdout.startswith("usage: ohmyjob <prep|apply|scrape|reconcile|resume>")
+    assert proc.stdout.startswith("usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream>")
 
 
 def test_a_script_missing_from_the_plugin_is_fatal(plugin, workspace):

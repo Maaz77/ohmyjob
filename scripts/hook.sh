@@ -3,7 +3,7 @@
 # Hooks fire on every Read/Edit/Bash/Chrome call of every session, so a call that no ohmyjob rule covers must end
 # here, in bash, without starting Python. The rest goes to the plugin's venv Python:
 #   ohmyjob:prep-master|screen-worker|resume-worker -> pj_hooks.py
-#   ohmyjob:application-*                           -> hooks.py
+#   ohmyjob:application-* and ohmyjob:dream-*       -> hooks.py
 #   guard of ANY Chrome tool (mcp__claude-in-chrome__*), whoever calls (main session, Explore, any agent) -> hooks.py
 #     (decided first; hooks.py hands a PARSED prep agent_type to pj_hooks.py's rules)
 #   anything else                                   -> exit 0
@@ -54,13 +54,14 @@ if [ -z "$root" ]; then
 fi
 [ -n "$root" ] || exit 0
 
-prep=0 app=0 ohmyjob_agent=0 any_agent=0 chrome=0
+prep=0 app=0 dream=0 ohmyjob_agent=0 any_agent=0 chrome=0
 find_all agent_type
 for agent in ${found[@]+"${found[@]}"}; do
   [ -n "$agent" ] && any_agent=1
   case "$agent" in
     ohmyjob:prep-master|ohmyjob:screen-worker|ohmyjob:resume-worker) prep=1 ohmyjob_agent=1 ;;
     ohmyjob:application-*) app=1 ohmyjob_agent=1 ;;
+    ohmyjob:dream-*) dream=1 ohmyjob_agent=1 ;;
   esac
 done
 find_all tool_name
@@ -79,7 +80,7 @@ case "$event" in
   guard|handback|capture)
     if [ "$event" = "guard" ] && [ "$chrome" = 1 ]; then script="hooks.py"  # first: no agent_type text can move it
     elif [ "$prep" = 1 ]; then script="pj_hooks.py"
-    elif [ "$app" = 1 ]; then script="hooks.py"
+    elif [ "$app" = 1 ] || [ "$dream" = 1 ]; then script="hooks.py"
     fi ;;
   snapshot) [ "$chrome" = 1 ] && script="hooks.py" ;;  # every Chrome caller: the guard needs the refs of all pages
   report) [ -f "$root/.ohmyjob/last_report.txt" ] && script="hooks.py" ;;

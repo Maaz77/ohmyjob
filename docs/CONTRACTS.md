@@ -9,7 +9,13 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   folders and `.ohmyjob/`.
 - Constants: `ROOT CONFIG_FILE PROFILE TRACKER` (`Job_Tracker.xlsx`) `DEFAULT_RESUMES APPLICATIONS PENDING_REVIEW
   NEEDS_ATTENTION SUBMITTED CLAUDE_MD SETTINGS_FILE STATE_DIR` (`.ohmyjob`) `ENV_FILE RUN_PREP RUN_APPLY BUILD_DIR
+<<<<<<< HEAD
   CATALOG_DIR` (`.ohmyjob/catalog`) `QUESTIONS_FILE REPORT_FILE PLUGIN_ROOT ATS_DIR TEMPLATES_DIR`, and `CONFIG_NAME`
+=======
+  CATALOG_DIR` (`.ohmyjob/catalog`) `QUESTIONS_FILE REPORT_FILE TRACES_DIR` (`.ohmyjob/traces`) `DREAM_DIR`
+  (`.ohmyjob/run/dream`) `USER_ATS_DIR` (`<workspace>/ats`, the notes this user learned; a note there replaces the
+  plugin note of the same stem) `PLUGIN_ROOT ATS_DIR` (the plugin's four generic notes) `TEMPLATES_DIR`, and `CONFIG_NAME`
+>>>>>>> port/tmpfiles-release
   (`ohmyjob.json`) `WORKSPACE_DIR` (`ohmyjob`) `DEFAULTS SOURCES COUNTRIES EMPLOYMENT_TYPES LANGUAGES TEMPLATE_MARKER
   TEMPLATE_KEY`. There is no `BASE_YAML`: every resume is one full yaml (see "Resume yaml").
 - Discovery, ONE rule for `find_root()`, hook.sh, bin/ohmyjob, hooks.py and pj_hooks.py:
@@ -45,12 +51,83 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   decoded, is not UTF-8; `load_config` raises `ConfigError` for the same. The message names the file and says what to
   do, so a caller that catches `WorkspaceError` prints it as one `FATAL: ...` line. A folder in place of a file counts as
   missing, except for `ohmyjob.json`.
+<<<<<<< HEAD
 - Agents (`ohmyjob:<name>`): `PREP_MASTER SCREEN_WORKER RESUME_WORKER APPLICATION_MASTER APPLICATION_WORKER`; sets
   `PREP_AGENTS PREP_WORKERS APPLICATION_AGENTS`.
+=======
+- Agents (`ohmyjob:<name>`): `PREP_MASTER SCREEN_WORKER RESUME_WORKER APPLICATION_MASTER APPLICATION_WORKER
+  DREAM_MASTER DREAM_WORKER`; sets `PREP_AGENTS PREP_WORKERS APPLICATION_AGENTS DREAM_AGENTS`.
+>>>>>>> port/tmpfiles-release
 - `MASTER_WORKERS`: the subagent types each master may start. `tools: Agent(...)` restricts nothing for plugin agents, so
   every guard checks `tool_input.subagent_type` against it.
 - Bash patterns, matched on the stripped command, anything else denied: `PREP_MASTER_CMD_RE`, `RESUME_BUILD_CMD_RE` (group 1
-  = job key), `APPLICATION_MASTER_CMD_RE`. `QUESTIONS_BLOCKER`: blocker text of a worker that stops on questions.
+  = job key), `APPLICATION_MASTER_CMD_RE` (it also allows `start --selected "<text>"`, where `<text>` is 1 to 300
+  characters of `[A-Za-z0-9 ,._&+()-]` and nothing else, and `start --top-k-match <1-9999>`), `DREAM_MASTER_CMD_RE`
+  (`ohmyjob dream start|next|finish|end`; `reject` and `seed` are the user's, never an agent's).
+  `QUESTIONS_BLOCKER`: blocker text of a worker that stops on questions.
+
+## Templates and the mock guard
+- Setup writes the templates with the mock persona Alex Example, each with `TEMPLATE_MARKER` on a line the user deletes
+  after editing: the first line of `Profile.md` (`<!-- OHMYJOB-TEMPLATE: ... -->`) and of
+  `Default_Resume_Files/Template.yaml` (`# OHMYJOB-TEMPLATE: ...`), and the `"_template"` key line of `ohmyjob.json`.
+- Mock guard: a command refuses with ONE line that names the file (`ohmyjob: ...` from bin/ohmyjob, `FATAL: ...` from a
+  script) and tells the user to replace the mock data and delete the marker line. `scrape` (find-jobs) refuses while
+  `W.template_files()` is not empty; `prep` refuses while `Profile.md` holds the marker, never uses `Template.*` or a
+  resume file that holds it, and refuses when no usable resume is left; `apply` (also `--continue`) refuses while
+  `Profile.md` holds it. Check with `has_template_marker()` / `template_files()` only, never with your own parsing.
+- `Profile.md` sections: `# Fit Preferences` (exactly three fields: `**Seniority / experience level:**`, `**What I'm
+  looking for:**`, `**Dealbreakers:**`; `pj.py` puts the section verbatim at the top of every screen brief under
+  `CANDIDATE FIT PREFERENCES`, and the screen-worker judges against it first), `# Resume` (the master resume and the only
+  source of facts for tailoring: header lines `- Name: <First> <Last>`, email, phone, address, links, then `##`
+  sections Summary, Work Experience, Education, Skills, Honors & Awards, Certificates, Extracurricular Activity,
+  Presentation, Writing, Program Committees (and Projects); entries `### <Role> | <Company> | <Location> | <Dates>` +
+  `- bullet`, skills `- **<Label>:** items`), `# Follow Up Questions` (a NUMBERED list `1. Question? Answer.`; the parser
+  accepts `N.`, `N)` and `- `; `aa.py answer` appends with the next number; work authorization lives only here).
+- `ohmyjob resume master` (`scripts/master_resume.py`, dispatched from `resume_build.py`; no model): merges every usable yaml
+  of `Default_Resume_Files` (not `Template*`, not a marked file) and writes the draft of `# Resume` to
+  `.ohmyjob/master-resume.md`, the text of every usable PDF without a yaml to `.ohmyjob/master-resume-pdf/<name>.txt`;
+  prints `DRAFT <path>`, `PDF <path>` per text, `SUMMARY <n> yaml, <m> pdf`, or `FATAL: ...`. `--apply` replaces only
+  the `# Resume` section (up to the next level-1 heading) after saving `.ohmyjob/backup/Profile-<UTC timestamp>.md`;
+  prints `OK <backup path>`. Same job = normalized company + role + dates; near-duplicate lines (rapidfuzz ratio >= 90)
+  keep the longer.
+
+## Resume yaml (one full file per resume)
+- Each resume is ONE complete yaml, never merged with another file: `Default_Resume_Files/Template.yaml`, the user's
+  `<Field>.yaml` (named by field, e.g. `Data-Analyst.yaml`), and the tailored `<prefix>_<Company>.yaml` in a job folder.
+- Two layouts, exactly Awesome-CV's upstream examples (pinned commit dfe8635): `document: resume` (default; `examples/resume.tex`,
+  `\makecvheader[C]`, footer "<Name> · Résumé") and `document: cv` (`examples/cv.tex`,
+  `\makecvheader`, footer "<Name> · Curriculum Vitae", no summary). Preamble: `\documentclass[11pt, a4paper|letterpaper]`,
+  `\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}`, `awesome-red`, section highlight on.
+- Sections (an empty one is left out), order and headings fixed: resume = Summary (`introduction`, cvparagraph), Work
+  Experience (`experience`), Honors & Awards (`honors`), Certificates (`certificates`), Education (`education`); cv =
+  Education, Skills (`skills`, cvskills), Experience, Extracurricular Activity (`extracurricular`), Honors & Awards,
+  Certificates, Presentation (`presentation`), Writing (`writing`), Program Committees (`committees`).
+- Keys (`?` = optional): `document?` (`resume`|`cv`), `name{first, last}`, `title` (the position line), `address`, `phone`,
+  `email`, `homepage?`, `github?`, `linkedin?`, `quote?`, `extra?`, `photo?`, `date_of_birth?`, `paper?` (`a4` default, or `letter`), `accent_color?` (only
+  upstream's names: emerald, skyblue, red, pink, orange, nephritis, concrete, darknight; default red; anything else
+  prints a WARNING and uses red), `sections?` (heading overrides by section key: summary, experience, honors,
+  certificates, education, skills, extracurricular, presentation, writing, committees), `introduction` (resume only: a CV has none and needs none), `experience[]`
+  (plain `{role, company, location, dates, bullets[]}` or grouped `{employer, location, dates, roles[]{role, dates,
+  bullets[]}}`), `education[]{degree, school, location, dates, details[]}` + `education_details: yes|no`,
+  `skills[]{label, items}` (cv only), cvhonor lists `honors[]`, `certificates[]` (event = issuer, location = credential id),
+  `committees[]` (cv only), each `{award, event, location, date}`, and cventry lists `extracurricular[]`, `presentation[]`,
+  `writing[]` (cv only), each `{role, title, location, date, items[]}`. `projects[]`, `interests` and `show_interests`
+  are still accepted (old files build) but printed by neither layout.
+- A key the chosen document does not print (skills or projects in a resume, introduction in a cv ...) is not an error: the
+  build prints `WARNING <file>: <key> is not shown in a <document>` (build-all on stdout, `resume build` on stderr).
+- Text is plain text plus `**bold**` (see resume_build.py). The resume-worker tailors the content keys only: the
+  header/contact keys, `sections`, `accent_color` and `education` are frozen (WS-B).
+- `ohmyjob resume build-all [<name.yaml>]` (WS-A; `/ohmyjob:build-resumes [file.yaml]`): builds every `*.yaml` in
+  `Default_Resume_Files/` except `Template*.yaml` (never built), or only the named file, into a PDF with the same name
+  next to it, with no page check; one line per file (`OK` or `FAIL <reason>`), and a warning for a file that still holds
+  the marker. `Template-CV.yaml` is the cv sample.
+- Screening catalog (WS-B): the usable resumes are every `<name>.yaml` with a `<name>.pdf` next to it (tailorable) and
+  every `<name>.pdf` without a yaml (ready-made, used as is) in `Default_Resume_Files/`; never `Template.*`, never a
+  file that holds the marker. `prep start` writes their text to `W.CATALOG_DIR` (yaml: title, introduction, skills; PDF:
+  its text, via pypdf), and the screener reads that text, not the PDFs.
+- PDF-only path (WS-B): a match on a ready-made PDF needs no resume-worker; prep copies it into the job folder as
+  `<prefix>_<Company>.pdf` and sets `Resume Built`, so such a job folder has a PDF and no yaml. A match on a yaml goes
+  to the resume-worker as before (`<prefix>_<Company>.pdf/.yaml`).
 
 ## Templates and the mock guard
 - Setup writes the templates with the mock persona Alex Example, each with `TEMPLATE_MARKER` on a line the user deletes
@@ -147,6 +224,15 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   no PDF.
 - CLI `ohmyjob resume build <yaml> [--out <pdf>]` prints exactly one line: `OK <pdf>`, `OVERFLOW <N> pages` or
   `FAIL <reason>`.
+<<<<<<< HEAD
+=======
+- CLI `ohmyjob resume build-jobs "<name, name, ...>"`: each entry names exactly one folder of `Applications/`
+  (`aa_lib.match_folders`, the rule of `apply start --selected`), the folder holds exactly one `*.yaml`, and the PDF
+  with the same stem is built next to it. `max_pages` is the page count of the `Matched Resume` PDF of `job.md`; when
+  it cannot be found the build runs without a page check and a `WARNING` line says so. One tracker load and one save
+  set each built job to `Resume Built`, only from `Matched`, `Resume Failed` or `Resume Built`. One line per entry,
+  `OK <folder>` or `FAIL <name> - <reason>`; exit 1 when an entry failed.
+>>>>>>> port/tmpfiles-release
 - `BULLET_BUDGET` (124): rendered characters of ONE bullet line. `SKILLS_BUDGET` (109): rendered characters of the items of
   ONE skills row (the label is not counted). Measured for the upstream geometry (1.4 cm side margins; cvitems line 507 pt, cvskill
   items column 436 pt on A4) with `\settowidth` over 13 bullets and 6 skill rows: 3.67 and 3.59 pt per character at 9 pt
@@ -156,7 +242,12 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
   http(s) only; a bare address gets `https://`.
 
 ## bin/ohmyjob
+<<<<<<< HEAD
 - `ohmyjob prep|apply|scrape|reconcile|resume <args>` runs `scripts/pj.py|aa.py|scrape.py|reconcile.py|resume_build.py` with
+=======
+- `ohmyjob prep|apply|scrape|reconcile|resume|dream <args>` runs
+  `scripts/pj.py|aa.py|scrape.py|reconcile.py|resume_build.py|dream.py` with
+>>>>>>> port/tmpfiles-release
   `$OHMYJOB_PY`, finds the workspace (`$OHMYJOB_WORKSPACE`, else the discovery rule from the shell cwd) and exports
   `OHMYJOB_WORKSPACE OHMYJOB_PY OHMYJOB_UV OHMYJOB_DATA OHMYJOB_LUALATEX`. No workspace: `ohmyjob: no ohmyjob.json in
   <cwd> or above, ...` (exit 3). `.ohmyjob/env.sh` (setup rewrites it on every run) sets the last four.
@@ -180,7 +271,11 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - hook.sh stays in bash, without Python, unless (tested in this order): `guard` of ANY Chrome tool
   (`mcp__claude-in-chrome__*`), whoever calls (main session, Explore, a prep agent, any agent) -> `hooks.py`, whatever the
   agent_type text says; any other call with a `ohmyjob:prep-master|screen-worker|resume-worker` agent_type -> `pj_hooks.py`;
+<<<<<<< HEAD
   `ohmyjob:application-*` -> `hooks.py`; `snapshot` of every Chrome call (hooks.py records each caller's page refs for the never-submit check, compacts pages only for `application-worker`, and reads the master's own tabs in preflight); `report` only if
+=======
+  `ohmyjob:application-*` and `ohmyjob:dream-*` -> `hooks.py`; `snapshot` of every Chrome call (hooks.py records each caller's page refs for the never-submit check, compacts pages only for `application-worker`, and reads the master's own tabs in preflight); `report` only if
+>>>>>>> port/tmpfiles-release
   `.ohmyjob/last_report.txt` exists. `handback` and `capture` route like `guard`, for ohmyjob agents only. Everything else
   (the main session's non-Chrome calls, other agents' non-Chrome calls, every call outside a workspace): exit 0, no output,
   no Python. A `guard` call inside a workspace whose input has no readable `tool_name` (empty stdin, a path with a quote or backslash
@@ -219,6 +314,25 @@ Paths are fixed at import (outside a workspace they point into the cwd); the fun
 - A worker's report arrives by two equal paths: `handback` (`tool_input.message`; auto mode only) and `capture`
   (`last_assistant_message`; the only path in Manual and `-p` mode). Both feed one report processor. Never assume `handback`
   fires; let `capture` see a null message. `report` runs after every turn (2 to 3 times per run), so it must be idempotent.
+
+## The ledger, the traces and Dream (`ledger.py`, `dream.py`)
+- Every blocked report starts with a code of `L.BLOCKER_CODES` (`CLOSED UPLOAD_HANG ACCOUNT_WALL GOOGLE_NO_REF CAPTCHA
+  NOT_ACCESSIBLE LOAD_FAIL NO_APPLY_CONTROL GOOGLE_MISSED STALLED OTHER TIMEOUT`), or is exactly `W.QUESTIONS_BLOCKER`
+  or `already submitted` (`L.ALREADY_SUBMITTED`). `validate_result` refuses anything else.
+- `ohmyjob apply end` calls `ledger.write_ledger_and_traces(run_dir, state, transcript, master_id)` BEFORE the run
+  folder is deleted: one line per job in `.ohmyjob/traces/ledger.jsonl`, and a trace file next to it for the lines whose
+  `bin` is `wall`, `costly_win`, `first_win` or `harness`. A failure prints one `WARN` line and never stops `end`.
+  `delete_run_folders` never touches `.ohmyjob/traces/`.
+- Redaction (`ledger.redact_text`, `redact_result`): no filled value, no drafted answer, every email address replaced,
+  and every value of the `# Resume` header of `Profile.md` (`- Name: ...`, `- Email: ...`, ...) removed.
+- An `ACCOUNT_WALL` report on a page that had a Google control and no sign-in step becomes `GOOGLE_MISSED`.
+- The progress watchdog of an application worker: `L.worker_limits()` reads `<workspace>/Worker_Limits.json` on every
+  call, falls back per key, lists the fallbacks in `_warnings`, and keeps `call_budget <= maxTurns - 10` of
+  `agents/application-worker.md`. `L.WORKER_SECONDS` and `L.STALE_SECONDS` are prep workers only.
+- Dream writes only inside the workspace: the notes in `W.USER_ATS_DIR`, the report in `<workspace>/Dream_Report.md`,
+  the watermark and one backup in `.ohmyjob/dream/`, the run in `.ohmyjob/run/dream/`. No git. `ohmyjob dream reject`
+  restores that backup. A dream worker is bound to its ATS key by the first Read of its bundle (never by transcript
+  text) and may write that one note only.
 
 ## Tests
 - `tests/fixtures/workspace/` (fictional persona Alex Example, an edited workspace: no template marker): `ohmyjob.json`,

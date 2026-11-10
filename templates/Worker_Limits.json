@@ -1,0 +1,7 @@
+{
+  "stall_nudge_calls": 15,
+  "stall_stop_calls": 25,
+  "repeat_deny_stop": 5,
+  "call_budget": 150,
+  "idle_minutes": 6
+}
