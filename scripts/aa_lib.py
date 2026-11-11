@@ -188,7 +188,7 @@ def read_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return default
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         raise DataError(f"{path} is damaged ({exc}); fix the file or delete it, then run the command again") from exc
 
 

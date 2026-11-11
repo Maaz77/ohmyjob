@@ -1318,6 +1318,7 @@ def guard(inp: dict) -> None:
     reason = None
     wait = 0.0
     denied_recorded = False
+    folder_for_error = None  # captured when NeedJudge is caught, for Haiku check failure save
     for _round in range(MAX_JUDGE_ROUNDS):
         pending: Optional[L.NeedJudge] = None
         with L.locked(run_dir):
@@ -1339,6 +1340,9 @@ def guard(inp: dict) -> None:
                     reason = str(exc)
                 except L.NeedJudge as need:
                     pending = need
+                    # Store the folder for judge_error when Haiku check fails outside the lock
+                    tab = ctx.my_tab()
+                    folder_for_error = tab and state.get("tabs", {}).get(L.tab_key(tab), {}).get("folder")
                 if ctx.dirty and reason is None and pending is None:
                     L.save_state(run_dir, state)
                     wait = ctx.wait
@@ -1360,12 +1364,12 @@ def guard(inp: dict) -> None:
         if result is None:
             reason = judge_failed(pending.kind, pending.payload, error)
             # the master reports the failed check in its summary: the state must be saved, under the lock
-            if ctx.my_tab() is not None:
+            # Use the folder captured when NeedJudge was caught (more reliable than re-looking up via tab)
+            if folder_for_error:
                 with L.locked(run_dir):
                     fresh = L.load_state(run_dir)
-                    folder = ((fresh.get("tabs") or {}).get(L.tab_key(ctx.my_tab())) or {}).get("folder")
-                    if folder and folder in fresh.get("jobs", {}):
-                        fresh["jobs"][folder]["judge_error"] = f"{pending.payload.get('name')}: {error}"
+                    if folder_for_error in fresh.get("jobs", {}):
+                        fresh["jobs"][folder_for_error]["judge_error"] = f"{pending.payload.get('name')}: {error}"
                         L.save_state(run_dir, fresh)
             break
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed

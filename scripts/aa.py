@@ -932,7 +932,8 @@ def record_all(state: dict, folders: list[str], results: dict) -> Optional[str]:
         except JobError as exc:
             state["jobs"][folder]["error"] = str(exc)
     if not done:
-        return None
+        # No job was recorded; return an error so the caller can handle it
+        return "no job was recorded; all folders had errors"
     try:
         tracker.save()
     except Exception as exc:  # noqa: BLE001  (a TrackerError: stale or locked workbook; nothing was saved)
