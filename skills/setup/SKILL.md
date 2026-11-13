@@ -12,7 +12,7 @@ The project folder is the folder Claude was started in. Setup creates `ohmyjob/`
 Rule for every command below: a line of output that starts with `ohmyjob: ` or `FATAL` is an error. Show that line as it is, say what it asks for, and stop. Do not retry in a loop and do not work around it.
 
 ## 1. Check the folder
-Look at the current working directory. If it looks like a home folder or a code repository and has no `ohmyjob/` folder, ask the user to confirm that this is the project folder for the job search; if not, tell them to create one (`mkdir ~/JobSearch && cd ~/JobSearch`), install the plugin there and start Claude there, then stop.
+Look at the current working directory. If it looks like a home folder or a code repository and has no `ohmyjob/` folder, ask the user to confirm that this is the project folder for the job search; if not, tell them to create one (`mkdir -p /path/to/job-search && cd /path/to/job-search`, with a path of their own), install the plugin there and start Claude there, then stop.
 
 ## 2. Checks (warn, then continue unless stated)
 - **Claude Code version:** bootstrap checks it (2.1.306 or newer) and stops with an `ohmyjob: ` line when it is older: tell the user to run `claude update`.
@@ -38,22 +38,25 @@ If it ends with an `ohmyjob: ` line:
 - Any other `ohmyjob: ` line: stop.
 Success ends with `bootstrap: OK`; the lines `workspace:`, `extension:` and `lualatex:` give the folders and the LaTeX in use.
 
-## 5. The Chrome helper extension
-Print for the user, with the real path from the `extension:` line (only needed for `/ohmyjob:apply-jobs` and `/ohmyjob:continue-applying`):
-1. Open `chrome://extensions`, switch on Developer mode, click "Load unpacked" and choose `<extension path>`. Keep that folder: it is a stable copy that survives plugin updates.
-2. Open the Claude extension's settings in Chrome and allow it on the sites you will apply on (the job boards and the company career sites). Per-site permissions live in the extension; nothing here can set them.
-3. Sign in to LinkedIn (and any board you use) in that same Chrome profile.
+## 5. Set up Chrome
+Print all five steps for the user, with the real path from the `extension:` line (Chrome is needed only for
+`/ohmyjob:apply-jobs` and `/ohmyjob:continue-applying`, but each of these steps blocks a run on its own):
+1. Install the Claude in Chrome extension from the Chrome Web Store in Chrome, Edge or Brave, and sign in to it with the same Anthropic account as Claude Code.
+2. Load the ohmyjob helper extension: open `chrome://extensions`, switch on Developer mode, click "Load unpacked" and choose `<extension path>`. Keep that folder: it is a stable copy that survives plugin updates. It opens page pop-ups (a sign-in window, for example) as tabs the workers can reach, and groups the finished tabs.
+3. Open the Claude extension's settings in Chrome and allow it on the sites you will apply on (the job boards and the company career sites). Per-site permissions live in the extension; nothing here can set them.
+4. Sign in to LinkedIn (and any board you use) in that same Chrome profile. The workers use the session already in the browser; they never type a password.
+5. Sign in to Google in that same Chrome profile, with the account whose email is in `Profile.md`. "Continue with Google" is the one sign-in route a worker can take by itself; without it, every site with a wall in front of its form ends at "Needs Attention".
 
 ## 6. Next steps (print this, then go to step 7)
 Tell the user, with the real `workspace:` path:
-1. Open `ohmyjob/Profile.md` and replace the mock data with yours: `# Fit Preferences` (three fields: seniority / experience level, what you are looking for, dealbreakers; the screening judges every posting against them first), `# Resume` (the guidance lines only say what goes where; step 5 drafts it for you) and `# Follow Up Questions` (a numbered list of the questions forms ask, with your answers, work authorization included). Then delete the first line, the `OHMYJOB-TEMPLATE` marker line.
-2. Open `ohmyjob/ohmyjob.json` and set your job boards, search titles, location and country (a country is required while `indeed` or `glassdoor` is a source). Every field, its default and its valid values are in the README table. Then delete the `"_template"` line. `/ohmyjob:help` prints every field.
-3. In `ohmyjob/Default_Resume_Files/`, copy `Template.yaml` (or `Template-CV.yaml`) to one file per role you apply for, named by field (for example `Data-Analyst.yaml`), replace the mock data and delete the marker line in each. Optionally add ready-made PDF resumes there, also named by field (for example `Nurse-ICU.pdf`); they are used as they are.
-4. Run `/ohmyjob:build-resumes` to build a PDF next to every resume yaml (never `Template*.yaml`; `/ohmyjob:build-resumes <file.yaml>` builds one file). A tailored resume later gets exactly the page count of its source PDF, so build each resume at the length you want.
-5. Run `/ohmyjob:master-resume`: it drafts the `# Resume` section of `Profile.md` from your resume files (yamls and PDFs; the old `Profile.md` is saved first). Then revise that section by hand: tailored resumes use it as their only source of facts.
+1. In `ohmyjob/Default_Resume_Files/`, copy `Template.yaml` (a resume) or `Template-CV.yaml` (a CV) to one file per role the user applies for, named by field (for example `Data-Analyst.yaml`), replace the mock data and delete the marker line in each. Ready-made PDF resumes can be dropped in instead, also named by field (for example `Nurse-ICU.pdf`), with no yaml beside them: they are sent as they are and never tailored.
+2. Run `/ohmyjob:build-resumes` to build a PDF next to every resume yaml (never `Template*.yaml`; `/ohmyjob:build-resumes <file.yaml>` builds one file). A tailored resume later gets exactly the page count of its source PDF, so build each resume at the length you want. A yaml without a built PDF cannot be used.
+3. Run `/ohmyjob:master-resume`: it drafts the `# Resume` section of `Profile.md` from those resume files (yamls and PDFs; the old `Profile.md` is saved first).
+4. Open `ohmyjob/Profile.md`: revise the drafted `# Resume` section by hand (tailored resumes use it as their only source of facts), then write `# Fit Preferences` (three fields: seniority / experience level, what you are looking for, dealbreakers; the screening judges every posting against them first) and `# Follow Up Questions` (a numbered list of the questions forms ask, with your answers, work authorization included). Then delete the first line, the `OHMYJOB-TEMPLATE` marker line.
+5. Open `ohmyjob/ohmyjob.json` and set your job boards, search titles, location and country (a country is required while `indeed` or `glassdoor` is a source). Every field, its default and its valid values are in the README table. Then delete the `"_template"` line. `/ohmyjob:help` prints every field.
 6. Close this session, then start Claude in the project folder (the folder that holds `.claude/` and `ohmyjob/`; project settings and hooks load only from the folder Claude starts in) with:
 `claude --setting-sources project,local --strict-mcp-config --chrome`
-7. The daily loop: `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs`, fix the tabs in "Needs Attention", `/ohmyjob:continue-applying`, submit by hand, `/ohmyjob:reconcile`.
+7. The four stages of a round: `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs` (fix the tabs in "Needs Attention", then `/ohmyjob:continue-applying`, then submit each parked form by hand), `/ohmyjob:reconcile`.
 Until the marker lines are deleted, the commands refuse to run: that is intended.
 
 ## 7. Explain `ohmyjob.json` (last, after the list above)

@@ -175,7 +175,7 @@ QUESTIONS_BLOCKER = "questions for the candidate"
 
 # Setup writes the templates with mock data and this marker on a line the user deletes after editing: the first line
 # of Profile.md and of Template.yaml, and the `"_template"` key of ohmyjob.json. A file that still holds it is not the
-# user's own: the commands refuse to use it (docs/CONTRACTS.md, "Templates and the mock guard").
+# user's own: the commands refuse to use it (docs/ARCHITECTURE.md, "What the guards enforce", Mock guard).
 TEMPLATE_MARKER = "OHMYJOB-TEMPLATE"
 TEMPLATE_KEY = "_template"  # the marker key of the ohmyjob.json template; the only extra key validation accepts
 

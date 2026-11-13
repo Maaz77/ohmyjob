@@ -8,7 +8,6 @@ One Opus master (`ohmyjob:dream-master`) runs the commands; one Sonnet worker pe
     ohmyjob dream finish   check the notes the workers changed, write Dream_Report.md
     ohmyjob dream end      delete the run folder, move the watermark, print the summary
     ohmyjob dream reject   put the notes, the report and the watermark back as they were before the last dream
-    ohmyjob dream seed     one ledger line per run note of the job.md files (once, before the first dream)
 
 The notes live in the workspace (`ohmyjob/ats/`), never in the plugin: `start` copies a plugin note there before a
 worker may change it. Nothing here uses git; `start` keeps one backup under `.ohmyjob/dream/backup/`, and `reject`
@@ -394,128 +393,15 @@ def cmd_reject(args: argparse.Namespace) -> None:
     print(f"The notes in {W.USER_ATS_DIR}, {REPORT_PATH.name} and the watermark are back as they were before the last dream.")
 
 
-# --------------------------------------------------------------------------- seed
-
-_RUN_LINE_RE = re.compile(r"^\*\*Run:\*\*\s+(\d{4}-\d{2}-\d{2})\s*(?:\|\s*(Pending Review|Needs Attention|Deleted)\s*\|\s*)?(.*)")
-_URL_LINE_RE = re.compile(r"^Tab\s+\d+.*\|\s*URL:\s*(\S+)")
-_BLOCKER_LINE_RE = re.compile(r"^\*\*Blocker:\*\*\s*(.*)")
-_OPEN_LINE_RE = re.compile(r"^- Open:\s*(.*)")
-SEED_DIRS = ("Applications", "Pending-Review", "Needs-Attention", "Submitted")
-
-
-def parse_run_notes(job_md: str) -> list[dict]:
-    """The run notes of a job.md ("# Application Assistant"): one entry per past run."""
-    section = L.md_section_body(job_md, r"Application Assistant", 1)
-    if not section:
-        return []
-    notes: list[dict] = []
-    current: Optional[dict] = None
-    for line in section.splitlines():
-        head = _RUN_LINE_RE.match(line)
-        if head:
-            if current:
-                notes.append(current)
-            where, text = (head.group(2) or "").strip(), (head.group(3) or "").strip()
-            if where == "Pending Review" or "parked" in text.lower():
-                verdict = "PASS"
-            elif where == "Deleted" or "closed" in text.lower():
-                verdict = "CLOSED"
-            else:
-                verdict = "BLOCKED"
-            current = {"date": head.group(1), "verdict": verdict, "at": text[:200], "url": "", "blocker": "", "open": []}
-            continue
-        if current is None:
-            continue
-        for pattern, key in ((_URL_LINE_RE, "url"), (_BLOCKER_LINE_RE, "blocker")):
-            match = pattern.match(line)
-            if match:
-                current[key] = match.group(1).strip()[:300]
-        match = _OPEN_LINE_RE.match(line)
-        if match:
-            current["open"].append(match.group(1).strip()[:200])
-    if current:
-        notes.append(current)
-    return notes
-
-
-def cmd_seed(args: argparse.Namespace) -> None:
-    lines = ledger.read_ledger()
-    if any(line.get("source") == "jobmd" for line in lines):
-        fatal("the ledger already holds the job.md notes; seed runs once")
-    run_dates = [line.get("date") for line in lines if line.get("source") == "run" and line.get("date")]
-    cutoff = min(run_dates) if run_dates else None
-
-    seeded: list[dict] = []
-    for name in SEED_DIRS:
-        base = W.ROOT / name
-        for folder in sorted(base.iterdir()) if base.is_dir() else []:
-            job_md = folder / "job.md"
-            if not folder.is_dir() or not job_md.exists():
-                continue
-            for note in parse_run_notes(job_md.read_text(encoding="utf-8")):
-                if cutoff and note["date"] >= cutoff:
-                    continue  # that run has its own ledger line already
-                host = L.host_of(note["url"])
-                key = safe_key(L.ats_key(host)) if host else ""
-                code = "CLOSED" if note["verdict"] == "CLOSED" else (
-                    ledger.classify_blocker(note["blocker"]) if note["verdict"] == "BLOCKED" else "")
-                outcome = ledger.classify_outcome(note["verdict"], code, note["blocker"], has_result=True)
-                seeded.append({
-                    "source": "jobmd", "folder": folder.name, "date": note["date"], "ats": key, "host": host or "",
-                    "url": ledger.redact_text(note["url"]), "verdict": note["verdict"], "code": code or None,
-                    "outcome": outcome,
-                    "bin": ledger.classify_bin(outcome, key, None, None, lines + seeded),
-                    "blocker": ledger.redact_text(note["blocker"])[:200] or None,
-                    "at": ledger.redact_text(note["at"])[:200],
-                    "open": [ledger.redact_text(item) for item in note["open"]],
-                    "turns": None, "tokens": None, "denials": None, "signin": None, "google": None, "trace": None,
-                })
-    for folder in {line["folder"] for line in seeded}:
-        mine = sorted([line for line in seeded if line["folder"] == folder], key=lambda line: line["date"])
-        start = sum(1 for line in lines if line.get("folder") == folder)
-        for index, line in enumerate(mine):
-            line["attempt"] = start + index + 1
-            line["id"] = f"{line['folder']}_{line['attempt']}"
-
-    by_ats: dict[str, int] = {}
-    by_code: dict[str, int] = {}
-    for line in seeded:
-        by_ats[line["ats"] or "unknown"] = by_ats.get(line["ats"] or "unknown", 0) + 1
-        label = line["code"] or line["verdict"]
-        by_code[label] = by_code.get(label, 0) + 1
-    print(f"{'DRY RUN — ' if args.dry_run else ''}Seed: {len(seeded)} run notes from the job.md files")
-    print(f"By ATS key: {json.dumps(dict(sorted(by_ats.items())))}")
-    print(f"By code: {json.dumps(dict(sorted(by_code.items())))}")
-    if cutoff:
-        print(f"Only the notes before {cutoff}: the runs after it have their own ledger lines")
-    if args.dry_run:
-        return
-    traces = 0
-    for line in seeded:
-        if line["bin"] in DREAM_BINS and line["ats"]:
-            name = f"{line['date']}_{line['id']}.json"
-            L.write_text(ledger.TRACES_DIR / name, json.dumps(
-                {k: line[k] for k in ("source", "folder", "date", "ats", "host", "url", "verdict", "code",
-                                      "blocker", "at", "open")}, ensure_ascii=False))
-            line["trace"] = name
-            traces += 1
-    ledger.TRACES_DIR.mkdir(parents=True, exist_ok=True)
-    for line in seeded:
-        ledger._append_ledger(line)
-    print(f"Wrote {len(seeded)} ledger lines and {traces} traces.")
-
-
 def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(prog="ohmyjob dream")
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("start", "next", "finish", "end", "reject"):
         sub.add_parser(name)
-    seed = sub.add_parser("seed")
-    seed.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     try:
         {"start": cmd_start, "next": cmd_next, "finish": cmd_finish, "end": cmd_end,
-         "reject": cmd_reject, "seed": cmd_seed}[args.cmd](args)
+         "reject": cmd_reject}[args.cmd](args)
     except W.WorkspaceError as exc:  # a missing workspace, a bad ohmyjob.json, a damaged file
         fatal(str(exc))
 

@@ -7,7 +7,7 @@
   hooks.py capture      SubagentStop application-worker          the same, when the result is final text
   hooks.py report       Stop                                     shows the token table of the last run, once
 
-Who is decided how (docs/CONTRACTS.md, "Spoofing rule"): the model controls tool_input, so every decision rests on
+Who is decided how (docs/ARCHITECTURE.md, "Hook routing and the guard model", rule 5): the model controls tool_input, so every decision rests on
 the parsed top-level fields of the hook input (agent_type, tool_name, cwd) and never on text inside tool_input.
   - ohmyjob:application-master / application-worker: the rules below. A validated call is answered with an explicit
     allow (a background agent cannot answer a permission prompt); anything else is denied (exit 2, reason on stderr).

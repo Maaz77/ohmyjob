@@ -1,12 +1,88 @@
 # Architecture
 
-How ohmyjob is put together. Exact names, formats and conventions that scripts, hooks and tests share are in [CONTRACTS.md](CONTRACTS.md); the Claude Code behaviour the design relies on is in [platform-checks.md](platform-checks.md).
+How ohmyjob is put together: the layers, the four subsystems, the hooks that bind them and the state they share.
 
 ## Principle: agents decide, scripts keep the books, hooks enforce
 
 - **Agents (LLM)** judge and act: a master runs the steps and starts workers; each worker handles one job.
 - **Scripts** do all bookkeeping: queues, briefs, result checks, job notes, folder moves, tracker rows, follow-up questions, cleanup. A master calls them through one command, `ohmyjob`.
 - **Hooks** run on every tool call they match; an agent cannot skip them. They allow, refuse or rewrite a call and save what the scripts need.
+
+```mermaid
+flowchart TB
+    subgraph Top["You and the session"]
+        USER["You"]
+        CMD["Slash commands in skills/"]
+    end
+    subgraph AG["Agents decide"]
+        MASTER["Masters: prep, application, dream"]
+        WORKER["Workers: one job or one ATS key each"]
+    end
+    subgraph SC["Scripts keep the books"]
+        OHMYJOB["bin/ohmyjob: scrape, prep, apply, reconcile, resume, dream"]
+    end
+    subgraph HO["Hooks enforce"]
+        HOOK["hook.sh: guard, handback, snapshot, capture, report"]
+    end
+    subgraph OUT["Outside the plugin"]
+        BOARDS["Job boards, through JobSpy and freehire"]
+        CHROME["Your Chrome: Claude in Chrome plus the helper extension"]
+        TEX["LuaLaTeX with the vendored Awesome-CV class"]
+    end
+    subgraph WS["The ohmyjob/ workspace"]
+        INPUT["ohmyjob.json, Profile.md, Default_Resume_Files/"]
+        TRACKER["Job_Tracker.xlsx"]
+        FOLDERS["Applications/, Pending-Review/, Needs-Attention/, Submitted/"]
+    end
+    USER --> CMD
+    CMD -->|"find-jobs, reconcile, build-resumes: no agent"| OHMYJOB
+    CMD -->|"prep-jobs, apply-jobs, dream: fork a master"| MASTER
+    MASTER -->|"one command per step"| OHMYJOB
+    MASTER -->|"one worker per job"| WORKER
+    WORKER -->|"a brief in, one JSON report out"| OHMYJOB
+    HOOK -.->|"allows, denies or rewrites every tool call"| CMD
+    HOOK -.-> MASTER
+    HOOK -.-> WORKER
+    INPUT --> OHMYJOB
+    OHMYJOB --> BOARDS
+    OHMYJOB --> TEX
+    WORKER --> CHROME
+    OHMYJOB --> TRACKER
+    OHMYJOB --> FOLDERS
+```
+
+`prep-jobs`, `apply-jobs`, `continue-applying` and `dream` fork a master, which starts the workers. `find-jobs`, `reconcile` and the two resume builds are scripts the main session runs directly. Every tool call of all of them passes the hooks.
+
+## How you use it
+
+```mermaid
+flowchart TD
+    subgraph Once["Once, before the first round"]
+        I1["Make a folder, install the plugin there, start Claude in it with --chrome"]
+        I2["/ohmyjob:setup"]
+        I3["Fill Default_Resume_Files/: one yaml per role, or your own ready-made PDFs"]
+        I4["/ohmyjob:build-resumes"]
+        I5["/ohmyjob:master-resume"]
+        I6["Revise Profile.md: the Resume draft, Fit Preferences, Follow Up Questions"]
+        I7["Edit ohmyjob.json, then set up Chrome"]
+    end
+    subgraph Round["Every round, in this order"]
+        S1["/ohmyjob:find-jobs"]
+        S2["/ohmyjob:prep-jobs"]
+        S3["/ohmyjob:apply-jobs"]
+        H1["You: fix the tabs in the Needs Attention group"]
+        S4["/ohmyjob:continue-applying"]
+        H2["You: review each parked form and press Submit"]
+        H3["You: move back or delete the folder of every job you did not send"]
+        S5["/ohmyjob:reconcile"]
+    end
+    I1 --> I2 --> I3 --> I4 --> I5 --> I6 --> I7 --> S1
+    S1 --> S2 --> S3 --> H1 --> S4 --> H2 --> H3 --> S5
+    S4 -->|"still blocked"| H1
+    S5 -->|"next round"| S1
+```
+
+The three by-hand steps of a round are the design, not a gap: the plugin cannot submit a form, and `reconcile` cannot tell a form you sent from one you only looked at, so the folder clean-up before it is what keeps the tracker true.
 
 ## Components
 
@@ -49,16 +125,38 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. |
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
 | `ohmyjob resume build`, `build-all`, `build-jobs` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. `build-jobs "<names>"` builds the single yaml of each named job folder and sets its row to `Resume Built`. |
-| `ohmyjob dream <cmd>` | `dream.py` (with `ledger.py`) | Group the new traces by ATS key, hand out one worker per key, check the notes, write `Dream_Report.md`, move the watermark; `reject` restores the last backup, `seed` reads the old run notes of the job.md files. |
+| `ohmyjob dream <cmd>` | `dream.py` (with `ledger.py`) | Group the new traces by ATS key, hand out one worker per key, check the notes, write `Dream_Report.md`, move the watermark; `reject` restores the last backup. |
 | (internal) | `ledger.py` | Blocker codes, outcomes, the ledger lines and the redacted traces that `ohmyjob apply end` writes. |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
 | (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
 
 `bin/ohmyjob` finds the workspace, reads `.ohmyjob/env.sh` (parsed, never sourced) and runs the script with the plugin's own virtualenv. Errors are one `ohmyjob: ...` line (exit 3); the scripts print `FATAL ...` lines. Agent prompts stop on either.
 
-### Scraper
+### Stage 1 — Job Posting Finder (`ohmyjob scrape`)
 
 For each board in `search.sources`, in order, JobSpy is asked for every search term. A posting is kept when its title matches a term (word forms and aliases applied, or any title with `title_filter: off`), its employment type and company pass, it is not known yet (tracker row or a folder with the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job gets `Applications/<key>_<Company>_<Title>/job.md` and a tracker row at `Found`. A board that fails is reported and skipped; the others run.
+
+```mermaid
+flowchart TD
+    A["ohmyjob scrape"] --> B{"Template marker left in ohmyjob.json or Profile.md?"}
+    B -- yes --> BX["One FATAL line; nothing is searched"]
+    B -- no --> C["Optional git snapshot of the tracker and Applications/"]
+    C --> D["For every board in sources, in order, for every search term"]
+    D --> E["The board itself is sent only: the term, the location, the country, results per term, recency"]
+    E --> F["Postings come back, with their own attributes"]
+    F --> T["Filters on the title text: title_filter strict, filter_title_terms, the seniority words"]
+    F --> P["Filters on the posting's attributes: employment type, the board's own seniority label, the company name"]
+    F --> Q["Checks against what you already have: unusable id, known row or folder, the same id twice, the same title plus company plus city, a twin from an earlier board or a recent row"]
+    T --> R{"Dropped?"}
+    P --> R
+    Q --> R
+    R -- yes --> S["Counted by reason in the per-board summary line"]
+    R -- no --> K{"Company in exclude_companies?"}
+    K -- yes --> M["Tracker row Deleted, with a note; no folder"]
+    K -- no --> N["Tracker row Found, plus a job folder with job.md"]
+```
+
+The drop checks run in one fixed order, and the first one that hits wins: `bad`, `known`, `dup id`, `failed` (a LinkedIn detail page that did not load), `type`, `level`, `term`, `title`, `duplicate`, `twin`.
 
 ### Helper extension (`chrome-extension/`)
 
@@ -82,7 +180,7 @@ Hooks are declared in `hooks/hooks.json` and all enter through `scripts/hook.sh 
 
 A worker's report reaches the scripts by two equal paths, `handback` (auto mode only) and `capture` (the only path in Manual and `-p` mode). Both feed one processor.
 
-Routing rules, in order (full text in CONTRACTS.md):
+Routing rules, in order:
 
 1. **Workspace discovery** is one rule for `find_root`, `hook.sh`, `bin/ohmyjob` and the Python hooks: `$OHMYJOB_WORKSPACE` as given (tests), else walk up from the start folder (the project folder, the call's `cwd` or the shell's `cwd`); in each folder D, `D/ohmyjob.json` makes D the workspace, else `D/ohmyjob/ohmyjob.json` makes `D/ohmyjob` the workspace. So the project folder and a shell inside `ohmyjob/` both work.
 2. `hook.sh` stays in bash and starts no Python unless it must. Outside a workspace it exits 0 with no output.
@@ -104,7 +202,7 @@ What the guards enforce:
 
 Both masters are queue loops: a new worker starts as soon as one finishes, up to Claude Code's subagent cap minus one for the master (`W.slots()`; shared by all worker types: a resume-worker starts as soon as a screen-worker reports a match, while other screen-workers still run). The master must keep its turn alive with the `next` loop; a forked master that ends its turn after launching background workers stops at once.
 
-### Prep (`ohmyjob prep`)
+### Stage 2 — Job Posting Screener and Resume Tailoring (`ohmyjob prep`)
 
 1. `start` refuses on the mock guard (above), builds the screening catalog, queues `Found` rows for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id.
 2. `next` is the loop: it records finished jobs and prints the workers to start. `assign-screen` writes one brief per job (full `Profile.md`, the path of the catalog text, the job). Screen workers report a match score, the matched resume, reasons and gaps.
@@ -112,9 +210,32 @@ Both masters are queue loops: a new worker starts as soon as one finishes, up to
 4. `assign-build` copies the matched yaml into the job folder and writes the brief. The resume worker edits only that yaml and runs `ohmyjob prep build <job>`, which checks the mechanical rules (skeleton, bullet counts, title, line and skills budgets), compiles (at most 4 builds), and returns `OK`, `OVERFLOW` or `FAIL`. `record` then sets `Resume Built`, `Resume Failed`, or `Deleted` for a rejected posting.
 5. `end` prints the summary (every deletion listed one by one) and the token table, and deletes the run folder.
 
+```mermaid
+flowchart TD
+    A["/ohmyjob:prep-jobs forks prep-master"] --> B["prep start: mock guard, screening catalog, queue the Found and Matched rows"]
+    B --> C["prep next: one screen-worker per Found job, in the shared slots"]
+    C --> D["screen-worker, Haiku: reads only its brief, reports one JSON object"]
+    D --> E{"Match score"}
+    C -- "no report from the screen-worker" --> X["Left at Found for the next run"]
+    E -- "below 6, or below 8 for an agency posting" --> F["Skipped-LowFit; reason in Notes; folder deleted"]
+    E -- "6 or more, closest resume is a ready-made PDF" --> G["The PDF is copied into the job folder: Resume Built, no worker"]
+    E -- "6 or more, closest resume is a role yaml" --> H["Matched; joins the build queue at once"]
+    H --> I["resume-worker, Sonnet: a copy of the yaml, at most 4 builds, exactly the source's page count"]
+    I --> J{"Report"}
+    J -- built --> K["Resume Built"]
+    J -- failed --> L["Resume Failed; reason in Notes; not retried"]
+    J -- rejected --> M["Deleted: core unsupported, wrong discipline or a dealbreaker"]
+    J -- "no report at all" --> N["Left at Matched for the next run"]
+    F --> W["Write order: job.md, then the tracker saved, then the folder deletes"]
+    G --> W
+    K --> W
+    L --> W
+    M --> W
+```
+
 Order of writes in every step: `job.md`, then the tracker (saved), then folder deletions. A folder is deleted only after its row is saved. A worker has a time limit; a job with no report after a further wait is recorded as missing. A crashed run is harmless: unrecorded jobs are still at `Found` or `Matched` and the next run takes them again.
 
-### Apply (`ohmyjob apply`)
+### Stage 3 — Job Application Assistant Browser Agent (`ohmyjob apply`)
 
 1. `start` clears old run state and queues rows at `Resume Built` (`--continue`: rows at `Needs Attention` whose tab can be found). `preflight` checks the LinkedIn sign-in, the helper extension and the Haiku check.
 2. The master opens one tab per job; `assign` writes one brief per job: the full `Profile.md`, the tailored resume yaml and the job's overview and description.
@@ -125,9 +246,30 @@ Order of writes in every step: `job.md`, then the tracker (saved), then folder d
 7. A worker has no wall-clock limit: a progress watchdog stops it when nothing moves (`Worker_Limits.json`, the counters live in the run state). `next` frees the slot of a worker that ended or made no call for `idle_minutes`; a late report of such a worker is still accepted.
 8. `end` also writes the ledger and the traces (`ledger.py`) into `.ohmyjob/traces/`, before the run folder is deleted, and says when enough new traces are waiting for `/ohmyjob:dream`.
 
+```mermaid
+flowchart TD
+    A["/ohmyjob:apply-jobs forks application-master"] --> B["apply start: queue the Resume Built rows; --selected or --top-k-match narrow the queue"]
+    B --> C["preflight: the LinkedIn sign-in, the helper extension, the Haiku check, Worker_Limits.json"]
+    C --> D["The master opens one tab per job and writes one brief per job"]
+    D --> E["apply next: workers in the free slots, their first page loads staggered"]
+    E --> F["application-worker: its own tab only; the guard decides every call; snapshot keeps each page"]
+    F --> G{"Report, through handback or capture"}
+    G -- "form parked before the final button" --> H["Pending Review; folder to Pending-Review/"]
+    G -- "blocked, or a check failed" --> I["Needs Attention; folder to Needs-Attention/; tab kept in that tab group"]
+    G -- "a question the brief could not answer" --> Q["Recorded in questions.json"]
+    Q --> I
+    Q --> K["The main session asks you each question once and saves your answer in Profile.md"]
+    I --> J["You fix the tab by hand: sign in, create the account, close the pop-up"]
+    K --> J
+    J --> L["/ohmyjob:continue-applying adopts every tab of the Needs Attention group, matched by the page it shows"]
+    L --> F
+    H --> M["You review the form and press Submit yourself"]
+    M --> N["/ohmyjob:reconcile"]
+```
+
 A worker that is stopped by an upload hang (a hidden browser alert) is retried once with a shortened file name (never over an existing file of that name); the new worker starts with clean counters.
 
-### Dream (`ohmyjob dream`)
+### Optional: Dream (`ohmyjob dream`)
 
 `start` groups the ledger lines since the watermark by ATS key, writes one evidence bundle per key into `.ohmyjob/run/dream/`, copies a plugin note into `ohmyjob/ats/` when only the plugin has it, and backs up the notes, the report and the watermark to `.ohmyjob/dream/backup/`. `next` hands out one worker per key (slots as above; a worker that sends no report within 20 minutes is given up on). A worker is bound to its key by the first Read of its bundle: the guard then lets it write that one note. `finish` checks every changed note (at most 40 lines, one H1, a `hosts:` line, no email address, no Profile.md header value), puts a note that breaks a rule back, and writes `Dream_Report.md`. `end` moves the watermark and deletes the run folder; `reject` restores the backup.
 
@@ -152,7 +294,44 @@ In the plugin data folder (`${CLAUDE_PLUGIN_DATA}`, survives updates): the virtu
 
 Job id: a LinkedIn `/jobs/view/<id>` keeps its id; any other address gives `9` plus 14 hash digits, with tracking parameters ignored. One rule (`job_key.py`) serves the scraper, the folders and reconcile. The tracker is saved atomically; a save is refused while Excel or LibreOffice has the file open, or when the file changed on disk since the run loaded it.
 
-## Reconcile
+### Job status life cycle
+
+```mermaid
+stateDiagram-v2
+    state "Found" as Found
+    state "Matched" as Matched
+    state "Skipped-LowFit" as Skipped
+    state "Resume Built" as Built
+    state "Resume Failed" as Failed
+    state "Pending Review" as Pending
+    state "Needs Attention" as Needs
+    state "Submitted" as Submitted
+    state "Deleted" as Deleted
+
+    [*] --> Found: find-jobs
+    Found --> Matched: prep-jobs, 6 or more on a role yaml
+    Found --> Built: prep-jobs, a ready-made PDF matched
+    Found --> Skipped: prep-jobs, low score, agency or dealbreaker
+    Matched --> Built: the resume worker built it
+    Matched --> Failed: the resume worker could not finish
+    Matched --> Deleted: the resume worker rejected the posting
+    Failed --> Built: build-job-resumes, after you fixed the yaml
+    Built --> Pending: apply-jobs parked the form
+    Built --> Needs: apply-jobs was blocked
+    Built --> Deleted: apply-jobs found the job closed
+    Needs --> Pending: continue-applying
+    Needs --> Needs: continue-applying, still blocked
+    Pending --> Submitted: reconcile, after you sent it
+    Needs --> Submitted: reconcile
+    Pending --> Deleted: reconcile, folder deleted
+    Skipped --> [*]
+    Submitted --> [*]
+    Deleted --> [*]
+```
+
+Any job can be dropped at any time by deleting its folder; the next `reconcile` records that row as `Deleted`.
+
+## Stage 4 — Reconcile the round
 
 Matching is by the leading job id of each folder name against the id of the row's Job URL. For every open row (`Found`, `Matched`, `Resume Built`, `Resume Failed`, `Pending Review`, `Needs Attention`):
 
@@ -169,23 +348,23 @@ Invariant: the number of `Submitted` rows equals the number of folders in `Submi
 
 ```mermaid
 flowchart TD
-    A[Load tracker] --> B[Scan the four folder roots]
-    B --> C{Leading id in folder name matches exactly one row?}
-    C -- no --> U[Unresolved: reported, left untouched]
-    C -- yes --> D[Folder resolved to row]
-    D --> E{For each open row}
-    E -- folder in Pending-Review or Needs-Attention --> F[Submitted, move folder]
-    E -- folder in Submitted --> G[Submitted]
-    E -- folder in Applications --> H[Left alone]
-    E -- no folder --> I[Deleted]
-    F --> J{Invariant holds?}
+    A["Load the tracker"] --> B["Scan the four folder roots"]
+    B --> C{"Leading id in the folder name matches exactly one row?"}
+    C -- no --> U["Unresolved: reported, left untouched"]
+    C -- yes --> D["Folder resolved to its row"]
+    D --> E{"For each open row"}
+    E -- "folder in Pending-Review or Needs-Attention" --> F["Submitted, folder moved"]
+    E -- "folder in Submitted" --> G["Submitted"]
+    E -- "folder in Applications" --> H["Left alone"]
+    E -- "no folder" --> I["Deleted"]
+    F --> J{"Invariant holds?"}
     G --> J
     H --> J
     I --> J
-    J -- no --> K[Report, exit 2, nothing written]
-    J -- yes --> L{--apply?}
-    L -- no --> M[Dry run: report and plan digest]
-    L -- yes --> N[Move folders, save tracker once, report]
+    J -- no --> K["Report, exit 2, nothing written"]
+    J -- yes --> L{"--apply?"}
+    L -- no --> M["Dry run: report and plan digest"]
+    L -- yes --> N["Move folders, save the tracker once, report"]
 ```
 
 Exit codes: 0 clean, 1 done but some folder unresolved, 2 invariant failed (nothing written), 3 fatal. The dry run prints a plan digest; `--apply --expect <digest>` refuses when the plan changed since.

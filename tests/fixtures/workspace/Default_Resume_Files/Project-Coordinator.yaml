@@ -1,4 +1,4 @@
-# One full resume (docs/CONTRACTS.md, "Resume yaml"): header, sections, experience, education, skills, interests.
+# One full resume (see templates/Template.yaml): header, sections, experience, education, skills, interests.
 name:
   first: Alex
   last: Example

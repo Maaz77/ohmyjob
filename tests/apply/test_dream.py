@@ -1,7 +1,7 @@
 """Dream (spec 4.11): the traces of the last runs become the ATS notes of this workspace.
 
-`ohmyjob dream start|next|finish|end` is the master's queue; `reject` puts everything back; `seed` turns the run
-notes of the job.md files into ledger lines. The guards of both dream agents are tested here too.
+`ohmyjob dream start|next|finish|end` is the master's queue; `reject` puts everything back. The guards of both
+dream agents are tested here too.
 """
 from __future__ import annotations
 
@@ -209,25 +209,6 @@ class TestDreamKeys(unittest.TestCase):
         self.assertEqual(metrics["median_tokens_parked"], 210)
         self.assertEqual(metrics["median_turns_parked"], 15)
         self.assertEqual(metrics["wall_rate"], "0%")
-
-
-class TestDreamSeed(Base):
-    def test_seed_reads_the_run_notes_of_the_job_md_files(self):
-        folder = next((self.root / "Applications").iterdir())
-        job_md = folder / "job.md"
-        job_md.write_text(job_md.read_text(encoding="utf-8").rstrip() + "\n\n# Application Assistant\n\n"
-                          "**Run:** 2020-01-02 | Needs Attention | BLOCKED at: the sign-in page\n\n"
-                          "Tab 701 in the run window | URL: https://x.myworkdayjobs.com/a\n\n"
-                          "**Blocker:** the site wanted an account\n", encoding="utf-8")
-        (self.traces / "ledger.jsonl").unlink()
-        dry = self.ok("seed", "--dry-run")
-        self.assertIn("Seed: 1 run notes", dry)
-        self.assertFalse((self.traces / "ledger.jsonl").exists())
-        self.ok("seed")
-        lines = [json.loads(line) for line in (self.traces / "ledger.jsonl").read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(lines), 1)
-        self.assertEqual((lines[0]["source"], lines[0]["ats"], lines[0]["code"]), ("jobmd", "workday", "ACCOUNT_WALL"))
-        self.assertEqual(self.dream("seed").returncode, 3)  # once only
 
 
 class TestDreamGuards(T.Base):
