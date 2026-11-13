@@ -101,6 +101,7 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `reconcile` | Caveat check, dry run, confirmation, then apply. |
 | `build-job-resumes` | Runs `ohmyjob resume build-jobs "<names>"`: the tailored resume of each named job folder, built again and set back to `Resume Built`. |
 | `dream` | Forks the `dream-master` agent: the traces since the last dream become the ATS notes of the workspace. |
+| `retro` | Runs in the main session, no agent (it is a conversation, like `apply-jobs`): the candidate marks recent skips as wrong and types preferences; the session drafts edits of the three Fit Preferences fields; `ohmyjob retro` checks, shows and writes them one at a time after the candidate's yes. |
 
 ### Agents (`agents/`, named `ohmyjob:<name>`)
 
@@ -126,6 +127,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
 | `ohmyjob resume build`, `build-all`, `build-jobs` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. `build-jobs "<names>"` builds the single yaml of each named job folder and sets its row to `Resume Built`. |
 | `ohmyjob dream <cmd>` | `dream.py` (with `ledger.py`) | Group the new traces by ATS key, hand out one worker per key, check the notes, write `Dream_Report.md`, move the watermark; `reject` restores the last backup. |
+| `ohmyjob retro <cmd>` | `retro.py` | `start`, `list`, `mark`, `feedback`, `propose`, `accept`, `refuse`, `end`, `reject`: the review state, the watermark (reviewed job ids), refused proposals, the structure guard and the single-field write of `Profile.md`; also the one-line hint at the end of `prep end`. Reads the tracker, never writes it. |
 | (internal) | `ledger.py` | Blocker codes, outcomes, the ledger lines and the redacted traces that `ohmyjob apply end` writes. |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
 | (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
@@ -275,6 +277,10 @@ A worker that is stopped by an upload hang (a hidden browser alert) is retried o
 
 `start` groups the ledger lines since the watermark by ATS key, writes one evidence bundle per key into `.ohmyjob/run/dream/`, copies a plugin note into `ohmyjob/ats/` when only the plugin has it, and backs up the notes, the report and the watermark to `.ohmyjob/dream/backup/`. `next` hands out one worker per key (slots as above; a worker that sends no report within 20 minutes is given up on). A worker is bound to its key by the first Read of its bundle: the guard then lets it write that one note. `finish` checks every changed note (at most 40 lines, one H1, a `hosts:` line, no email address, no Profile.md header value), puts a note that breaks a rule back, and writes `Dream_Report.md`. `end` moves the watermark and deletes the run folder; `reject` restores the backup.
 
+### Optional: Retro (`ohmyjob retro`)
+
+The main session asks the candidate; the script is the only writer of `Profile.md`. `start` refuses on the mock guard and snapshots the review state to `.ohmyjob/retro/backup/state.json`. `list` shows unreviewed `Skipped-LowFit` rows (the tracker row only: company, title, URL, score and the last line of `Notes`; junk skips are left out) and `mark` records the candidate's verdict, so only answered skips count as reviewed (a set of job ids in `.ohmyjob/retro/state.json`, which survives a deleted or re-sorted row). `feedback` saves the candidate's typed words as `F1`, `F2`, ... `propose` takes a field, a new wording and evidence ids; the script reads the old wording itself and refuses a proposal with no evidence, evidence it does not hold (a skip not marked wrong in this pass, words not typed in it), a second waiting proposal on one field, the same field and evidence as a refused one, or a wording that repeats a run of six words of any tracker `Notes` unless the candidate typed it. `accept` re-checks the mock guard and that the field still reads as proposed, saves `Profile.md` to `.ohmyjob/backup/Profile-<UTC timestamp>.md` before the first accepted edit of the pass, splices only that field's bytes (the `# Fit Preferences` heading and the three labels must still be found once each, every other byte is compared before the write) and writes atomically. `end` reports and closes the pass; `reject` restores `Profile.md` (refused if it changed since retro wrote it, unless `--force`) and the review state. The end of `prep end` prints one line once ten or more skips wait.
+
 ## State and files
 
 The workspace is the `ohmyjob/` folder inside the project folder (the folder Claude starts in, which also holds `.claude/settings.json`). In it:
@@ -289,7 +295,7 @@ The workspace is the `ohmyjob/` folder inside the project folder (the folder Cla
 | `ats/` | The ATS notes this workspace learned (Dream writes them). A note here replaces the plugin's note of the same name; the plugin ships only four generic notes. |
 | `Worker_Limits.json` | The progress watchdog of the application workers: `stall_nudge_calls`, `stall_stop_calls`, `repeat_deny_stop`, `call_budget`, `idle_minutes`. A missing file, key or unusable value falls back to the default. |
 | `Dream_Report.md` | What the last dream pass found: the metrics per ATS, the lessons, the proposals and the bugs. |
-| `.ohmyjob/` | `env.sh`, run state (`run/prep`, `run/apply`, `run/dream`), `build/`, `catalog/` (the screening text catalog), `questions.json`, `last_report.txt`, `traces/` (`ledger.jsonl` and the redacted traces; never deleted with a run folder) and `dream/` (the watermark and the backup of the last dream). Do not edit. |
+| `.ohmyjob/` | `env.sh`, run state (`run/prep`, `run/apply`, `run/dream`), `build/`, `catalog/` (the screening text catalog), `questions.json`, `last_report.txt`, `traces/` (`ledger.jsonl` and the redacted traces; never deleted with a run folder), `dream/` (the watermark and the backup of the last dream), `retro/` (the reviewed skips, refused proposals and the open pass; `retro/backup/` holds the state before the last pass) and `backup/` (`Profile-<timestamp>.md`, written before `resume master --apply` and before the first accepted retro edit). Do not edit. |
 | `.claude/settings.json` | Plugin enablement, environment, the `Bash(ohmyjob *)` allowance and the `javascript_tool` deny; merged by setup. |
 
 In the plugin data folder (`${CLAUDE_PLUGIN_DATA}`, survives updates): the virtualenv, uv's own Python and cache, `uv` if it was missing, TinyTeX if no system LaTeX built the template, the LaTeX font caches (`texmf-var/`) and a stable copy of the extension. Nothing is installed on the user's `PATH`, in `~/.local`, in `~/.cache` or in a system folder; `bin/ohmyjob` and the resume build pass the same scoped `UV_*` and `TEXMF*` settings to every later run. Its path depends on how the plugin is loaded, which is why setup writes it into `env.sh` on every run.

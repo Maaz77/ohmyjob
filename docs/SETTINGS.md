@@ -58,6 +58,7 @@ Three files in your workspace shape how the application workers behave.
 
 - **`ohmyjob/ats/`** holds the notes about application systems that **your own** runs produced. A note here replaces the plugin's note of the same name, and a worker reads it when it reaches that site. The plugin ships four generic notes (LinkedIn Easy Apply, Workday, Greenhouse, Phenom); your folder starts empty and fills up as you run `/ohmyjob:dream`.
 - **`Dream_Report.md`** is what the last `/ohmyjob:dream` pass learned and wrote. Asking Claude to run `ohmyjob dream reject` puts the notes, the report and the watermark back as they were.
+- **`Profile.md`, `# Fit Preferences`** is what the screen judges every posting against first. `/ohmyjob:retro` proposes edits of its three fields from your verdict on skipped jobs; each accepted edit is backed up to `.ohmyjob/backup/Profile-<timestamp>.md`, and `ohmyjob retro reject` puts the last pass back.
 - **`ohmyjob/Worker_Limits.json`** holds the limits of the watchdog that stops a worker going nowhere. A missing file, key or unusable value falls back to the default, and the run prints the values it used.
 
 | Key | Default | Meaning |

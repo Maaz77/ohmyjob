@@ -1245,6 +1245,14 @@ def cmd_end(args: argparse.Namespace) -> None:
     table = L.usage_table(master.get("transcript"), master.get("agent_id"))
     print(table)
     L.save_report(table)
+    try:  # one line when enough skips wait for /ohmyjob:retro; never an error, never a block
+        import retro
+
+        hint = retro.hint()
+        if hint:
+            print(hint)
+    except Exception:  # noqa: BLE001
+        pass
     shutil.rmtree(RUN_BASE)
 
 
