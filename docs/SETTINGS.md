@@ -48,7 +48,7 @@ The `Status` column of `Job_Tracker.xlsx`. The `Notes` column next to it holds t
 | `Pending Review` | `apply-jobs`, when the worker parked the form before the final button and the checks passed | You review the form and submit it yourself, then run `/ohmyjob:reconcile`. |
 | `Needs Attention` | `apply-jobs` or `continue-applying`, when a worker was blocked or a check failed | Fix the tab by hand, then `/ohmyjob:continue-applying`. |
 | `Submitted` | `/ohmyjob:reconcile`, for a job whose folder was in `Pending-Review/`, `Needs-Attention/` or `Submitted/` (where you moved it after applying by hand) | Final. |
-| `Deleted` | `prep-jobs` (a duplicate posting, a resume worker's refusal, a row without a folder), `apply-jobs` (the job is closed), or `reconcile` (you deleted the folder) | Final. |
+| `Deleted` | `prep-jobs` (a duplicate posting, a resume worker's refusal, a row without a folder, a posting found closed), `apply-jobs` (the job is closed: found by the early liveness check before a tab opens, or by a worker), or `reconcile` (you deleted the folder) | Final. |
 
 ---
 

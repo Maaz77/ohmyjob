@@ -3,7 +3,8 @@
 
 Run it as `ohmyjob apply <command>` (bin/ohmyjob finds the workspace and the plugin's Python).
 
-  start                  delete old run folders, queue every tracker row at "Resume Built"
+  start                  delete old run folders, queue every tracker row at "Resume Built" (a posting that the early
+                         liveness check finds closed is set to Deleted first; see liveness.py)
   start --continue       /continue-applying: queue the jobs in Needs-Attention/ whose tab the candidate fixed by hand
   preflight --tab H      LinkedIn sign-in check on tab H (only when a queued job is on linkedin.com), pop-up helper
                          check (with its version), Haiku check test
@@ -44,6 +45,7 @@ import yaml
 import aa_lib as L
 import judge as J
 import ledger
+import liveness
 import workspace as W
 from tracker import Tracker, TrackerError
 
@@ -435,6 +437,20 @@ def cmd_start(args: argparse.Namespace) -> None:
                 "location": str(location),
             }
         )
+    closed_jobs: list[str] = []
+    if not args.cont and queue:  # early liveness check: a positively closed posting is dropped before a tab is opened
+        verdicts = liveness.find_closed([(q["folder"], q["apply_url"] or q["url"]) for q in queue])
+        gone = [(by_key[L.folder_id(q["folder"])][0]["_index"], L.APPLICATIONS / q["folder"], verdicts[q["folder"]])
+                for q in queue if q["folder"] in verdicts]
+        if gone:
+            try:
+                liveness.delete_closed(tracker, gone, L.today())  # rows first (one save), then the folders
+            except Exception as exc:  # noqa: BLE001  (a stale or locked tracker: nothing was deleted, the jobs stay queued)
+                warnings.append(f"liveness check: the tracker could not be saved ({exc}); closed jobs stay queued")
+                gone = []
+        done = {folder.name for _i, folder, _c in gone}
+        closed_jobs = [f"{q['company']} | {q['title']}: {liveness.CLOSED_TEXT[verdicts[q['folder']]]}" for q in queue if q["folder"] in done]
+        queue = [q for q in queue if q["folder"] not in done]
     if args.top_k is not None:  # the best K of the jobs that can be queued; the rest stay at "Resume Built"
         queue = sorted(queue, key=lambda q: scores[q["folder"]], reverse=True)[: args.top_k]  # stable on ties
     # The LinkedIn sign-in is checked only when a queued job starts on linkedin.com (its Apply URL when it has one).
@@ -458,6 +474,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         "home_tab": None,
         "initial_tabs": None,
         "skipped": skipped,
+        "closed_jobs": closed_jobs,
         "preflight": {},
         "needs_linkedin": needs_linkedin,
         "home_url": home_url,
@@ -472,6 +489,7 @@ def cmd_start(args: argparse.Namespace) -> None:
             "count": len(queue),
             "jobs": [{"folder": q["folder"], "company": q["company"], "title": q["title"]} for q in queue],
             "skipped": skipped,
+            "closed": closed_jobs,
             "warnings": warnings,
             "home_url": home_url,
             "linkedin_sign_in_check": needs_linkedin,
@@ -1281,6 +1299,8 @@ def summary(state: dict) -> str:
     if state.get("left_alone"):
         lines.append(f"Left alone: {len(state['left_alone'])} jobs in Needs-Attention/ without an open tab in the group "
                      "'Needs Attention' (finished by hand or closed; reconcile handles them)")
+    for text in state.get("closed_jobs") or []:
+        lines.append(f"- DELETED (closed, found by the early liveness check, no tab opened) {text}")
     for s in state.get("skipped") or []:
         lines.append(f"- SKIPPED {s.get('folder') or s.get('job')}: {s.get('reason')}")
     pre = state.get("preflight") or {}

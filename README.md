@@ -96,6 +96,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 | **Your facts only** | A tailored resume is built from your own profile and the resume you started from. Numbers, dates, employers, degrees and past job titles stay exactly as you wrote them. |
 | **Same page count** | The tailored PDF has exactly the page count of the resume it started from. It never shrinks the font or the margins. |
 | **One worker per job** | Each application runs in its own Chrome tab, and a watchdog stops a worker that is going nowhere. |
+| **Closed jobs dropped early** | Before a worker or a Chrome tab is spent on a job, a script checks that its posting is still open. Only clear evidence of "closed" drops a job; any doubt means it carries on. |
 | **Asked once, remembered** | Questions from the forms are collected, asked once, and saved in your profile. |
 | **It learns each site** | `/ohmyjob:dream` turns the traces of your runs into notes about each application system. Traces hold no filled values, drafted answers or email addresses. |
 | **No runs on sample data** | The commands refuse to run while the made-up "Alex Example" data is still in your files. |

@@ -79,7 +79,7 @@ What that worker may and may not do is worth knowing, because it decides how muc
 
 **What you can steer.** Nothing at run time — this command takes no arguments. You steer it entirely through `Profile.md` and the set of role resumes you keep in `Default_Resume_Files/`. More role files means a closer starting point for each job.
 
-**Caveats.** Screening uses a small, fast model: it is a first read, not a careful one, and the resume worker does its own reading of the posting afterwards. Each worker has 17 minutes. One that runs out of time reports a failure, so its job lands at `Resume Failed` with the reason; if nothing comes back from it at all, the job stays at `Matched` for the next run.
+**Caveats.** Screening uses a small, fast model: it is a first read, not a careful one, and the resume worker does its own reading of the posting afterwards. Each worker has 17 minutes. One that runs out of time reports a failure, so its job lands at `Resume Failed` with the reason; if nothing comes back from it at all, the job stays at `Matched` for the next run. Before any worker starts, a script asks each queued posting's page whether it is still open (no model, no Chrome); a posting that is positively closed becomes `Deleted` with the date of the check in `Notes`, and is listed in the summary. A posting that cannot be read (error, timeout, rate limit, sign-in wall) is treated as open and goes on.
 
 ### Stage 3 — Job Application Assistant Browser Agent
 
@@ -112,7 +112,7 @@ The workers pick those tabs up where they stopped, and each job ends at `Pending
 
 **What you can steer.** `Profile.md` and `# Follow Up Questions` decide what the workers can answer without you. `ohmyjob/Worker_Limits.json` decides when a stuck worker is stopped — see ["What the workers learn"](SETTINGS.md#what-the-workers-learn).
 
-**Caveats.** This stage needs all five Chrome steps in [Setup](SETUP.md#5-set-up-chrome) done. A site that requires an account with a password always stops at "Needs Attention": a worker never creates an account and never types a password. A worker never touches another worker's tab and never closes one. And a parked form is not a sent application — nothing goes out until you press the button.
+**Caveats.** This stage needs all five Chrome steps in [Setup](SETUP.md#5-set-up-chrome) done. A site that requires an account with a password always stops at "Needs Attention": a worker never creates an account and never types a password. A worker never touches another worker's tab and never closes one. And a parked form is not a sent application — nothing goes out until you press the button. Before any tab is opened, a script asks each queued posting's page whether it is still open; a positively closed one becomes `Deleted` (date of the check in `Notes`) and is listed with the run's start, and a posting that cannot be read is treated as open. A worker that finds the page closed still reports `CLOSED`, as before.
 
 ### Stage 4 — Reconcile the round
 

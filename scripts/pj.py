@@ -4,7 +4,7 @@
 Run as `ohmyjob prep <command>`.
 
   start                    queue the Found rows (screen) and the Matched rows (build); rows without a folder,
-                           folders without a row and duplicate postings are settled here
+                           folders without a row, duplicate postings and closed postings (liveness.py) are settled here
   next                     record the finished jobs, then print workers for the free slots (screens first, then
                            builds); waits up to NEXT_SECONDS for a free slot; prints "done": true when no job is left
   assign-screen [--max N]  write the briefs of the next screen jobs, print the screen-worker prompts
@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import aa_lib as L  # noqa: E402  (run lock, state, markdown and JSON helpers, timings)
+import liveness  # noqa: E402  (the early liveness check)
 import workspace as W  # noqa: E402  (paths, agent names, config)
 import yaml  # noqa: E402
 from job_key import job_key  # noqa: E402
@@ -816,6 +817,13 @@ def cmd_start(args: argparse.Namespace) -> None:
             continue
         for key in drop:
             plans.append((key, "Deleted", f"Deleted {today}: duplicate of job {kept}", True))
+    # Early liveness check: a posting that is positively closed is dropped before a screen or resume worker is spent on it.
+    # Unknown (error, timeout, rate limit, sign-in wall) means open: the job stays in its queue.
+    dropped = {plan[0] for plan in plans}
+    overviews = {key: L.job_overview((W.APPLICATIONS / job["folder"] / "job.md").read_text(encoding="utf-8"))
+                 for key, job in state["jobs"].items() if key not in dropped}
+    for key, code in liveness.find_closed([(k, ov.get("Apply URL") or ov.get("Job URL") or "") for k, ov in overviews.items()]).items():
+        plans.append((key, "Deleted", liveness.note(code, today), True))
     if plans:
         try:
             discard(state, tracker, plans)
