@@ -162,3 +162,18 @@ def test_the_same_posting_keeps_one_key_across_runs():
     assert strip_tracking(run_one) == strip_tracking(run_two)
     assert job_key(strip_tracking(run_one)) == job_key(strip_tracking(run_two))
     assert job_key(strip_tracking(run_one)) != job_key("https://jobs.example.org/p/9?id=8")
+
+
+# --------------------------------------------------------------------------- pasted postings (ohmyjob add-job)
+
+
+def test_a_pasted_posting_gets_a_stable_address_and_a_key_that_meets_no_other_id():
+    from job_key import is_pasted_url, pasted_url
+
+    address = pasted_url("Data  Analyst\nat Acme")
+    assert address == pasted_url("data analyst at acme") and address != pasted_url("data analyst at beta")
+    assert re.fullmatch(r"paste:\d{14}", address) and is_pasted_url(address) and not is_pasted_url("paste:12")
+    key = job_key(address)
+    assert re.fullmatch(r"8\d{14}", key)  # 15 digits like a hashed address, a first digit no hashed address has
+    assert job_key(f" {address} ") == key and key not in {job_key(u) for u in OTHER_SITE_URLS}
+    assert job_key("paste:1234") == "paste:1234"  # not an address of ours: the old rule

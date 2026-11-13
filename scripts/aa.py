@@ -45,6 +45,7 @@ import aa_lib as L
 import judge as J
 import ledger
 import workspace as W
+from job_key import is_pasted_url
 from tracker import Tracker, TrackerError
 
 
@@ -421,6 +422,9 @@ def cmd_start(args: argparse.Namespace) -> None:
         url = overview.get("Job URL") or row["Job URL"]
         if not url:
             skipped.append({"job": label, "folder": folder.name, "reason": "no job URL"})
+            continue
+        if is_pasted_url(url) and not overview.get("Apply URL"):  # /ohmyjob:add-job text with no web address: no page to open
+            skipped.append({"job": label, "folder": folder.name, "reason": "pasted posting without a web address: apply by hand"})
             continue
         location = overview.get("Location") or row["Location"] or ""
         scores[folder.name] = match_score(row)

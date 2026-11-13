@@ -6,6 +6,11 @@ plus 14 digits of a hash of its host, path and query (utm_* tracking parameters 
 when it is a hash route (#/job/111), not an anchor or a text fragment. That is 15 digits, so it cannot meet a
 LinkedIn id (10 digits).
 
+A posting pasted as text, with no web address of its own, gets one made by pasted_url(): "paste:" plus 14 digits of a
+hash of its text. job_key() turns that into "8" plus the 14 digits: 15 digits like a hashed address, but with another
+first digit, so it meets neither a hashed address nor a LinkedIn id. The address is what the tracker row and job.md
+hold, so reconcile and prep pair the folder with the row by the one rule above.
+
 Do not change the key of an address that is already in use: folders and tracker rows carry it, and reconcile marks
 an open row whose folder it cannot pair as Deleted. The pinned vectors in tests/test_job_key.py guard this.
 """
@@ -15,6 +20,7 @@ import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 LINKEDIN_ID_RE = re.compile(r"/jobs/view/(\d+)")
+PASTED_RE = re.compile(r"paste:(\d{14})")
 
 # Query parameters (lower case) that change between two scrapes of the same posting without naming it: click ids and
 # tracking tags. strip_tracking drops them besides every utm_* parameter, so a posting keeps one address, and so one
@@ -67,9 +73,22 @@ def _is_tracking(piece: str, linkedin: bool = False) -> bool:
     return name.startswith("utm_") or name in VOLATILE_PARAMS or (linkedin and name in LINKEDIN_PARAMS)
 
 
+def pasted_url(text) -> str:
+    """The address of a posting pasted as text: the same text (case and spacing aside) always gives the same address."""
+    canonical = " ".join(str(text or "").casefold().split())
+    return "paste:" + f"{int(hashlib.sha1(canonical.encode()).hexdigest()[:12], 16) % 10**14:014d}"
+
+
+def is_pasted_url(url) -> bool:
+    return PASTED_RE.fullmatch((url or "").strip()) is not None
+
+
 def job_key(url) -> str:
     """The id that ties a tracker row to its folder: the leading digits of the folder name."""
     text = (url or "").strip()
+    pasted = PASTED_RE.fullmatch(text)
+    if pasted:
+        return "8" + pasted.group(1)
     is_http = text.lower().startswith(("http://", "https://"))
     match = LINKEDIN_ID_RE.search(text)
     if match and (not is_http or is_linkedin_url(text)):

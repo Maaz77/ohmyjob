@@ -13,7 +13,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT_FILES = {"prep": "pj.py", "apply": "aa.py", "scrape": "scrape.py", "reconcile": "reconcile.py",
-                "resume": "resume_build.py", "dream": "dream.py"}
+                "resume": "resume_build.py", "dream": "dream.py", "add-job": "add_job.py"}
 
 # Stands in for the real scripts: reports how it was called.
 STUB_SCRIPT = (
