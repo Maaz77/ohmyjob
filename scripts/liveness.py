@@ -5,14 +5,18 @@ rest. A job is dropped on evidence only. Every doubt (network error, timeout, ra
 another site, a page that cannot be read, a host we stopped asking, the time budget used up) is "unknown", and the job
 goes on as if it were open. The page text is data: only the fixed codes of CLOSED_TEXT ever leave this module.
 
-Positive evidence of "closed", per host:
+Positive evidence of "closed", per host, and what each rule rests on:
   LinkedIn      HTTP 200 on the /jobs/view/ page itself and a `closed-job__flavor` element (the banner of a closed
-                posting) whose own text starts with "No longer accepting applications". The phrase elsewhere on the page (a description that
-                says "no longer accepting applications from agencies") is not evidence. HTTP status alone never is.
-  any host      HTTP 410; a heading (<title>, <h1> to <h3>, at most 100 characters) that says the job is closed, filled,
-                expired or no longer available.
-  Greenhouse    the posting address redirects to its board with `?error=true`.
-  Lever         HTTP 404 on the posting address.
+                posting) whose own text starts with "No longer accepting applications". The phrase elsewhere on the page
+                (a description that says "no longer accepting applications from agencies") is not evidence, and an HTTP
+                status alone never is. Observed on real closed and open postings (tests/fixtures/liveness/linkedin_*_44*).
+  Lever         HTTP 404 on a /<company>/<id> posting address. Observed: a made-up id on a public board answers 404 with
+                "The job posting you're looking for might have closed, or it has been removed". No known closed posting.
+  Greenhouse    a /jobs/<number> posting address that ends on a Greenhouse page with `?error=true`. Observed: a made-up id
+                on a public board redirects to its board with `?error=true`. No known closed posting. (A board that
+                redirects a missing id to the company's own site is "redirected away": unknown.)
+  any host      HTTP 410 Gone (RFC 9110: the resource was removed for good). Documentation only, not observed.
+Nothing else is evidence: no page text on any other host, no 404 elsewhere.
 
 Politeness: one request at a time per host, a pause between two calls to one host, a stop for the host after
 STOP_AFTER refusals in a row, at most MAX_HOSTS_AT_ONCE hosts in parallel, a hard time budget for the whole check.
@@ -49,7 +53,6 @@ CLOSED_TEXT = {
     "http-410": "the posting address answers 410 Gone",
     "http-404-lever": "the Lever posting address answers 404",
     "greenhouse-closed-redirect": "Greenhouse sends the posting address to its board with an error",
-    "closed-heading": "the page's own heading says the job is closed",
 }
 
 
@@ -75,12 +78,8 @@ _WALL_PATH_RE = re.compile(r"/(auth-?wall|log-?in|sign-?in|sign-?up|uas/login|ch
 _LINKEDIN_BANNER_RE = re.compile(
     r"<[a-z0-9]+\b[^>]*\bclass=\"[^\"]*\bclosed-job__flavor[\w-]*[^\"]*\"[^>]*>\s*([^<]{0,200})", re.I)
 _LINKEDIN_PHRASE_RE = re.compile(r"no longer accepting applications", re.I)  # matched at the START of the banner's text
-_HEADING_RE = re.compile(r"<(title|h[1-3])\b[^>]*>(.*?)</\1\s*>", re.I | re.S)
-_TAG_RE = re.compile(r"<[^>]*>")
-_CLOSED_HEADING_RE = re.compile(
-    r"no longer (accepting applications|available|open|active)"
-    r"|(job|position|posting|vacancy|role) (is|has been|was) (now )?(closed|filled|expired|removed)"
-    r"|(job|position|posting|vacancy|role) has expired|applications? (is|are|have been) closed", re.I)
+_LEVER_POSTING_RE = re.compile(r"^/[^/]+/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}(/|$)", re.I)
+_GREENHOUSE_POSTING_RE = re.compile(r"/jobs/\d+(/|$)")
 _REFUSED = {"network-error", "sign-in-wall", "http-401", "http-403", "http-429", "http-999"}
 
 
@@ -112,16 +111,13 @@ def classify(url: str, reply: Reply) -> Verdict:
         return Verdict("open", "ok")
     if status == 410:
         return Verdict("closed", "http-410")
-    if status == 404 and host.endswith("lever.co"):
+    if status == 404 and _registrable(host) == "lever.co" and _LEVER_POSTING_RE.match(urlsplit(url).path):
         return Verdict("closed", "http-404-lever")
     if status != 200:
         return Verdict("unknown", f"http-{status}")
-    if host.endswith("greenhouse.io") and ("error", "true") in parse_qsl(final.query):
+    if (_registrable(host) == "greenhouse.io" and _GREENHOUSE_POSTING_RE.search(urlsplit(url).path)
+            and not _GREENHOUSE_POSTING_RE.search(final.path) and ("error", "true") in parse_qsl(final.query)):
         return Verdict("closed", "greenhouse-closed-redirect")
-    for _tag, inner in _HEADING_RE.findall(reply.body):
-        text = " ".join(_TAG_RE.sub(" ", inner).split())
-        if len(text) <= 100 and _CLOSED_HEADING_RE.search(text):
-            return Verdict("closed", "closed-heading")
     return Verdict("open", "ok")
 
 
