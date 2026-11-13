@@ -169,6 +169,7 @@ def parse_page(markup: str) -> dict:
             break
     if not found["description"]:
         found["description"] = reader.text()
+        found["from_posting"] = False  # the page's own text: it can be a wall
     return found
 
 
@@ -372,6 +373,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         root = W.find_root()
         if args.inbox:
             (root / ".ohmyjob").mkdir(exist_ok=True)
+            (root / ".ohmyjob" / INBOX).unlink(missing_ok=True)  # a left-over file would make the Write tool refuse
             say(str(root / ".ohmyjob" / INBOX))
             return EXIT_OK
         template = W.template_files(root)

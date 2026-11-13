@@ -267,6 +267,9 @@ def test_a_posting_without_a_location_is_a_twin_in_any_city_but_one_with_a_city_
     ("<html><body><div id=app></div><noscript>You need to enable JavaScript to run this app.</noscript></body></html>", "the text is empty"),
     (page(ld=ldjson(description="Great job. Apply now.")), "empty or too short"),
     (page(ld=ldjson(description="")), "empty or too short"),
+    (page(ld=ldjson().replace('"description"', '"x-description"'), title="Sign in",
+          body="Sign in to see this job and who you know there. Join now to see the full description. " * 3),
+     "a sign-in, script or cookie wall"),
 ])
 def test_an_unreadable_page_creates_no_row_and_no_folder(env, capsys, html, why):
     root, pages, fetched = env
@@ -396,6 +399,8 @@ def test_mock_guard_comes_before_the_inbox_is_read(env):
 
 def test_inbox_paste_adds_the_postings_and_deletes_the_file(env, capsys):
     root, pages, fetched = env
+    (root / ".ohmyjob").mkdir(exist_ok=True)
+    (root / ".ohmyjob" / "add-job.json").write_text("left over", encoding="utf-8")  # --inbox clears it
     inbox = Path(run_main(root, "--inbox").stdout.strip())
     assert inbox == root / ".ohmyjob" / "add-job.json"
     inbox.write_text(json.dumps([{"text": TEXT, "company": "Harborline Freight", "title": "Operations Analyst"}]), encoding="utf-8")
