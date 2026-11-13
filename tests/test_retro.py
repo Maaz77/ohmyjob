@@ -407,13 +407,17 @@ def test_prep_end_prints_the_hint_once_and_survives_a_broken_retro(workspace, tm
 
     e = Env(workspace, tmp_path)  # a prep workspace with usable resumes and an empty tracker
     r = R(workspace, create=False)
-    for n in range(10):
+    for n in range(9):
         r.skip(n)
 
     def pj(*args: str, env: dict) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, "-c", "import sys, pj; pj.main(sys.argv[1:])", *args],
                               capture_output=True, text=True, env=env, cwd=workspace)
 
+    assert pj("start", env=e.env).returncode == 0
+    below = pj("end", env=e.env)  # 9 skips wait: below the threshold, so no line
+    assert below.returncode == 0 and "retro" not in below.stdout, below.stdout + below.stderr
+    r.skip(9)
     assert pj("start", env=e.env).returncode == 0
     done = pj("end", env=e.env)
     assert done.returncode == 0 and done.stdout.count("run /ohmyjob:retro") == 1, done.stdout + done.stderr
