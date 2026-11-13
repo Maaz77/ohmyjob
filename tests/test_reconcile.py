@@ -91,6 +91,16 @@ def test_applications_folder_is_left_alone(workspace):
     assert path.is_dir()
 
 
+def test_resume_built_row_moved_by_hand_to_submitted(workspace):
+    make(workspace, [(url(1021), "Resume Built")])
+    path = folder(workspace, "Submitted", 1021)
+    r = run(workspace, "--apply")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert status(workspace, 1)["Status"] == "Submitted"
+    assert "Invariant: 1 Submitted rows == 1 Submitted folders  PASS" in r.stdout
+    assert path.is_dir()
+
+
 def test_open_row_with_folder_already_in_submitted(workspace):
     make(workspace, [(url(1005), "Pending Review")])
     folder(workspace, "Submitted", 1005)

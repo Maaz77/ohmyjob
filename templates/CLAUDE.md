@@ -30,7 +30,8 @@ Claude starts in):
 2. `/ohmyjob:prep-jobs`
 3. `/ohmyjob:apply-jobs`
 4. Fix the tabs in the "Needs Attention" Chrome tab group by hand, then `/ohmyjob:continue-applying`
-5. Submit by hand, then `/ohmyjob:reconcile`
+5. Submit by hand, then `/ohmyjob:reconcile`. A job applied to entirely by hand from `Applications/`: move its folder to
+   `Submitted/` first.
 
 ## Errors
 A command line that starts with `ohmyjob: ` or `FATAL` is an error: show it to the candidate and stop. `ohmyjob:

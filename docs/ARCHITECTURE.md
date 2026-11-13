@@ -98,7 +98,7 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `prep-jobs` | Forks the `prep-master` agent. |
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers. |
 | `apply-jobs-run`, `continue-applying-run` | Internal; fork the `application-master` agent (the second in continue mode). |
-| `reconcile` | Dry run, confirmation, then apply. |
+| `reconcile` | Caveat check, dry run, confirmation, then apply. |
 | `build-job-resumes` | Runs `ohmyjob resume build-jobs "<names>"`: the tailored resume of each named job folder, built again and set back to `Resume Built`. |
 | `dream` | Forks the `dream-master` agent: the traces since the last dream become the ATS notes of the workspace. |
 
@@ -338,7 +338,7 @@ Matching is by the leading job id of each folder name against the id of the row'
 | Where the folder is | Result |
 |---|---|
 | `Pending-Review/` or `Needs-Attention/` | Row becomes `Submitted`; folder moves to `Submitted/`. |
-| `Submitted/` | Row becomes `Submitted` (nothing moves). |
+| `Submitted/` | Row becomes `Submitted` (nothing moves). This is how a job the candidate applied to entirely by hand is closed: they move its folder from `Applications/` to `Submitted/` before reconcile. |
 | `Applications/` | Left alone; the job is not reviewed yet. `Applications/` is never touched. |
 | nowhere | Row becomes `Deleted`. |
 

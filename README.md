@@ -286,7 +286,7 @@ This closes the round: it brings the tracker in line with your folders and moves
 - Its folder is in `Pending-Review/` or `Needs-Attention/` → the row becomes `Submitted` and the folder moves to `Submitted/`.
 - Its folder is gone → the row becomes `Deleted`.
 - Its folder is already in `Submitted/` → the row becomes `Submitted`; nothing moves.
-- Its folder is still in `Applications/` → left alone. `Applications/` is never touched.
+- Its folder is still in `Applications/` → left alone. `Applications/` is never touched. If you applied to such a job entirely by hand, move its folder to `Submitted/` yourself before you reconcile.
 
 Rows already at `Deleted` or `Skipped-LowFit` are never changed.
 
@@ -294,8 +294,9 @@ Rows already at `Deleted` or `Skipped-LowFit` are never changed.
 >
 > - **Any job you did not send, move its folder back to `Applications/` or delete it.** Otherwise it is marked `Submitted` and you will never see it again.
 > - **Delete the folder of every job you dropped**, at whatever stage you dropped it. Deleting a folder is how you drop a job, and reconcile records it as `Deleted`.
+> - **Any job you applied to entirely by hand, move its folder from `Applications/` to `Submitted/`.** Reconcile never touches `Applications/`, so otherwise the job stays open.
 
-**What protects you.** It always shows a dry run first — every row that would change, with its old and new status and where its folder would go, plus any folder it could not match — and then asks you to confirm. Nothing is written without a clear yes. If the list holds a row you did not expect, say no, move that folder back to `Applications/`, and run it again. The command takes no arguments; the dry run and the confirmation are built in.
+**What protects you.** Before it runs anything, it shows you the caveat above and asks whether you have tidied your folders; it starts only after you say yes. Then it shows a dry run — every row that would change, with its old and new status and where its folder would go, plus any folder it could not match — and then asks you to confirm. Nothing is written without a clear yes. If the list holds a row you did not expect, say no, move that folder back to `Applications/`, and run it again. The command takes no arguments; the caveat check, the dry run and the confirmation are built in.
 
 ### Optional: let the plugin learn the sites
 
@@ -318,7 +319,7 @@ Over a few application rounds the plugin collects traces of what it met on each 
 | `/ohmyjob:prep-jobs` | none | **Stage 2.** Screen every `Found` job, then tailor and build a resume for every match. |
 | `/ohmyjob:apply-jobs` | `[--selected "<name, name>"]` or `[--top-k-match <N>]`, not both | **Stage 3.** Fill each application in its own Chrome tab and park it before Submit. |
 | `/ohmyjob:continue-applying` | none | **Stage 3.** Continue the tabs in the "Needs Attention" group after you unblocked them. |
-| `/ohmyjob:reconcile` | none (dry run and confirmation are built in) | **Stage 4.** Bring the tracker in line with your folders and close the round. |
+| `/ohmyjob:reconcile` | none (caveat check, dry run and confirmation are built in) | **Stage 4.** Bring the tracker in line with your folders and close the round. |
 | `/ohmyjob:build-job-resumes` | `<name, name, ...>` (required) | Build the tailored resume of the named job folders again, after you fixed a yaml by hand, and set each row back to `Resume Built`. |
 | `/ohmyjob:dream` | none | Turn the traces of your runs into ATS notes in `ohmyjob/ats/`, with a `Dream_Report.md`. |
 | `/ohmyjob:help` | none | Print the commands, the settings table and the job status life cycle. |
@@ -370,11 +371,11 @@ The `Status` column of `Job_Tracker.xlsx`. The `Notes` column next to it holds t
 | `Found` | `/ohmyjob:find-jobs` (also `prep-jobs`, for a folder without a row) | `/ohmyjob:prep-jobs` screens it. |
 | `Matched` | `prep-jobs`, when the screener scores the job 6 or more and picks a tailorable resume | A worker tailors a copy and builds the PDF: `Resume Built` or `Resume Failed`. |
 | `Skipped-LowFit` | `prep-jobs`, when the score is low, or the poster is an agency, or a dealbreaker applies | Final. The folder is deleted; the reason is in `Notes`. Reconcile never touches it. |
-| `Resume Built` | `prep-jobs`, when the build passed with exactly the source's page count — or a ready-made PDF matched and was copied | `/ohmyjob:apply-jobs` queues it. |
+| `Resume Built` | `prep-jobs`, when the build passed with exactly the source's page count — or a ready-made PDF matched and was copied | `/ohmyjob:apply-jobs` queues it. Applied entirely by hand instead? Move its folder to `Submitted/`, then `/ohmyjob:reconcile`. |
 | `Resume Failed` | `prep-jobs`, when the worker could not finish: no good build in four tries, a blocker, a timeout | The reason is in `Notes`. It is not retried: fix the yaml, then `/ohmyjob:build-job-resumes`. |
 | `Pending Review` | `apply-jobs`, when the worker parked the form before the final button and the checks passed | You review the form and submit it yourself, then run `/ohmyjob:reconcile`. |
 | `Needs Attention` | `apply-jobs` or `continue-applying`, when a worker was blocked or a check failed | Fix the tab by hand, then `/ohmyjob:continue-applying`. |
-| `Submitted` | `/ohmyjob:reconcile`, for a job whose folder was in `Pending-Review/` or `Needs-Attention/` | Final. |
+| `Submitted` | `/ohmyjob:reconcile`, for a job whose folder was in `Pending-Review/`, `Needs-Attention/` or `Submitted/` (where you moved it after applying by hand) | Final. |
 | `Deleted` | `prep-jobs` (a duplicate posting, a resume worker's refusal, a row without a folder), `apply-jobs` (the job is closed), or `reconcile` (you deleted the folder) | Final. |
 
 ---
