@@ -769,6 +769,13 @@ class TestMatchTabs(unittest.TestCase):
         self.assertEqual(self.match(co, tabs), {})
         # a LinkedIn page matches by its job id, not by its host
         self.assertEqual(self.match({"a": jobs["a"]}, [self.tab(7, li + "22/apply"), self.tab(8, li + "11/apply")]), {"a": 8})
+        # a job that moved to a host none of its pages name: the one free tab with its company in the title
+        moved = {"a": {**self.job(None, li + "11/"), "company": "Acme, Inc."}}
+        tabs = [{**self.tab(8, "https://new-ats.io/x"), "title": "Apply | Acme Careers"}, {**self.tab(9, "https://z.io"), "title": "Other"}]
+        self.assertEqual(self.match(moved, tabs), {"a": 8})
+        # two tabs carry the name: no guess
+        tabs.append({**self.tab(7, "https://q.io"), "title": "Acme jobs"})
+        self.assertEqual(self.match(moved, tabs), {})
 
 
 class TestSelection(Base):

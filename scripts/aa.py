@@ -659,7 +659,14 @@ def match_tabs(jobs: dict[str, dict], tabs: list[dict]) -> dict[str, int]:
             if t is not None and _top({g: s for (g, u), s in fit.items() if u == t}) == f:
                 new[f] = t
         if not new:
-            return out
+            # last resort, for a job that moved to a host none of its pages name (a new external ATS): the company
+            # name in the tab title, when exactly one free tab carries it and that tab carries no other job's name
+            loose = {f: [t["id"] for t in tabs if t["id"] not in out.values() and _fit(jobs[f], t)[1]]
+                     for f in jobs if f not in out}
+            owners = collections.Counter(t for ids in loose.values() for t in ids)
+            new = {f: ids[0] for f, ids in loose.items() if len(ids) == 1 and owners[ids[0]] == 1}
+            if not new:
+                return out
         out.update(new)
 
 
