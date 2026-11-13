@@ -29,6 +29,7 @@ Check all of this **before** you install anything:
 
 - **macOS or Linux.** Windows is not supported.
 - **Claude Code 2.1.306 or newer.** Check with `claude --version`, update with `claude update`.
+- **git.** The install below fetches this plugin from GitHub with git, and `claude plugin update` uses it too. Check with `git --version`; on macOS that prompts to install the Xcode command line tools, on Debian or Ubuntu use `sudo apt install git`. Nothing in the daily workflow needs git.
 - **A direct Anthropic plan** — Pro, Max, Team or Enterprise — signed in with `/login`. An API key turns Claude in Chrome off, and stage 3 then cannot run.
 - **Chrome, Edge or Brave**, with the Claude in Chrome extension installed and signed in. WSL does not work for the browser. Only stage 3 needs a browser; stages 1, 2 and 4 run without one.
 - **Network and disk space** for the one-time setup. It downloads a Python environment and, if your computer has no working LaTeX, about 250 MB of TinyTeX.
@@ -221,7 +222,7 @@ The screen is strict by design, and your Fit Preferences, not your resume, are t
 
 **Second half: resume tailoring.** How this goes depends on which of your resumes was matched.
 
-- **A ready-made PDF** (one you dropped in yourself, with no yaml) is copied into the job's folder as it is and the job goes straight to `Resume Built`. Nothing is tailored or edited — that is the trade you make by using your own PDFs.
+- **A ready-made PDF** (one you dropped in yourself, with no yaml) is copied into the job's folder as it is and the job goes straight to `Resume Built`. Nothing is tailored or edited — that is the trade you make by using your own PDFs. The screener weighs your ready-made PDFs and your role yamls against each other in one pass, and when two are about as close it takes the yaml, because that one gets rewritten for the posting and your PDF does not.
 - **A role yaml** gets a worker of its own. It starts from an exact copy of your yaml and rewrites it for this posting.
 
 What that worker may and may not do is worth knowing, because it decides how much your tailored resumes can differ from what you wrote:

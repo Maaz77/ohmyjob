@@ -282,6 +282,7 @@ def write_catalog() -> list[dict]:
             data = yaml.safe_load(entry["source"].read_text(encoding="utf-8")) or {}
             body = (f"- kind: tailorable (a worker adapts a copy of it to the job)\n- title: {data.get('title')}\n"
                     + (f"- introduction: {rendered(data.get('introduction'))}\n" if "introduction" in data else "")
+                    + (f"- experience: {experience_line(data)}\n" if experience_line(data) else "")
                     + (f"- skills: {' | '.join(skills_line(row) for row in data.get('skills') or [])}" if "skills" in data
                        else f"- document: {data.get('document') or 'resume'}"))
         else:
@@ -451,6 +452,22 @@ def skills_line(row: Any) -> str:
     return f"{rendered(row.get('label'))}: {rendered(items_text(row))}"
 
 
+def experience_line(data: Any) -> str:
+    """About what the PDF shows for Experience: "Role, Employer (dates)" for every role, newest first. The screener
+    judges a tailorable resume on its roles too, not only its title and skills (a ready-made PDF shows its whole text)."""
+    out = []
+    for entry in (data or {}).get("experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        employer = rendered(entry.get("employer") or entry.get("company"))
+        for role in entry.get("roles") or [entry]:
+            if not isinstance(role, dict) or not role.get("role"):
+                continue
+            dates = rendered(role.get("dates") or entry.get("dates"))
+            out.append(f"{rendered(role.get('role'))}, {employer}" + (f" ({dates})" if dates else ""))
+    return " | ".join(out)
+
+
 # --------------------------------------------------------------------------- worker reports
 
 
@@ -587,7 +604,7 @@ def write_screen_brief(run_dir: Path, key: str, job: dict) -> Path:
 ## Resumes (choose matched_resume from these file names; the names say the field)
 {chr(10).join(resumes)}
 
-Read the catalog text of these resumes (title, introduction, skills, or the text of a ready-made PDF) once, before you score: {catalog_path()}
+Read the catalog text of these resumes (title, introduction, experience and skills of a tailorable one, the whole text of a ready-made one) once, before you score: {catalog_path()}
 
 ## Job: Overview
 {overview.strip()}

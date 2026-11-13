@@ -994,6 +994,10 @@ def test_catalog_lists_yaml_and_ready_made_resumes_but_never_templates(pe):
     text = (pe.root / ".ohmyjob" / "catalog" / "catalog.md").read_text()
     assert "registered nurse" in text.lower() and "ten years of ward experience" in text
     assert "Operations analyst with six years" in text and "Template" not in text and "Marked" not in text
+    # a tailorable resume is judged on its roles too, both yaml shapes (employer + roles, and role + company)
+    assert ("- experience: Senior Operations Analyst, Harborline Freight Group (2022 - Present) | "
+            "Operations Analyst, Harborline Freight Group (2020 - 2022) | "
+            "Supply Planning Analyst, Brightwater Foods (2018 - 2020)") in text
     [(job, brief)] = pe.workers(pe.pj("assign-screen"))
     body = Path(brief).read_text()
     assert "- Nurse-ICU.pdf (ready-made)" in body and f"- {OPS} (tailorable)" in body
