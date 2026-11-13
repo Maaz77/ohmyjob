@@ -3,10 +3,18 @@
 Scripts read their paths when they are imported, so code that needs a workspace runs in a subprocess that inherits
 OHMYJOB_WORKSPACE from this fixture (the functions that take `root` can be called in the test process).
 """
+import os
 import shutil
 from pathlib import Path
 
 import pytest
+
+
+
+def pytest_configure(config):
+    """The early liveness check asks real sites: off in every test (a test that wants it unsets this and stubs the fetch)."""
+    os.environ["OHMYJOB_NO_LIVENESS"] = "1"
+
 
 FIXTURE_WORKSPACE = Path(__file__).parent / "fixtures" / "workspace"
 

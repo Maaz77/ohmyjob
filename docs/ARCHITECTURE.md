@@ -132,6 +132,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | `ohmyjob dream <cmd>` | `dream.py` (with `ledger.py`) | Group the new traces by ATS key, hand out one worker per key, check the notes, write `Dream_Report.md`, move the watermark; `reject` restores the last backup. |
 | `ohmyjob retro <cmd>` | `retro.py` | `start`, `list`, `mark`, `feedback`, `propose`, `accept`, `refuse`, `end`, `reject`: the review state, the watermark (reviewed job ids), refused proposals, the structure guard and the single-field write of `Profile.md`; also the one-line hint at the end of `prep end`. Reads the tracker, never writes it. |
 | (internal) | `ledger.py` | Blocker codes, outcomes, the ledger lines and the redacted traces that `ohmyjob apply end` writes. |
+| (internal) | `liveness.py` | The early liveness check, called by `prep start` and `apply start`: GETs a queued job's page with the scraper's own session and says closed (positive evidence only), open or unknown. One request at a time per host with a pause, a stop for a host after 3 refusals in a row, a 40 second budget; nothing is kept between runs. `OHMYJOB_NO_LIVENESS=1` turns it off (the tests do). |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
 | (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
 
@@ -211,7 +212,7 @@ Both masters are queue loops: a new worker starts as soon as one finishes, up to
 
 ### Stage 2 — Job Posting Screener and Resume Tailoring (`ohmyjob prep`)
 
-1. `start` refuses on the mock guard (above), builds the screening catalog, queues `Found` rows for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id.
+1. `start` refuses on the mock guard (above), builds the screening catalog, queues `Found` rows for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id. Then the early liveness check (`liveness.py`) asks the page of every queued job (its Apply URL, else its Job URL) whether the posting is still open, with no model and no Chrome: a positively closed one becomes `Deleted` through the same `discard` (row saved, then folder deleted), with a `Notes` entry that names the closing and the date, and is listed in the summary and in the `start` output; an unreadable one (error, timeout, rate limit, sign-in wall, a host stopped after repeated refusals, the time budget used up) is treated as open.
 2. `next` is the loop: it records finished jobs and prints the workers to start. `assign-screen` writes one brief per job (full `Profile.md`, the path of the catalog text, the job). Screen workers report a match score, the matched resume, reasons and gaps. The catalog shows the title, introduction, roles and skills of a tailorable resume and the whole text (up to `CATALOG_FILE_CAP`) of a ready-made one; both pools are judged in that one pass, and a near tie goes to the tailorable resume.
    Before a brief is written, `assign-screen` runs the work authorization pre-pass (`work_auth.py`, a script: no model). A posting that states a work authorization requirement outright (no sponsorship, right to work, citizens only, permanent residency, a named clearance; English and German phrases) in the one country of its `Location`, which the `# Work Authorization` lines of `Profile.md` say the candidate does not meet, is answered by the script itself with a screen-shaped report (no score, a `note` that starts `Work authorization block:` and quotes both sides) and no worker is started; `record` then sets `Skipped-LowFit` as for any low score. Silence, positive or hedged wording, an unknown country, a country or a section the profile does not mention never block; a known country the profile does not cover, or a requirement it cannot decide, is written into the job's `Gaps` by `record`. The screen worker is told it does not judge work authorization.
 3. `record` writes the result into `job.md`, sets the row, saves the tracker, and only then deletes skipped folders. A match on a yaml sets `Matched` and joins the build queue at once. A match on a ready-made PDF needs no worker: `record` copies the PDF into the job folder as `<First>_<Company>_<Title>.pdf` and sets `Resume Built` directly; such a folder holds a PDF and no yaml. A skip sets `Skipped-LowFit`.
@@ -246,7 +247,7 @@ Order of writes in every step: `job.md`, then the tracker (saved), then folder d
 
 ### Stage 3 — Job Application Assistant Browser Agent (`ohmyjob apply`)
 
-1. `start` clears old run state and queues rows at `Resume Built` (`--continue`: rows at `Needs Attention` whose tab can be found). `preflight` checks the LinkedIn sign-in, the helper extension and the Haiku check.
+1. `start` clears old run state and queues rows at `Resume Built` (`--continue`: rows at `Needs Attention` whose tab can be found). Before `--top-k-match` cuts the queue (and not in `--continue` mode), the early liveness check asks each queued job's page (Apply URL, else Job URL) whether the posting is still open: a positively closed one becomes `Deleted` (tracker saved once, then its folder deleted), is listed in the `start` output (`closed`) and in the `finish` summary, and gets no tab or worker; an unreadable one stays queued, and the worker's `CLOSED` blocker remains the last line of defence. `preflight` checks the LinkedIn sign-in, the helper extension and the Haiku check.
 2. The master opens one tab per job; `assign` writes one brief per job: the full `Profile.md`, the tailored resume yaml and the job's overview and description.
 3. `next` starts workers in free slots; the first page loads are staggered so that many workers do not hit one account at once. Each worker's report is checked by `handback` or `capture`.
 4. A worker never guesses. On a question about the candidate that the brief does not answer, it stops with status `blocked` and the questions word for word; `finish` records them in `questions.json`, and the main session asks them and saves the answers in `Profile.md` (`ohmyjob apply questions` / `answer`).
@@ -328,10 +329,13 @@ stateDiagram-v2
     Matched --> Built: the resume worker built it
     Matched --> Failed: the resume worker could not finish
     Matched --> Deleted: the resume worker rejected the posting
+    Found --> Deleted: prep-jobs, the early liveness check found the posting closed
+    Matched --> Deleted: prep-jobs, the early liveness check found the posting closed
     Failed --> Built: build-job-resumes, after you fixed the yaml
     Built --> Pending: apply-jobs parked the form
     Built --> Needs: apply-jobs was blocked
     Built --> Deleted: apply-jobs found the job closed
+    Built --> Deleted: apply-jobs, the early liveness check found the posting closed, no tab opened
     Needs --> Pending: continue-applying
     Needs --> Needs: continue-applying, still blocked
     Pending --> Submitted: reconcile, after you sent it
