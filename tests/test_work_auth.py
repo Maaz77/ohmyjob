@@ -138,6 +138,8 @@ def test_german_postings_are_read_too():
     "Permanent residency is not required.",
     "Not only citizens apply here.",
     "Right to work checks are not required before you apply.",
+    "You do not need to have the right to work in the UK to apply.",
+    "You don't need to be authorized to work in the US yet.",
 ])
 def test_silence_positive_or_unclear_wording_never_blocks(description):
     assert block(description) is None
@@ -146,6 +148,20 @@ def test_silence_positive_or_unclear_wording_never_blocks(description):
 def test_a_posting_that_contradicts_itself_does_not_block():
     verdict = block("We are unable to sponsor visas. Visa sponsorship is available for senior roles.")
     assert verdict is None
+
+
+def test_form_questions_and_other_sponsorship_talk_do_not_cancel_a_real_block():
+    posting = ("About the role. This role is not eligible for visa sponsorship. Candidates who require sponsorship will not be "
+               "considered.\nWill you now or in the future require sponsorship?\nWe sponsor events and meet-ups for our staff.")
+    verdict = block(posting)
+    assert verdict and verdict.blocked and "not eligible for visa sponsorship" in verdict.text
+
+
+def test_a_silent_posting_in_a_country_the_profile_does_not_mention_carries_the_uncertainty():
+    verdict = block("We build weekly reports in SQL.", location="London, England, UK")
+    assert verdict and not verdict.blocked and "may work in GB" in verdict.text and "states no requirement" in verdict.text
+    assert block("We build weekly reports in SQL.", location="Remote") is None  # no country: nothing to say
+    assert block("We build weekly reports in SQL.", location="Berlin, Germany") is None  # covered by the profile
 
 
 def test_eligible_to_work_blocks_nobody_who_is_eligible():
@@ -224,9 +240,10 @@ DESCRIPTIONS = {
     "us_silent": "We build weekly reports in SQL and Power BI.",
     "uk_unknown": "We build weekly reports. We are unable to sponsor visas for this role.",
     "de_same": "We build weekly reports. We are unable to sponsor visas for this role.",
+    "uk_silent": "We build weekly reports in SQL and Power BI.",
 }
 LOCATIONS = {"us_block": "Austin, TX, US", "us_sponsor": "Austin, TX, US", "us_silent": "Austin, TX, US",
-             "uk_unknown": "London, England, UK", "de_same": "Berlin, Germany"}
+             "uk_unknown": "London, England, UK", "de_same": "Berlin, Germany", "uk_silent": "London, England, UK"}
 
 
 def add_job(pe: Env, job_id: str, name: str) -> None:
@@ -293,6 +310,16 @@ def test_a_country_the_profile_does_not_mention_is_scored_and_the_uncertainty_st
     assert "does not say whether you meet it for GB" in gaps
     assert pe.rows()["1001"]["Status"] == "Matched"
     assert "Work authorization: 0 blocked, 1 matched but not checked" in pe.pj("end")
+
+
+def test_a_silent_posting_in_an_unmentioned_country_is_scored_and_carries_the_gap(pe):
+    workers = screen(pe, ["uk_silent"])
+    assert list(workers) == ["1001"]
+    pe.bind("ohmyjob:screen-worker", "s1", workers["1001"])
+    assert pe.report("ohmyjob:screen-worker", "s1", {"job": "1001", "score": 8, **MATCH}).returncode == 0
+    assert pe.pj("record").startswith("OK recorded: 1 Matched")
+    md = (next((pe.root / "Applications").glob("1001_*")) / "job.md").read_text(encoding="utf-8")
+    assert "- Work authorization not checked: Profile.md does not say whether you may work in GB" in md.split("### Gaps?", 1)[1]
 
 
 def test_a_posting_in_a_country_where_the_candidate_is_authorized_is_scored_normally(pe):

@@ -19,6 +19,9 @@ Choices, and why:
   in any other language is never blocked. A sentence that is hedged ("unless", "case by case", "preferred", a question)
   counts for nothing, and any other sentence that talks of sponsorship in positive words cancels the sponsorship and
   right-to-work phrases of the posting: a posting that contradicts itself is not explicit.
+- A job in a country that the profile does not mention (known country, no line, no EU line) carries a "not checked" gap
+  line whatever the posting says, so the candidate sees the uncertainty with the job. A remote or country-less job
+  carries one only when the posting states a requirement.
 - Clearance: blocked only when the candidate says `none`; a held clearance is not compared (levels differ by country).
   Only security, secret and named clearances count: "customs clearance" is not one.
 """
@@ -111,10 +114,15 @@ NO_SPONSOR = [  # level AUTH: the candidate must work there without sponsorship
     rf"\b{_MODAL}\b[^.]{{0,60}}?\bnot\s+{_PEND}(?:require|need)\w*\s+{_PEND}sponsorship",
     r"\b(?:must|able to|eligible to|authori[sz]ed to|right to work)\b[^.]{0,80}?\bwithout\s+(?:requiring\s+|needing\s+|the need for\s+)?"
     r"(?:(?:visa|employer|work visa)\s+)?sponsorship",
+]
+RIGHT_TO_WORK = [  # level AUTH, and only in a sentence without "no", "not", "without" or "n't" ("you do not need to have the right to work")
     rf"\b{_MODAL}\b(?:\s+\w+){{0,3}}?\s+(?:have|hold|possess)\b(?:\s+\w+){{0,3}}?\s+(?:right|legal right|permission|authori[sz]ation|eligibility)\s+to\s+work\b",
     rf"\b{_MODAL}\b(?:\s+\w+){{0,3}}?\s+be\s+(?:(?:legally|currently|already|fully)\s+)*(?:eligible|authori[sz]ed|entitled|permitted|allowed)\s+to\s+work\b",
+    r"\b(?:right to work|work authori[sz]ation|work permit|work visa)\b[^.]{0,30}?\b(?:is\s+|are\s+)?(?:required|essential|mandatory|a must)\b",
 ]
-RIGHT_TO_WORK_REQUIRED = r"\b(?:right to work|work authori[sz]ation|work permit|work visa)\b[^.]{0,30}?\b(?:is\s+|are\s+)?(?:required|essential|mandatory|a must)\b"
+# explicitly positive talk of sponsorship; a sentence like that, without a negation, cancels the sponsorship hits of the posting
+POSITIVE = (r"sponsorship\s+(?:is\s+|are\s+|will\s+be\s+)?(?:available|offered|provided|possible)|\b(?:can|will|do|does|may|happy to|glad to)\s+sponsor|"
+            r"\boffer\w*\s+(?:\w+\s+){0,3}sponsorship|\bvisa\s+(?:support|assistance)|sponsoring\b[^.]{0,20}(?:angeboten|m[oö]glich)|\bsponsern\b")
 GERMAN = [  # level AUTH, German
     r"\bkein\w*\s+(?:visa|visum|arbeitserlaubnis|arbeitsgenehmigung)\w*[- ]?(?:sponsoring|sponsorship|unterst[uü]tzung|unterstuetzung|sponsern)",
     r"\bsponsoring\b[^.]{0,20}?\bnicht\s+(?:m[oö]glich|angeboten|verf[uü]gbar)",
@@ -129,7 +137,7 @@ CLEARANCE_RE = r"\b(?:security clearance|(?:top secret|secret|public trust|ts|dv
 CLEARANCE_NEED = r"\b(?:required|requires|must (?:have|hold|possess)|mandatory|active|current|valid|essential)\b"
 CLEARANCE_NOT = (r"\b(?:obtain\w*|eligib\w*|able to (?:get|obtain)|ability|willing\w*|prefer\w*|desirable|plus|nice|bonus|ideal\w*|"
                  r"advantage|apply\w*|process|sponsor\w*|undergo|pass)\b")
-HEDGE = (r"\b(?:unless|except\w*|case[- ]by[- ]case|exceptional\w*|may consider|will consider|depending|in some cases|for the right|"
+HEDGE = (r"\b(?:unless|(?<!no\s)except\w*|case[- ]by[- ]case|exceptional\w*|may consider|will consider|depending|in some cases|for the right|"
          r"if (?:you|the|your|a|an)|prefer\w*|desirable|ideally|nice to have|a plus|bonus|advantage|welcome|encourage\w*)\b")
 ALT_OTHER = r"\b(?:permits?|visas?|authori[sz]\w*|eligib\w*|right to work|work rights?|settled)\b"
 ALT_RESIDENT = r"\b(?:permanent|resident\w*|residency|green card|lawful)\b"
@@ -157,7 +165,7 @@ def requirements(description: str) -> list[tuple]:
         negated = re.search(r"\b(?:no|not|without|never)\b|n't", sentence, re.I)
         german_negated = re.search(GERMAN_NOT, sentence, re.I)
         for match in (_search(NO_SPONSOR, sentence),
-                      None if negated else re.search(RIGHT_TO_WORK_REQUIRED, sentence, re.I),
+                      None if negated else _search(RIGHT_TO_WORK, sentence),
                       _search(GERMAN, sentence),
                       None if german_negated else re.search(GERMAN_REQUIRED, sentence, re.I)):
             if match:
@@ -174,8 +182,8 @@ def requirements(description: str) -> list[tuple]:
             hits.append((CLEARANCE, clearance))
         if "?" in sentence or re.search(HEDGE, sentence, re.I):
             hits = []  # a question or a hedged sentence states nothing outright
-        if not hits and re.search(r"sponsor|visa (?:support|assistance)", sentence, re.I):
-            positive = True  # talks of sponsorship in positive, hedged or unclear words
+        if not hits and not negated and re.search(POSITIVE, sentence, re.I):
+            positive = True  # also in a hedged sentence ("sponsorship may be available for the right candidate")
         for level, match in hits:
             start = max(0, match.start() - 80)
             found.append((level, sentence[start:start + QUOTE]))
@@ -186,12 +194,16 @@ def requirements(description: str) -> list[tuple]:
 
 
 def check(location: str, description: str, profile: str) -> Optional[Verdict]:
-    """None: the posting states no requirement (or contradicts itself), so nothing is said. Verdict(True, note): blocked.
-    Verdict(False, gap): it states one, but the profile cannot decide it (the gap line tells the candidate)."""
+    """Verdict(True, note): blocked. Verdict(False, gap): not blocked, and the gap line tells the candidate what was not
+    checked: the posting states a requirement that the profile (or the job's location) cannot decide, or the job's
+    country is known and the profile says nothing about it. None: nothing to say."""
     needs = requirements(description)
-    if not needs:
-        return None
     code, rows = job_country(location), profile_rows(profile)
+    if not needs:
+        if code and candidate_level(rows, code) is None:
+            return Verdict(False, f"Work authorization not checked: Profile.md does not say whether you may work in {code} "
+                                  "(its Work Authorization section); the posting states no requirement.")
+        return None
     unknown = None
     for level, quote in needs:
         if code is None:
