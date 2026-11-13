@@ -107,6 +107,14 @@ def test_employment_type_filter_runs_for_every_board(setup):
     assert [r["Company"] for r in rows(root) if r["Source"] == "google"] == ["H Co"]
 
 
+def test_junk_posting_is_dropped(setup, capsys):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/6", description="Pay the $99 starter kit fee to begin."),
+                               post(url="https://www.linkedin.com/jobs/view/7"))
+    scrape.run(root, configure())
+    assert "1 junk dropped" in capsys.readouterr().out and [r["_key"] for r in rows(root)] == ["7"]
+
+
 def test_title_filter_and_off(setup, capsys):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(post(title="Head Chef", url="https://www.linkedin.com/jobs/view/5"))

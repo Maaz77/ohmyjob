@@ -250,6 +250,31 @@ class Filters:
         return find_excluded_company_match(company, self.exclude_companies)
 
 
+# --------------------------------------------------------------------------- junk postings
+
+# High-precision scam / MLM signals only: a legit posting almost never says these. Thin or vague descriptions are left
+# to the screen-worker's `junk` flag (a short or missing description can be a board that did not load the page).
+# ponytail: English phrases only; add other languages when junk in them shows up.
+_JUNK_RULES = [(why, re.compile(rx)) for why, rx in [
+    ("off-platform contact", r"\b(contact|message|text|reach|add|dm|chat with)\b[^.\n]{0,40}\b(telegram|whatsapp|wickr|signal app|hangouts?)\b"),
+    ("asks the applicant for money", r"\b(upfront|registration|training|application|processing|starter[- ]?kit|onboarding) fees?\b"),
+    ("asks the applicant for money", r"\b(you|candidates?|applicants?) (will |must |need to |are required to )?(pay|purchase|buy)\b[^.\n]{0,40}\b(fee|kit|training|equipment|background check)\b"),
+    ("check or crypto payment", r"\bdeposit (a |the )?(cheques?|checks?)\b|\b(paid|payment|salary) in (bitcoin|crypto|usdt|gift cards?)\b"),
+    ("commission-only or MLM", r"\bcommission[- ]only\b|\bbe your own boss\b|\bunlimited (earning|income) potential\b"),
+    ("commission-only or MLM", r"\bearn (up to )?[$£€]?\d[\d,.]*k?\+? ?(per|a|/|each) ?week\b"),
+    ("apply through a personal email", r"\b(send|email|forward|submit|apply)\b[^\n]{0,60}@(gmail|yahoo|hotmail|outlook|aol|icloud|protonmail|proton)\.[a-z]+"),
+]]
+_JUNK_TITLE_RE = re.compile(r"[$]{2}|!{2}|[\U0001F300-\U0001FAFF☀-➿]")
+
+
+def junk_reason(job: dict) -> Optional[str]:
+    """Why a posting is spam or junk, else None. Looks at the title and the description."""
+    if _JUNK_TITLE_RE.search(str(job.get("title") or "")):
+        return "junk title"
+    text = fold(job.get("description"))
+    return next((why for why, rx in _JUNK_RULES if rx.search(text)), None)
+
+
 # --------------------------------------------------------------------------- cross-board twins
 
 _GENDER_RE = re.compile(r"[\(\[]\s*[mwfdxihv]\s*(?:[/|*]\s*[mwfdxihv]\s*)+[\)\]]|\b[mwfdhv](?:/[mwfdxv]){1,2}\b", re.I)

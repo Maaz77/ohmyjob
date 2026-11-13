@@ -134,7 +134,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 
 ### Stage 1 — Job Posting Finder (`ohmyjob scrape`)
 
-For each board in `search.sources`, in order, JobSpy is asked for every search term. A posting is kept when its title matches a term (word forms and aliases applied, or any title with `title_filter: off`), its employment type and company pass, it is not known yet (tracker row or a folder with the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job gets `Applications/<key>_<Company>_<Title>/job.md` and a tracker row at `Found`. A board that fails is reported and skipped; the others run.
+For each board in `search.sources`, in order, JobSpy is asked for every search term. A posting is kept when its title matches a term (word forms and aliases applied, or any title with `title_filter: off`), its employment type and company pass, it does not read as spam (`junk_reason`: scam, MLM or chat-app signals), it is not known yet (tracker row or a folder with the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job gets `Applications/<key>_<Company>_<Title>/job.md` and a tracker row at `Found`. A board that fails is reported and skipped; the others run.
 
 ```mermaid
 flowchart TD
@@ -217,7 +217,7 @@ flowchart TD
     C --> D["screen-worker, Haiku: reads only its brief, reports one JSON object"]
     D --> E{"Match score"}
     C -- "no report from the screen-worker" --> X["Left at Found for the next run"]
-    E -- "below 6, or below 8 for an agency posting" --> F["Skipped-LowFit; reason in Notes; folder deleted"]
+    E -- "junk, below 6, or below 8 for an agency posting" --> F["Skipped-LowFit; reason in Notes; folder deleted"]
     E -- "6 or more, closest resume is a ready-made PDF" --> G["The PDF is copied into the job folder: Resume Built, no worker"]
     E -- "6 or more, closest resume is a role yaml" --> H["Matched; joins the build queue at once"]
     H --> I["resume-worker, Sonnet: a copy of the yaml, at most 4 builds, exactly the source's page count"]
@@ -311,7 +311,7 @@ stateDiagram-v2
     [*] --> Found: find-jobs
     Found --> Matched: prep-jobs, 6 or more on a role yaml
     Found --> Built: prep-jobs, a ready-made PDF matched
-    Found --> Skipped: prep-jobs, low score, agency or dealbreaker
+    Found --> Skipped: prep-jobs, junk, low score, agency or dealbreaker
     Matched --> Built: the resume worker built it
     Matched --> Failed: the resume worker could not finish
     Matched --> Deleted: the resume worker rejected the posting

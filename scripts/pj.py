@@ -454,7 +454,7 @@ def skills_line(row: Any) -> str:
 # --------------------------------------------------------------------------- worker reports
 
 
-SCREEN_KEYS = {"job": (str,), "agency": (bool,), "score": (int, type(None)), "dealbreaker": (str, type(None)),
+SCREEN_KEYS = {"job": (str,), "junk": (bool,), "agency": (bool,), "score": (int, type(None)), "dealbreaker": (str, type(None)),
                "matched_resume": (str, type(None)), "why": (list,), "gaps": (list,), "note": (str,)}
 BUILD_KEYS = {"job": (str,), "status": (str,), "ground": (str, type(None)), "reason": (str,), "title": (str,),
               "edits_md": (str,), "ladder": (str,)}
@@ -479,6 +479,8 @@ def screen_errors(obj: Optional[dict], key: str) -> list[str]:
     if obj["job"] != key:
         return [f"'job' must be '{key}'."]
     score = obj["score"]
+    if obj["junk"]:
+        return [] if obj["note"].strip() else ["Give the junk reason in 'note'."]
     if obj["agency"] and (score is None or score < 8):
         if not obj["note"].strip():
             errors.append("Give the agency reason in 'note'.")
@@ -556,7 +558,7 @@ def process_report(agent_id: Optional[str], message: str) -> tuple[str, str, dic
             L.write_json(out, {"invalid": True, "errors": errors, "raw": message[-2000:]})
             return "saved", "", {"job": key, "status": "invalid"}
         L.write_json(out, obj)
-        return "saved", "", {"job": key, "status": obj.get("status") or ("agency" if obj.get("agency") else obj.get("score"))}
+        return "saved", "", {"job": key, "status": obj.get("status") or ("junk" if obj.get("junk") else "agency" if obj.get("agency") else obj.get("score"))}
 
 
 # --------------------------------------------------------------------------- briefs
@@ -1025,8 +1027,8 @@ def record_screen(state: dict, tracker: Tracker, key: str, result: Optional[dict
         job["done"] = True
         return
     score = result["score"]
-    if score is None or score < (8 if result["agency"] else 6):
-        note = " ".join(result["note"].split())
+    if result["junk"] or score is None or score < (8 if result["agency"] else 6):
+        note = ("Junk posting: " if result["junk"] else "") + " ".join(result["note"].split())
         discards.append((key, "Skipped-LowFit", note, False, score))
         return
     md_path = W.APPLICATIONS / job["folder"] / "job.md"

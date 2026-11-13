@@ -145,3 +145,27 @@ def test_exclusions_match_whole_words_not_lemmas():
     f = C.Filters({"exclude_seniority_level": ["staff"]}, C.Lemmas(["en"]))
     assert f.reason({"title": "Staffing Analyst"}) is None
     assert f.reason({"title": "Staff Analyst"}) == "level"
+
+
+@pytest.mark.parametrize("title, description, why", [
+    ("Data Analyst", "Great role. Contact our HR manager on Telegram @hr_jobs to start.", "off-platform contact"),
+    ("Data Entry Clerk", "A one-time training fee of $50 is required.", "asks the applicant for money"),
+    ("Remote Assistant", "You will deposit a check and forward the balance.", "check or crypto payment"),
+    ("Sales Rep", "This is a commission-only role. Be your own boss!", "commission-only or MLM"),
+    ("Sales Rep", "Earn up to $2,000 per week from home.", "commission-only or MLM"),
+    ("Analyst", "To apply, send your CV to hiring.team@gmail.com", "apply through a personal email"),
+    ("$$ EASY MONEY $$", "Real job.", "junk title"),
+    ("Data Analyst 🚀🔥", "Real job.", "junk title"),
+])
+def test_junk_postings_are_flagged(title, description, why):
+    assert C.junk_reason({"title": title, "description": description}) == why
+
+
+@pytest.mark.parametrize("description", [
+    "", None, "Do the work.\nBring SQL.",
+    "Build dashboards for our WhatsApp Business API team. Salary 60k plus commission. We pay for training and equipment.",
+    "Send your application to jobs@acme.com. We run a background check.",
+    "Day rate of £500 per day. Work from home two days a week.",
+])
+def test_real_postings_are_not_junk(description):
+    assert C.junk_reason({"title": "Senior Data Analyst (m/w/d)", "description": description}) is None

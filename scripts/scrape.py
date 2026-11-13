@@ -2,7 +2,7 @@
 """Find new jobs on the configured boards (/ohmyjob:find-jobs): `ohmyjob scrape [--dry-run]`.
 
 For each board in search.sources (in order), JobSpy is asked for every search_query term. A posting is kept when its
-title matches a term, its employment type and company pass the filters, it is not known yet (tracker row or folder with
+title matches a term, its employment type and company pass the filters, it does not read as spam (scrape_core.junk_reason), it is not known yet (tracker row or folder with
 the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job
 gets Applications/<key>_<Company>_<Title>/job.md and a tracker row at "Found". The next step is /ohmyjob:prep-jobs.
 
@@ -203,7 +203,7 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
         if error:
             failed += 1
         count = {"bad": unusable, "known": 0, "dup id": repeated, "failed": 0, "type": 0, "level": 0, "term": 0, "title": 0,
-                 "duplicate": 0, "twin": 0}
+                 "junk": 0, "duplicate": 0, "twin": 0}
         kept: list[dict] = []
         known: list[dict] = []
         for job in got:
@@ -224,6 +224,8 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
                 count[why] += 1
             elif not matcher.matches(job["title"]):
                 count["title"] += 1
+            elif C.junk_reason(job) is not None:
+                count["junk"] += 1
             elif (job["title"], job["company"], C.twin_city(job["location"])) in run_titles:
                 count["duplicate"] += 1  # the same title, company and city under another id: the first one stays
             elif twins.find(job["company"], job["title"], job["location"]):

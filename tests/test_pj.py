@@ -175,8 +175,8 @@ def pe(workspace, tmp_path):
 SCREEN = "ohmyjob:screen-worker"
 BUILDER = "ohmyjob:resume-worker"
 MASTER = "ohmyjob:prep-master"
-LOW = {"agency": False, "score": 4, "dealbreaker": None, "matched_resume": None, "why": [], "gaps": [], "note": "Low fit"}
-MATCH = {"agency": False, "dealbreaker": None, "matched_resume": OPS, "why": ["SQL and Power BI reporting"],
+LOW = {"junk": False, "agency": False, "score": 4, "dealbreaker": None, "matched_resume": None, "why": [], "gaps": [], "note": "Low fit"}
+MATCH = {"junk": False, "agency": False, "dealbreaker": None, "matched_resume": OPS, "why": ["SQL and Power BI reporting"],
          "gaps": ["- Fewer years than asked"], "note": ""}
 ALLOW = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}
 
@@ -390,7 +390,10 @@ def test_full_run(pe):
     assert "saved by the hook" in ok.stdout and json.loads(ok.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
     bad = pe.report(SCREEN, "s1002", {"job": "1002"}, how="capture")  # capture asks for a fix too
     assert json.loads(bad.stdout)["decision"] == "block"
-    assert pe.report(SCREEN, "s1002", {"job": "1002", **{**LOW, "note": "Mostly BI reporting"}}, how="capture").returncode == 0
+    no_reason = pe.report(SCREEN, "s1002", {"job": "1002", **{**LOW, "junk": True, "score": None, "note": ""}}, how="capture")
+    assert json.loads(no_reason.stdout)["decision"] == "block"  # a junk verdict needs its reason
+    assert pe.report(SCREEN, "s1002", {"job": "1002", **{**LOW, "junk": True, "score": None, "note": "Asks for a training fee"}},
+                     how="capture").returncode == 0
     assert pe.report(SCREEN, "s1003", {"job": "1003", **{**LOW, "agency": True, "score": None, "note": "Skipped, recruiter"}},
                      how="capture").returncode == 0
     assert pe.report(SCREEN, "s1005", {"job": "1005", "score": 6, **MATCH}).returncode == 0
@@ -399,8 +402,8 @@ def test_full_run(pe):
     assert pe.pj("record").startswith("OK recorded")
     rows = pe.rows()
     assert (rows["1001"]["Status"], rows["1001"]["Match Score"]) == ("Matched", 8)
-    assert rows["1002"]["Status"] == "Skipped-LowFit" and rows["1002"]["Match Score"] == 4
-    assert rows["1002"]["Notes"] == "Mostly BI reporting"
+    assert rows["1002"]["Status"] == "Skipped-LowFit" and rows["1002"]["Match Score"] in (None, "")
+    assert rows["1002"]["Notes"] == "Junk posting: Asks for a training fee"
     assert rows["1003"]["Status"] == "Skipped-LowFit" and rows["1003"]["Match Score"] in (None, "")
     assert rows["1008"]["Status"] == "Found"
     assert not (b.exists() or c.exists())
