@@ -13,6 +13,7 @@ allowed-tools: Read
      `/ohmyjob:build-job-resumes` requires a comma-separated list of job folder names; every other command takes
      none). Keep the closing note about `build-resumes` working in `Default_Resume_Files/` while
      `build-job-resumes` works in the job folders.
+   - `/ohmyjob:retro` takes no arguments: it asks its questions in the conversation. `ohmyjob retro reject` undoes the last pass.
    - The three workspace files the application runs use (docs/SETTINGS.md, "What the workers learn"): `ats/`, `Dream_Report.md` and
      `Worker_Limits.json` with its table.
    - The settings table (docs/SETTINGS.md, "Settings: `ohmyjob.json`"): every field with its type, default and choices, all choices in

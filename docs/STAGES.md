@@ -55,7 +55,7 @@ This stage has two halves, and both run as a queue of small workers — a new on
 **First half: screening.** One worker reads one job. It is given your Fit Preferences first, then your whole `Profile.md`, then the list of your resumes with the text of each, then the posting. It plays a senior recruiter in your field who judges the substance of the work rather than keywords, and it is deliberately unkind: it is told not to inflate a score to be nice. It scores the job out of 10.
 
 - **6 or more** is a match. The job goes to `Matched`, the score goes in the tracker, and the worker names the one resume of yours closest to this job.
-- **5 or less** is a drop. The job becomes `Skipped-LowFit` and its folder is deleted. **The reason is written in the tracker's `Notes` column** — read it whenever you are surprised that a job vanished; a few rounds of those notes tell you what your Fit Preferences are really doing.
+- **5 or less** is a drop. The job becomes `Skipped-LowFit` and its folder is deleted. **The reason is written in the tracker's `Notes` column** — read it whenever you are surprised that a job vanished; a few rounds of those notes tell you what your Fit Preferences are really doing. `/ohmyjob:retro` (below) walks you through them and turns your verdict into edits of the Fit Preferences. The end of a prep run says when ten or more skips wait for a review.
 - **A dealbreaker you listed, or a clear seniority mismatch**, caps the score at 5 whatever your skills look like. The note quotes the preference it used.
 - **A posting from a recruiter or staffing agency** has to clear a higher bar: 8, not 6. Below that it is dropped as an agency posting, with the signal it saw. The judgement comes from the company name and the description together, never the name alone.
 
@@ -147,5 +147,19 @@ Rows already at `Deleted` or `Skipped-LowFit` are never changed.
 ```
 
 Over a few application rounds the plugin collects traces of what it met on each application system — no filled values, no drafted answers, no email addresses. When enough new traces have piled up, the end of a run says so. `/ohmyjob:dream` turns them into notes in `ohmyjob/ats/`, which the workers read the next time they reach that site, plus a `Dream_Report.md` explaining what it learned. To undo a whole pass, ask Claude to run `ohmyjob dream reject`.
+
+### Optional: tune your Fit Preferences after a few rounds
+
+```
+/ohmyjob:retro
+```
+
+Your Fit Preferences in `Profile.md` (`Seniority / experience level`, `What I'm looking for`, `Dealbreakers`) decide what stage 2 drops. Retro closes that loop with you, in the conversation:
+
+1. **You judge.** It lists the jobs that were skipped and that you have not reviewed yet (company, title, link, score and the screener's reason), and you say which were wrong. You can also type standing preferences in your own words, for example "stop matching consulting roles". Either alone is enough. A long list can be reviewed in parts; the skips you answered are not shown again.
+2. **It proposes.** From your marks and your words it proposes a small number of edits, one per field, each showing the current wording, the new wording and the evidence. It changes as little as it can and keeps your voice. A fact about you (a skill, a role) is not a preference, so it points you to the `# Resume` section instead. If your evidence conflicts, it shows you the conflict and does not pick a side.
+3. **You decide, one edit at a time.** `Profile.md` is saved to `.ohmyjob/backup/Profile-<timestamp>.md` before the first accepted edit, then a script changes that one field and nothing else. A refused proposal is not offered again for the same evidence.
+
+The reason of a skip was written by a model from the posting, so it is shown as evidence but never followed and never copied into your wording. Retro never touches `# Resume`, `# Follow Up Questions`, `ohmyjob.json` or the score thresholds, and it does not bring a skipped job back. To undo the last pass, ask Claude to run `ohmyjob retro reject`: it puts `Profile.md` and the review marks back.
 
 [Back to the README](../README.md)
