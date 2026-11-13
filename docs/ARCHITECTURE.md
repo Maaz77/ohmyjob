@@ -95,6 +95,7 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `build-resumes` | Runs `ohmyjob resume build-all`: a PDF next to every yaml in `Default_Resume_Files/`; reports `OK` or `FAIL` per file (never `Template*.yaml`; an optional file name builds only that file). Never edits a yaml. |
 | `help` | Reads the plugin README and `docs/SETTINGS.md` and prints the commands with their use-cases, the `ohmyjob.json` field table and the job status life cycle. The model may invoke it. |
 | `find-jobs` | Runs `ohmyjob scrape` in the background and summarizes (also usable from a scheduled `claude -p`). |
+| `add-job` | Puts postings the candidate found by hand into the tracker at `Found`: web addresses go straight to `ohmyjob add-job`; pasted text is read by the main session for company and title (it asks when unsure), written to an inbox file and handed over with `--paste`. Never writes the tracker or a folder itself; never starts stage 2. |
 | `prep-jobs` | Forks the `prep-master` agent. |
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers. |
 | `apply-jobs-run`, `continue-applying-run` | Internal; fork the `application-master` agent (the second in continue mode). |
@@ -122,6 +123,8 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | Command | Script | Job |
 |---|---|---|
 | `ohmyjob scrape` | `scrape.py`, `scrape_core.py` | Search, filter, dedupe, write job folders and tracker rows. |
+| `ohmyjob add-job` | `add_job.py` | Add postings found by hand: fetch the page, read its schema.org JobPosting, check what is known (id, twin), write the folder, `job.md` and the `Found` row. No search filter applies. |
+| `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. |
 | `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. `work_auth.py` is its work authorization pre-pass. |
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. |
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
@@ -137,6 +140,8 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 ### Stage 1 — Job Posting Finder (`ohmyjob scrape`)
 
 For each board in `search.sources`, in order, JobSpy is asked for every search term. A posting is kept when its title matches a term (word forms and aliases applied, or any title with `title_filter: off`), its employment type and company pass, it does not read as spam (`junk_reason`: scam, MLM or chat-app signals), it is not known yet (tracker row or a folder with the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job gets `Applications/<key>_<Company>_<Title>/job.md` and a tracker row at `Found`. A board that fails is reported and skipped; the others run.
+
+A posting the candidate found by hand enters the same stage through `ohmyjob add-job` (`/ohmyjob:add-job`): the same `job.md` and `Found` row, `Source` `Added by hand (<site>)`, and the checks against what is already there (`known`, `twin`; every row counts, whatever its age or status, and the existing row is named). None of the search filters applies, and a company in `exclude_companies` only gets a warning. The page is fetched by the script (standard library, no Chrome) and read from its JobPosting data; a page that cannot be read (error, sign-in wall, script-rendered, empty or boilerplate-only text) creates nothing and the candidate is asked to paste the text. A company or title that is not certain is asked for, never guessed. A posting pasted without any address gets the address `paste:<14 digits of a hash of its text>`, which `job_key.py` maps to an id of `8` plus those digits, so reconcile pairs its folder with its row like any other; `apply start` skips such a job unless it has an Apply URL, because there is no page to open.
 
 ```mermaid
 flowchart TD
@@ -195,7 +200,7 @@ What the guards enforce:
 
 - **Prep agents** stay inside their own job: a screen worker reads only its brief; a resume worker reads its brief, yaml and PDF, edits only its yaml and runs only the build of its job. A master may start only its own worker types.
 - **Application worker**: only its own tab (and its sign-in tab); no coordinate clicks, Enter or Space keys, or JavaScript; every click carries an English action note; refs of an old page are refused; a second click on the same element before a new page read is refused; typing only after a click on a text field; uploads only of the job's own resume; reads only its brief and the ATS notes in `ats/`.
-- **Mock guard**: `scrape` refuses while `ohmyjob.json` or `Profile.md` holds the `OHMYJOB-TEMPLATE` marker; `prep start` while `Profile.md` holds it or no usable resume is left; `apply start` (also continue mode) while `Profile.md` holds it. The check is one helper, `has_template_marker` / `template_files` in `workspace.py`. Each refusal is one `FATAL:` line naming the file.
+- **Mock guard**: `scrape` refuses while `ohmyjob.json` or `Profile.md` holds the `OHMYJOB-TEMPLATE` marker; `prep start` while `Profile.md` holds it or no usable resume is left; `apply start` (also continue mode) while `Profile.md` holds it; `add-job` while either file holds it. The check is one helper, `has_template_marker` / `template_files` in `workspace.py`. Each refusal is one `FATAL:` line naming the file.
 - **Final controls** are refused in about 50 languages (word lists in `lexicon.py`), as is a submit button without a name; once a tab has shown a form, every Apply button is refused. For application workers (and for Apply clicks on job boards), a name that no list can decide goes to a Haiku check (`judge.py`, one cached `claude -p` call with no tools); if it fails, the click is refused. Callers outside the pipeline use the word lists only.
 - **Consent and sign-in**: cookie banners get the most private choice; OAuth permission grants are refused; on a Google account page only the account choice and the basic-profile consent are allowed; sign-up and delete buttons are refused.
 - **Application master**: tab handling and the sign-in check only, and only the application worker agent type.
@@ -300,7 +305,7 @@ The workspace is the `ohmyjob/` folder inside the project folder (the folder Cla
 
 In the plugin data folder (`${CLAUDE_PLUGIN_DATA}`, survives updates): the virtualenv, uv's own Python and cache, `uv` if it was missing, TinyTeX if no system LaTeX built the template, the LaTeX font caches (`texmf-var/`) and a stable copy of the extension. Nothing is installed on the user's `PATH`, in `~/.local`, in `~/.cache` or in a system folder; `bin/ohmyjob` and the resume build pass the same scoped `UV_*` and `TEXMF*` settings to every later run. Its path depends on how the plugin is loaded, which is why setup writes it into `env.sh` on every run.
 
-Job id: a LinkedIn `/jobs/view/<id>` keeps its id; any other address gives `9` plus 14 hash digits, with tracking parameters ignored. One rule (`job_key.py`) serves the scraper, the folders and reconcile. The tracker is saved atomically; a save is refused while Excel or LibreOffice has the file open, or when the file changed on disk since the run loaded it.
+Job id: a LinkedIn `/jobs/view/<id>` keeps its id; any other address gives `9` plus 14 hash digits, with tracking parameters ignored; a pasted posting without an address (`paste:<14 digits>`) gives `8` plus those digits. One rule (`job_key.py`) serves the scraper, the folders and reconcile. The tracker is saved atomically; a save is refused while Excel or LibreOffice has the file open, or when the file changed on disk since the run loaded it.
 
 ### Job status life cycle
 
@@ -316,7 +321,7 @@ stateDiagram-v2
     state "Submitted" as Submitted
     state "Deleted" as Deleted
 
-    [*] --> Found: find-jobs
+    [*] --> Found: find-jobs or add-job
     Found --> Matched: prep-jobs, 6 or more on a role yaml
     Found --> Built: prep-jobs, a ready-made PDF matched
     Found --> Skipped: prep-jobs, junk, low score, agency or dealbreaker

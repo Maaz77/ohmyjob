@@ -18,6 +18,8 @@ case "${1:-}" in
   reconcile) script="reconcile.py" ;;
   resume) script="resume_build.py" ;;
   dream) script="dream.py" ;;
+  add-job) script="add_job.py" ;;
+  *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream> <args>"; exit 2 ;;
   retro) script="retro.py" ;;
   *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream|retro> <args>"; exit 2 ;;
 esac
