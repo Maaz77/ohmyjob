@@ -36,6 +36,7 @@ import workspace as W  # noqa: E402  (paths, agent names, config)
 import yaml  # noqa: E402
 from job_key import job_key  # noqa: E402
 from tracker import Tracker, TrackerError  # noqa: E402
+import work_auth as WA  # noqa: E402  (the work authorization blocker, run before a screen worker is started)
 
 RUN_BASE = W.RUN_PREP
 DEFAULT_RESUMES = W.DEFAULT_RESUMES
@@ -851,6 +852,23 @@ def worker(run_dir: Path, key: str, job: dict) -> dict:
             "prompt": f"job={key} brief={job_path(run_dir, key) / 'brief.md'}"}
 
 
+def work_authorization(run_dir: Path, key: str, job: dict) -> bool:
+    """The pre-pass of work_auth.py. A posting that states a requirement the profile says the candidate cannot meet is
+    answered here, in the shape of a screen report, and no worker is started (True). A requirement the profile cannot
+    decide is kept as a gap line for record_screen (False)."""
+    md = (W.APPLICATIONS / job["folder"] / "job.md").read_text(encoding="utf-8")
+    verdict = WA.check(L.job_overview(md).get("Location") or "", L.job_description(md) or "", W.PROFILE.read_text(encoding="utf-8"))
+    if verdict is None:
+        return False
+    if not verdict.blocked:
+        job["work_auth_gap"] = verdict.text
+        return False
+    L.write_json(result_path(run_dir, key, "screen"), {"job": key, "junk": False, "agency": False, "score": None, "dealbreaker": None,
+                                                       "matched_resume": None, "why": [], "gaps": [], "note": verdict.text})
+    job["work_auth"] = "blocked"
+    return True
+
+
 def assign_screen(run_dir: Path, limit: int) -> tuple[list, dict]:
     with L.locked(run_dir):
         state = L.load_state(run_dir)
@@ -864,6 +882,8 @@ def assign_screen(run_dir: Path, limit: int) -> tuple[list, dict]:
             if not (W.APPLICATIONS / job["folder"] / "job.md").is_file():
                 job["done"] = True
                 state["issues"].append(f"{job['folder']}: folder or job.md gone before screening; row unchanged")
+                continue
+            if work_authorization(run_dir, key, job):
                 continue
             write_screen_brief(run_dir, key, job)
             workers.append(worker(run_dir, key, job))
@@ -1053,7 +1073,7 @@ def record_screen(state: dict, tracker: Tracker, key: str, result: Optional[dict
     text = fill_overview(original, "Match Score", str(score))
     text = fill_overview(text, "Matched Resume", result["matched_resume"])
     text = fill_section(text, r"Why Matched\??", clean_items(result["why"]))
-    text = fill_section(text, r"Gaps\??", clean_items(result["gaps"]))
+    text = fill_section(text, r"Gaps\??", clean_items(result["gaps"]) + clean_items(job.get("work_auth_gap") and [job["work_auth_gap"]]))
     row = row_for(tracker, key)
     ready_made = catalog().get(result["matched_resume"]) == "ready-made"
     if ready_made:
@@ -1189,6 +1209,10 @@ def summary(state: dict) -> str:
              f"Skipped-LowFit: {len(by('Skipped-LowFit'))}",
              f"Resumes built: {len(by('Resume Built'))} ({len([j for j in by('Resume Built') if j.get('ready_made')])} ready-made) | failed: {len(by('Resume Failed'))} | rejected: "
              f"{len([j for j in by('Deleted') if j.get('ground')])}"]
+    blocked = len([j for j in by("Skipped-LowFit") if j.get("work_auth")])
+    unchecked = len([j for j in jobs.values() if j.get("work_auth_gap") and "score" in j])
+    if blocked or unchecked:
+        lines.append(f"Work authorization: {blocked} blocked, {unchecked} matched but not checked (see Gaps in their job.md)")
     for j in by("Resume Failed"):
         lines.append(f"- FAILED {j['folder']}: {j.get('note')}")
     for j in by("Deleted"):
@@ -1221,6 +1245,14 @@ def cmd_end(args: argparse.Namespace) -> None:
     table = L.usage_table(master.get("transcript"), master.get("agent_id"))
     print(table)
     L.save_report(table)
+    try:  # one line when enough skips wait for /ohmyjob:retro; never an error, never a block
+        import retro
+
+        hint = retro.hint()
+        if hint:
+            print(hint)
+    except Exception:  # noqa: BLE001
+        pass
     shutil.rmtree(RUN_BASE)
 
 

@@ -42,7 +42,7 @@ The `Status` column of `Job_Tracker.xlsx`. The `Notes` column next to it holds t
 |---|---|---|
 | `Found` | `/ohmyjob:find-jobs` (also `prep-jobs`, for a folder without a row) | `/ohmyjob:prep-jobs` screens it. |
 | `Matched` | `prep-jobs`, when the screener scores the job 6 or more and picks a tailorable resume | A worker tailors a copy and builds the PDF: `Resume Built` or `Resume Failed`. |
-| `Skipped-LowFit` | `prep-jobs`, when the score is low, or the poster is an agency, or a dealbreaker applies | Final. The folder is deleted; the reason is in `Notes`. Reconcile never touches it. |
+| `Skipped-LowFit` | `prep-jobs`, when the score is low, or the poster is an agency, or a dealbreaker applies, or the posting states a work authorization requirement your `# Work Authorization` lines say you cannot meet (its `Notes` start "Work authorization block:") | Final. The folder is deleted; the reason is in `Notes`. Reconcile never touches it. |
 | `Resume Built` | `prep-jobs`, when the build passed with exactly the source's page count — or a ready-made PDF matched and was copied | `/ohmyjob:apply-jobs` queues it. Applied entirely by hand instead? Move its folder to `Submitted/`, then `/ohmyjob:reconcile`. |
 | `Resume Failed` | `prep-jobs`, when the worker could not finish: no good build in four tries, a blocker, a timeout | The reason is in `Notes`. It is not retried: fix the yaml, then `/ohmyjob:build-job-resumes`. |
 | `Pending Review` | `apply-jobs`, when the worker parked the form before the final button and the checks passed | You review the form and submit it yourself, then run `/ohmyjob:reconcile`. |
@@ -58,6 +58,7 @@ Three files in your workspace shape how the application workers behave.
 
 - **`ohmyjob/ats/`** holds the notes about application systems that **your own** runs produced. A note here replaces the plugin's note of the same name, and a worker reads it when it reaches that site. The plugin ships four generic notes (LinkedIn Easy Apply, Workday, Greenhouse, Phenom); your folder starts empty and fills up as you run `/ohmyjob:dream`.
 - **`Dream_Report.md`** is what the last `/ohmyjob:dream` pass learned and wrote. Asking Claude to run `ohmyjob dream reject` puts the notes, the report and the watermark back as they were.
+- **`Profile.md`, `# Fit Preferences`** is what the screen judges every posting against first. `/ohmyjob:retro` proposes edits of its three fields from your verdict on skipped jobs; each accepted edit is backed up to `.ohmyjob/backup/Profile-<timestamp>.md`, and `ohmyjob retro reject` puts the last pass back.
 - **`ohmyjob/Worker_Limits.json`** holds the limits of the watchdog that stops a worker going nowhere. A missing file, key or unusable value falls back to the default, and the run prints the values it used.
 
 | Key | Default | Meaning |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ohmyjob <prep|apply|scrape|reconcile|resume|dream> <args>: runs scripts/<pj|aa|scrape|reconcile|resume_build|dream>.py with the
+# ohmyjob <prep|apply|scrape|reconcile|resume|dream|retro> <args>: runs scripts/<pj|aa|scrape|reconcile|resume_build|dream|retro>.py with the
 # plugin's Python, inside the workspace. While the plugin is enabled, Claude Code puts this folder on the PATH of the
 # Bash tool (also for subagents), but does not export CLAUDE_PLUGIN_ROOT or CLAUDE_PLUGIN_DATA there. So setup writes
 # <workspace>/.ohmyjob/env.sh (OHMYJOB_PY, OHMYJOB_UV, OHMYJOB_DATA, OHMYJOB_LUALATEX, absolute paths), read here.
@@ -20,6 +20,8 @@ case "${1:-}" in
   dream) script="dream.py" ;;
   add-job) script="add_job.py" ;;
   *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream> <args>"; exit 2 ;;
+  retro) script="retro.py" ;;
+  *) echo "usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream|retro> <args>"; exit 2 ;;
 esac
 
 # The workspace: $OHMYJOB_WORKSPACE, else the one discovery rule (workspace.find_workspace) from the current folder (the

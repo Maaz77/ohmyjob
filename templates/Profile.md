@@ -104,3 +104,12 @@ Answers the application workers reuse on forms. One numbered line per item: `1. 
 41. Date of birth? 1 January 1990.
 42. Phone device type? A mobile phone.
 43. Additional address line? N/A.
+
+# Work Authorization
+
+Screening drops a posting when it says outright that it offers no visa sponsorship, needs the right to work, citizenship, permanent residency or a security clearance, and the line below for the job's country says you do not meet that. A posting that says nothing about it is never dropped. A country with no line here is never dropped either: the job is kept and its Gaps say it was not checked. Write one line per country, `- <Country>: <status>. your own words`, where the status starts the line and is exactly one of `citizen`, `permanent resident`, `authorized` (you may work there without sponsorship) or `needs sponsorship`. A line `- EU: ...` covers every EU country that has no line of its own. The last line is `Security clearance: none`, or names the clearance you hold. Replace the mock answers.
+
+- EU: citizen. I am an EU citizen, so I need no visa in any EU country.
+- United Kingdom: needs sponsorship. I would need an employer visa there.
+- United States: needs sponsorship. I would need an employer visa there.
+- Security clearance: none.

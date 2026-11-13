@@ -56,3 +56,9 @@ Excel, SQL, Power BI, Python (pandas), forecasting, KPI design, stakeholder repo
 8. Relatives who work for this company? No.
 9. Criminal convictions? No.
 10. Needs adjustments for a disability? No.
+
+# Work Authorization
+
+- Germany: citizen. EU citizen, no visa needed.
+- United States: needs sponsorship. I would need an employer visa there.
+- Security clearance: none.

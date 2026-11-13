@@ -76,6 +76,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 
 - **Finds postings.** It searches the job boards you choose and drops what does not fit your filters.
 - **Screens them for you.** It reads each posting against your own profile and gives it a score. Weak matches are dropped, and the reason is written in your tracker.
+- **Drops what you cannot take.** A posting that says outright "no visa sponsorship", "citizens only" or "security clearance required" is dropped before any resume is written, but only when the `# Work Authorization` lines of your `Profile.md` say you do not meet it for that country. A posting that says nothing about it, or a country you did not list, is never dropped (the job stays and its Gaps say it was not checked, with or without a requirement in the posting); a drop is a `Skipped-LowFit` row whose `Notes` start with "Work authorization block:" and quote the posting and your own line. English and German postings are read; a posting in another language is never dropped on this rule.
 - **Tailors your resume.** Each good match gets a resume rewritten for that posting, built as a PDF.
 - **Fills the forms.** It opens each application in your own Chrome and fills it from your profile.
 - **Asks you once.** A question it cannot answer is asked at the end of the run, and your answer is saved for next time.
@@ -98,6 +99,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 | **One worker per job** | Each application runs in its own Chrome tab, and a watchdog stops a worker that is going nowhere. |
 | **Asked once, remembered** | Questions from the forms are collected, asked once, and saved in your profile. |
 | **It learns each site** | `/ohmyjob:dream` turns the traces of your runs into notes about each application system. Traces hold no filled values, drafted answers or email addresses. |
+| **You tune the screen** | `/ohmyjob:retro` turns your verdict on the jobs it skipped, and what you type, into proposed edits of your Fit Preferences. You accept or refuse each one, and the whole pass can be undone. |
 | **No runs on sample data** | The commands refuse to run while the made-up "Alex Example" data is still in your files. |
 | **A usage table** | Every run ends with a table of agents, API calls and tokens. |
 
@@ -140,6 +142,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:reconcile` | none (caveat check, dry run and confirmation are built in) | **Stage 4.** Bring the tracker in line with your folders and close the round. |
 | `/ohmyjob:build-job-resumes` | `<name, name, ...>` (required) | Build the tailored resume of the named job folders again, after you fixed a yaml by hand, and set each row back to `Resume Built`. |
 | `/ohmyjob:dream` | none | Turn the traces of your runs into ATS notes in `ohmyjob/ats/`, with a `Dream_Report.md`. |
+| `/ohmyjob:retro` | none (it asks in the conversation) | Review the jobs stage 2 skipped and type what you want, then accept or refuse proposed edits of the three Fit Preferences fields in `Profile.md`, one by one. `ohmyjob retro reject` undoes the pass. |
 | `/ohmyjob:help` | none | Print the commands, the settings table and the job status life cycle. |
 
 Two commands are easy to mix up: **`/ohmyjob:build-resumes` works in `Default_Resume_Files/`** and builds your own role resumes there; **`/ohmyjob:build-job-resumes` works in the job folders** and rebuilds one tailored resume for a job that already went through stage 2. Neither of them ever edits a yaml — only you change your resumes.

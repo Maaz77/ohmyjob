@@ -102,6 +102,7 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `reconcile` | Caveat check, dry run, confirmation, then apply. |
 | `build-job-resumes` | Runs `ohmyjob resume build-jobs "<names>"`: the tailored resume of each named job folder, built again and set back to `Resume Built`. |
 | `dream` | Forks the `dream-master` agent: the traces since the last dream become the ATS notes of the workspace. |
+| `retro` | Runs in the main session, no agent (it is a conversation, like `apply-jobs`): the candidate marks recent skips as wrong and types preferences; the session drafts edits of the three Fit Preferences fields; `ohmyjob retro` checks, shows and writes them one at a time after the candidate's yes. |
 
 ### Agents (`agents/`, named `ohmyjob:<name>`)
 
@@ -124,10 +125,12 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | `ohmyjob scrape` | `scrape.py`, `scrape_core.py` | Search, filter, dedupe, write job folders and tracker rows. |
 | `ohmyjob add-job` | `add_job.py` | Add postings found by hand: fetch the page, read its schema.org JobPosting, check what is known (id, twin), write the folder, `job.md` and the `Found` row. No search filter applies. |
 | `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. |
+| `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. `work_auth.py` is its work authorization pre-pass. |
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. |
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
 | `ohmyjob resume build`, `build-all`, `build-jobs` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. `build-jobs "<names>"` builds the single yaml of each named job folder and sets its row to `Resume Built`. |
 | `ohmyjob dream <cmd>` | `dream.py` (with `ledger.py`) | Group the new traces by ATS key, hand out one worker per key, check the notes, write `Dream_Report.md`, move the watermark; `reject` restores the last backup. |
+| `ohmyjob retro <cmd>` | `retro.py` | `start`, `list`, `mark`, `feedback`, `propose`, `accept`, `refuse`, `end`, `reject`: the review state, the watermark (reviewed job ids), refused proposals, the structure guard and the single-field write of `Profile.md`; also the one-line hint at the end of `prep end`. Reads the tracker, never writes it. |
 | (internal) | `ledger.py` | Blocker codes, outcomes, the ledger lines and the redacted traces that `ohmyjob apply end` writes. |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
 | (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
@@ -210,6 +213,7 @@ Both masters are queue loops: a new worker starts as soon as one finishes, up to
 
 1. `start` refuses on the mock guard (above), builds the screening catalog, queues `Found` rows for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id.
 2. `next` is the loop: it records finished jobs and prints the workers to start. `assign-screen` writes one brief per job (full `Profile.md`, the path of the catalog text, the job). Screen workers report a match score, the matched resume, reasons and gaps. The catalog shows the title, introduction, roles and skills of a tailorable resume and the whole text (up to `CATALOG_FILE_CAP`) of a ready-made one; both pools are judged in that one pass, and a near tie goes to the tailorable resume.
+   Before a brief is written, `assign-screen` runs the work authorization pre-pass (`work_auth.py`, a script: no model). A posting that states a work authorization requirement outright (no sponsorship, right to work, citizens only, permanent residency, a named clearance; English and German phrases) in the one country of its `Location`, which the `# Work Authorization` lines of `Profile.md` say the candidate does not meet, is answered by the script itself with a screen-shaped report (no score, a `note` that starts `Work authorization block:` and quotes both sides) and no worker is started; `record` then sets `Skipped-LowFit` as for any low score. Silence, positive or hedged wording, an unknown country, a country or a section the profile does not mention never block; a known country the profile does not cover, or a requirement it cannot decide, is written into the job's `Gaps` by `record`. The screen worker is told it does not judge work authorization.
 3. `record` writes the result into `job.md`, sets the row, saves the tracker, and only then deletes skipped folders. A match on a yaml sets `Matched` and joins the build queue at once. A match on a ready-made PDF needs no worker: `record` copies the PDF into the job folder as `<First>_<Company>_<Title>.pdf` and sets `Resume Built` directly; such a folder holds a PDF and no yaml. A skip sets `Skipped-LowFit`.
 4. `assign-build` copies the matched yaml into the job folder and writes the brief. The resume worker edits only that yaml and runs `ohmyjob prep build <job>`, which checks the mechanical rules (skeleton, bullet counts, title, line and skills budgets), compiles (at most 4 builds), and returns `OK`, `OVERFLOW` or `FAIL`. `record` then sets `Resume Built`, `Resume Failed`, or `Deleted` for a rejected posting.
 5. `end` prints the summary (every deletion listed one by one) and the token table, and deletes the run folder.
@@ -221,6 +225,7 @@ flowchart TD
     C --> D["screen-worker, Haiku: reads only its brief, reports one JSON object"]
     D --> E{"Match score"}
     C -- "no report from the screen-worker" --> X["Left at Found for the next run"]
+    C -- "explicit work authorization requirement the profile says you cannot meet: no worker" --> F
     E -- "junk, below 6, or below 8 for an agency posting" --> F["Skipped-LowFit; reason in Notes; folder deleted"]
     E -- "6 or more, closest resume is a ready-made PDF" --> G["The PDF is copied into the job folder: Resume Built, no worker"]
     E -- "6 or more, closest resume is a role yaml" --> H["Matched; joins the build queue at once"]
@@ -277,6 +282,10 @@ A worker that is stopped by an upload hang (a hidden browser alert) is retried o
 
 `start` groups the ledger lines since the watermark by ATS key, writes one evidence bundle per key into `.ohmyjob/run/dream/`, copies a plugin note into `ohmyjob/ats/` when only the plugin has it, and backs up the notes, the report and the watermark to `.ohmyjob/dream/backup/`. `next` hands out one worker per key (slots as above; a worker that sends no report within 20 minutes is given up on). A worker is bound to its key by the first Read of its bundle: the guard then lets it write that one note. `finish` checks every changed note (at most 40 lines, one H1, a `hosts:` line, no email address, no Profile.md header value), puts a note that breaks a rule back, and writes `Dream_Report.md`. `end` moves the watermark and deletes the run folder; `reject` restores the backup.
 
+### Optional: Retro (`ohmyjob retro`)
+
+The main session asks the candidate; the script is the only writer of `Profile.md`. `start` refuses on the mock guard and snapshots the review state to `.ohmyjob/retro/backup/state.json`. `list` shows unreviewed `Skipped-LowFit` rows (the tracker row only: company, title, URL, score and the last line of `Notes`; junk skips are left out) and `mark` records the candidate's verdict, so only answered skips count as reviewed (a set of job ids in `.ohmyjob/retro/state.json`, which survives a deleted or re-sorted row). `feedback` saves the candidate's typed words as `F1`, `F2`, ... `propose` takes a field, a new wording and evidence ids; the script reads the old wording itself and refuses a proposal with no evidence, evidence it does not hold (a skip not marked wrong in this pass, words not typed in it), a second waiting proposal on one field, the same field and evidence as a refused one, or a wording that repeats a run of six words of any tracker `Notes` unless the candidate typed it. `accept` re-checks the mock guard and that the field still reads as proposed, saves `Profile.md` to `.ohmyjob/backup/Profile-<UTC timestamp>.md` before the first accepted edit of the pass, splices only that field's bytes (the `# Fit Preferences` heading and the three labels must still be found once each, every other byte is compared before the write) and writes atomically. `end` reports and closes the pass; `reject` restores `Profile.md` (refused if it changed since retro wrote it, unless `--force`) and the review state. The end of `prep end` prints one line once ten or more skips wait.
+
 ## State and files
 
 The workspace is the `ohmyjob/` folder inside the project folder (the folder Claude starts in, which also holds `.claude/settings.json`). In it:
@@ -284,14 +293,14 @@ The workspace is the `ohmyjob/` folder inside the project folder (the folder Cla
 | Path | Content |
 |---|---|
 | `ohmyjob.json` | Config and the workspace marker; hooks do nothing without it. Its `_template` key (the only extra key accepted) means "not edited yet". |
-| `Profile.md` | `# Fit Preferences` (three fields, screened against first), `# Resume` (the master resume; its `- Name:` line gives the file prefix), `# Follow Up Questions` (numbered). A first line with `OHMYJOB-TEMPLATE` means mock data. |
+| `Profile.md` | `# Fit Preferences` (three fields, screened against first), `# Resume` (the master resume; its `- Name:` line gives the file prefix), `# Follow Up Questions` (numbered), and an optional `# Work Authorization` (one line per country, read by the stage 2 work authorization pre-pass). A first line with `OHMYJOB-TEMPLATE` means mock data. |
 | `Job_Tracker.xlsx` | One row per job: Job URL, Status, Company, Job Title, Date Found, Location, Source, Match Score, Notes. Statuses: `Found`, `Matched`, `Skipped-LowFit`, `Resume Built`, `Resume Failed`, `Pending Review`, `Needs Attention`, `Submitted`, `Deleted`. |
 | `Default_Resume_Files/` | `Template.yaml` and `Template.pdf` (never used for jobs); one complete `<Field>.yaml` per resume with its built `<Field>.pdf`; optional ready-made `<Field>.pdf` without a yaml. Named by field by the user; never edited by the pipeline. |
 | `Applications/`, `Pending-Review/`, `Needs-Attention/`, `Submitted/` | One folder per job named `<job_key>_<Company>_<Title>`, holding `job.md`, the tailored yaml and PDF. |
 | `ats/` | The ATS notes this workspace learned (Dream writes them). A note here replaces the plugin's note of the same name; the plugin ships only four generic notes. |
 | `Worker_Limits.json` | The progress watchdog of the application workers: `stall_nudge_calls`, `stall_stop_calls`, `repeat_deny_stop`, `call_budget`, `idle_minutes`. A missing file, key or unusable value falls back to the default. |
 | `Dream_Report.md` | What the last dream pass found: the metrics per ATS, the lessons, the proposals and the bugs. |
-| `.ohmyjob/` | `env.sh`, run state (`run/prep`, `run/apply`, `run/dream`), `build/`, `catalog/` (the screening text catalog), `questions.json`, `last_report.txt`, `traces/` (`ledger.jsonl` and the redacted traces; never deleted with a run folder) and `dream/` (the watermark and the backup of the last dream). Do not edit. |
+| `.ohmyjob/` | `env.sh`, run state (`run/prep`, `run/apply`, `run/dream`), `build/`, `catalog/` (the screening text catalog), `questions.json`, `last_report.txt`, `traces/` (`ledger.jsonl` and the redacted traces; never deleted with a run folder), `dream/` (the watermark and the backup of the last dream), `retro/` (the reviewed skips, refused proposals and the open pass; `retro/backup/` holds the state before the last pass) and `backup/` (`Profile-<timestamp>.md`, written before `resume master --apply` and before the first accepted retro edit). Do not edit. |
 | `.claude/settings.json` | Plugin enablement, environment, the `Bash(ohmyjob *)` allowance and the `javascript_tool` deny; merged by setup. |
 
 In the plugin data folder (`${CLAUDE_PLUGIN_DATA}`, survives updates): the virtualenv, uv's own Python and cache, `uv` if it was missing, TinyTeX if no system LaTeX built the template, the LaTeX font caches (`texmf-var/`) and a stable copy of the extension. Nothing is installed on the user's `PATH`, in `~/.local`, in `~/.cache` or in a system folder; `bin/ohmyjob` and the resume build pass the same scoped `UV_*` and `TEXMF*` settings to every later run. Its path depends on how the plugin is loaded, which is why setup writes it into `env.sh` on every run.
