@@ -124,11 +124,12 @@ It is a merge, not an edit, so **read the draft and revise it by hand** in the n
 
 ### 3. `Profile.md`
 
-Three sections matter. Revise the first one, write the other two, and then delete the marker line at the top of the file:
+Three sections matter, and a fourth is optional (below). Revise the first one, write the other two, and then delete the marker line at the top of the file:
 
 - **`# Fit Preferences`** — three fields: `**Seniority / experience level:**`, `**What I'm looking for:**` and `**Dealbreakers:**`. The screener in stage 2 judges every posting against these before it looks at anything else. "What I'm looking for" is the main test: a job that is not what you asked for scores low however well your skills match. A dealbreaker you listed, or a role far above or below your stated level, drags the score down, and the rejection note quotes your own words back to you. Write it as if you were briefing a recruiter in three lines.
 - **`# Resume`** — your master resume, and **the only source of facts for every tailored resume**. If a fact is not here, it will never appear on a resume. Step 2 drafted it from your resume files; go through it now and make every line true, with numbers where you have them. It starts with header lines (`- Name: First Last`, email, phone, address, links — your first name becomes the prefix of your resume file names) and then uses the same sections as the two templates. Each section carries one guidance line telling you what belongs in it.
 - **`# Follow Up Questions`** — the answers that stage 3 reuses on application forms, including your work authorization and visa status per country. A numbered list: `1. Question? Answer.` Replace the mock answers. When stage 3 meets a question it cannot answer from this file, it asks you once and saves your answer here with the next number, so the same question is never asked twice.
+- **`# Work Authorization`** — optional, but without it stage 2 can never drop a posting for a visa, citizenship or clearance requirement. One line per country, `- <Country>: <status>. your own words`, where the status starts the line and is `citizen`, `permanent resident`, `authorized` (you may work there without sponsorship) or `needs sponsorship`; `- EU: ...` covers every EU country without a line of its own; `- Security clearance: none` says you hold none. A country you leave out is never a reason to drop a job. Existing workspaces need no change: add the section when you want the rule.
 
 ### 4. `ohmyjob.json`
 

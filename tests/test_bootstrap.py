@@ -584,7 +584,7 @@ def test_profile_template_shape_and_privacy():
     text = (ROOT / "templates" / "Profile.md").read_text()
     assert text.splitlines()[0] == "<!-- OHMYJOB-TEMPLATE: replace the mock data with yours, then delete this line -->"
     headings = [l for l in text.splitlines() if l.startswith("# ")]
-    assert headings == ["# Fit Preferences", "# Resume", "# Follow Up Questions"]
+    assert headings == ["# Fit Preferences", "# Resume", "# Follow Up Questions", "# Work Authorization"]
     assert "HELD IN RESERVE" not in text and "# Candidate" not in text
     for field in ("Seniority / experience level", "What I'm looking for", "Dealbreakers"):
         assert f"- **{field}:**" in text

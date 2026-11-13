@@ -121,7 +121,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | Command | Script | Job |
 |---|---|---|
 | `ohmyjob scrape` | `scrape.py`, `scrape_core.py` | Search, filter, dedupe, write job folders and tracker rows. |
-| `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. |
+| `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. `work_auth.py` is its work authorization pre-pass. |
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. |
 | `ohmyjob reconcile` | `reconcile.py` | Tracker versus folders. |
 | `ohmyjob resume build`, `build-all`, `build-jobs` | `resume_build.py` | Render one yaml (or every yaml of a folder except `Template*.yaml`, or the one named) to LaTeX, run `lualatex`, count pages. `build-jobs "<names>"` builds the single yaml of each named job folder and sets its row to `Resume Built`. |
@@ -206,6 +206,7 @@ Both masters are queue loops: a new worker starts as soon as one finishes, up to
 
 1. `start` refuses on the mock guard (above), builds the screening catalog, queues `Found` rows for screening and `Matched` rows for building, and pairs rows with folders by the job id. A row without a folder becomes `Deleted`; a folder without a row gets a `Found` row; duplicate postings (same company and title) become `Deleted`, keeping a `Resume Built` row, then one with a stated location, then the lower id.
 2. `next` is the loop: it records finished jobs and prints the workers to start. `assign-screen` writes one brief per job (full `Profile.md`, the path of the catalog text, the job). Screen workers report a match score, the matched resume, reasons and gaps. The catalog shows the title, introduction, roles and skills of a tailorable resume and the whole text (up to `CATALOG_FILE_CAP`) of a ready-made one; both pools are judged in that one pass, and a near tie goes to the tailorable resume.
+   Before a brief is written, `assign-screen` runs the work authorization pre-pass (`work_auth.py`, a script: no model). A posting that states a work authorization requirement outright (no sponsorship, right to work, citizens only, permanent residency, a named clearance; English and German phrases) in the one country of its `Location`, which the `# Work Authorization` lines of `Profile.md` say the candidate does not meet, is answered by the script itself with a screen-shaped report (no score, a `note` that starts `Work authorization block:` and quotes both sides) and no worker is started; `record` then sets `Skipped-LowFit` as for any low score. Silence, positive or hedged wording, an unknown country, a country or a section the profile does not mention never block; a requirement the profile cannot decide is written into the job's `Gaps` by `record`. The screen worker is told it does not judge work authorization.
 3. `record` writes the result into `job.md`, sets the row, saves the tracker, and only then deletes skipped folders. A match on a yaml sets `Matched` and joins the build queue at once. A match on a ready-made PDF needs no worker: `record` copies the PDF into the job folder as `<First>_<Company>_<Title>.pdf` and sets `Resume Built` directly; such a folder holds a PDF and no yaml. A skip sets `Skipped-LowFit`.
 4. `assign-build` copies the matched yaml into the job folder and writes the brief. The resume worker edits only that yaml and runs `ohmyjob prep build <job>`, which checks the mechanical rules (skeleton, bullet counts, title, line and skills budgets), compiles (at most 4 builds), and returns `OK`, `OVERFLOW` or `FAIL`. `record` then sets `Resume Built`, `Resume Failed`, or `Deleted` for a rejected posting.
 5. `end` prints the summary (every deletion listed one by one) and the token table, and deletes the run folder.
@@ -217,6 +218,7 @@ flowchart TD
     C --> D["screen-worker, Haiku: reads only its brief, reports one JSON object"]
     D --> E{"Match score"}
     C -- "no report from the screen-worker" --> X["Left at Found for the next run"]
+    C -- "explicit work authorization requirement the profile says you cannot meet: no worker" --> F
     E -- "junk, below 6, or below 8 for an agency posting" --> F["Skipped-LowFit; reason in Notes; folder deleted"]
     E -- "6 or more, closest resume is a ready-made PDF" --> G["The PDF is copied into the job folder: Resume Built, no worker"]
     E -- "6 or more, closest resume is a role yaml" --> H["Matched; joins the build queue at once"]
@@ -280,7 +282,7 @@ The workspace is the `ohmyjob/` folder inside the project folder (the folder Cla
 | Path | Content |
 |---|---|
 | `ohmyjob.json` | Config and the workspace marker; hooks do nothing without it. Its `_template` key (the only extra key accepted) means "not edited yet". |
-| `Profile.md` | `# Fit Preferences` (three fields, screened against first), `# Resume` (the master resume; its `- Name:` line gives the file prefix), `# Follow Up Questions` (numbered). A first line with `OHMYJOB-TEMPLATE` means mock data. |
+| `Profile.md` | `# Fit Preferences` (three fields, screened against first), `# Resume` (the master resume; its `- Name:` line gives the file prefix), `# Follow Up Questions` (numbered), and an optional `# Work Authorization` (one line per country, read by the stage 2 work authorization pre-pass). A first line with `OHMYJOB-TEMPLATE` means mock data. |
 | `Job_Tracker.xlsx` | One row per job: Job URL, Status, Company, Job Title, Date Found, Location, Source, Match Score, Notes. Statuses: `Found`, `Matched`, `Skipped-LowFit`, `Resume Built`, `Resume Failed`, `Pending Review`, `Needs Attention`, `Submitted`, `Deleted`. |
 | `Default_Resume_Files/` | `Template.yaml` and `Template.pdf` (never used for jobs); one complete `<Field>.yaml` per resume with its built `<Field>.pdf`; optional ready-made `<Field>.pdf` without a yaml. Named by field by the user; never edited by the pipeline. |
 | `Applications/`, `Pending-Review/`, `Needs-Attention/`, `Submitted/` | One folder per job named `<job_key>_<Company>_<Title>`, holding `job.md`, the tailored yaml and PDF. |
