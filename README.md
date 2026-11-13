@@ -76,6 +76,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 
 - **Finds postings.** It searches the job boards you choose and drops what does not fit your filters.
 - **Screens them for you.** It reads each posting against your own profile and gives it a score. Weak matches are dropped, and the reason is written in your tracker.
+- **Drops what you cannot take.** A posting that says outright "no visa sponsorship", "citizens only" or "security clearance required" is dropped before any resume is written, but only when the `# Work Authorization` lines of your `Profile.md` say you do not meet it for that country. A posting that says nothing about it, or a country you did not list, is never dropped (the job stays and its Gaps say it was not checked, with or without a requirement in the posting); a drop is a `Skipped-LowFit` row whose `Notes` start with "Work authorization block:" and quote the posting and your own line. English and German postings are read; a posting in another language is never dropped on this rule.
 - **Tailors your resume.** Each good match gets a resume rewritten for that posting, built as a PDF.
 - **Fills the forms.** It opens each application in your own Chrome and fills it from your profile.
 - **Asks you once.** A question it cannot answer is asked at the end of the run, and your answer is saved for next time.
