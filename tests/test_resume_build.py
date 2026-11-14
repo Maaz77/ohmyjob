@@ -724,3 +724,29 @@ def test_build_jobs_sets_the_rows_without_latex(workspace, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert out.strip().splitlines()[-1].startswith("FATAL:") and "open elsewhere" in out
     assert f"OK {LUMENFIELD}" not in out
+
+
+# --------------------------------------------------------------------------- the user's template copy
+
+def _py(workspace, code):
+    env = dict(os.environ, OHMYJOB_WORKSPACE=str(workspace))
+    return subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r)\n%s" % (str(ROOT / "scripts"), code)],
+                          capture_output=True, text=True, env=env, cwd=workspace)
+
+
+def test_template_copy_wins_and_reset_restores(workspace):
+    cli = [sys.executable, str(ROOT / "scripts" / "resume_build.py"), "template"]
+    env = dict(os.environ, OHMYJOB_WORKSPACE=str(workspace))
+    mine = workspace / "Resume_Template" / "resume.tex.j2"
+    run = subprocess.run(cli, capture_output=True, text=True, env=env)
+    assert run.stdout == f"TEMPLATE {mine}\n" and mine.read_text() == (ROOT / "resume" / "resume.tex.j2").read_text()
+    mine.write_text(mine.read_text() + "\n%% MINE <%if data.get('extra_section')%>x<%endif%> << data.name.first|plain >>\n")
+    render = ("import resume_build as rb\n"
+              "print(rb.render(%r, paper='a4'))" % str(workspace / "Default_Resume_Files" / "Operations-Analyst.yaml"))
+    out = _py(workspace, render)
+    assert out.returncode == 0 and "%% MINE" in out.stdout, out.stderr
+    again = subprocess.run(cli, capture_output=True, text=True, env=env)  # never overwrites the user's edits
+    assert "%% MINE" in mine.read_text() and again.returncode == 0
+    run = subprocess.run(cli + ["--reset"], capture_output=True, text=True, env=env)
+    assert run.stdout == f"RESET {mine}\n" and not mine.exists()
+    assert "%% MINE" not in _py(workspace, render).stdout
