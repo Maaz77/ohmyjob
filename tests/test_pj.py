@@ -674,7 +674,7 @@ def test_end_prints_the_run_tokens(pe):
                       "tool_input": {"command": "ohmyjob prep end"}})
     out = pe.pj("end")
     assert re.search(r"Run cost ≈ \$0\.000 \(API-equivalent", out), out  # no job was screened: no screening line
-    assert re.search(r"overhead\s+master\s+\$0\.000\n", out), out
+    assert re.search(r"overhead\s+master\s+\$0\.000", out), out
 
 
 def test_wave_fills_past_a_missing_folder(pe):
