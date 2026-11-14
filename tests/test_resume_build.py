@@ -102,15 +102,16 @@ def test_mapping(env):
     assert r"\email{alex.example@example.com}" in src and r"\cvsection{Profile}" in src        # heading override
     assert r"\makecvheader[C]" in src and r"Alex Example~~~\textperiodcentered" not in src
     assert "{Alex Example~~~\u00b7~~~R\u00e9sum\u00e9}" in src and r"\makecvfooter" in src
-    # upstream's resume: Summary, Work Experience, Education (this fixture has no honors or certificates)
+    # Summary, Work Experience, Projects, Education (this fixture has no honors or certificates)
     heads = re.findall(r"\\cvsection\{([^}]*)\}", src)
-    assert heads == ["Profile", "Work Experience", "Education"]
+    assert heads == ["Profile", "Work Experience", "Projects", "Education"]
     # grouped employer: first role carries employer + location, the later role has an empty title and location
     assert r"\cventry{Senior Operations Analyst}{Harborline Freight Group}{Hamburg, Germany}{2022 - Present}" in src
     assert r"\cventry{Operations Analyst}{}{}{2020 - 2022}" in src
     assert r"\cventry{Supply Planning Analyst}{Brightwater Foods}{Berlin, Germany}{2018 - 2020}" in src   # plain entry
     assert r"\textbf{dock utilisation}" in src
-    assert "cvskill" not in src and "Trail running" not in src and "dock-scheduling" not in src   # not in a resume
+    assert "cvskill" not in src and "Trail running" not in src and "Trail running" not in src   # not in a resume
+    assert r"\cventry{Dock scheduling model}{https://example.com/alex/dock-scheduling}{}{}" in src   # a project
     assert "Thesis: forecast error" in src                                                      # education_details yes
 
 
@@ -122,7 +123,7 @@ def test_resume_and_cv_sections_follow_upstream(env):
     path.write_text(yaml.safe_dump(full))
     src = rb.render(path, paper="a4")
     assert re.findall(r"\\cvsection\{([^}]*)\}", src) == [
-        "Summary", "Work Experience", "Honors \\& Awards", "Certificates", "Education"]
+        "Summary", "Work Experience", "Projects", "Honors \\& Awards", "Certificates", "Education"]
     assert r"\begin{cvparagraph}" in src and src.count(r"\begin{cvhonors}") == 2
     assert r"\cvhonor{2nd Place}{Rhein-Spree Logistics Case Competition}{Berlin, Germany}{2017}" in src
     assert "\\makecvheader[C]" in src and "R\u00e9sum\u00e9}" in src
@@ -132,8 +133,8 @@ def test_resume_and_cv_sections_follow_upstream(env):
     src = rb.render(path, paper="letter")
     assert "[11pt, letterpaper]{awesome-cv}" in src
     assert re.findall(r"\\cvsection\{([^}]*)\}", src) == [
-        "Education", "Skills", "Experience", "Extracurricular Activity", "Honors \\& Awards", "Certificates",
-        "Presentation", "Writing", "Program Committees"]
+        "Education", "Skills", "Experience", "Projects", "Extracurricular Activity", "Honors \\& Awards",
+        "Certificates", "Presentation", "Writing", "Program Committees"]
     assert "\\makecvheader\n" in src and "[C]" not in src.split("begin{document}")[1]
     assert "Curriculum Vitae}" in src and r"\begin{cvskills}" in src and r"\cvskill{A}{b}" in src
     assert r"\cventry{R}{T}{}{}{}" in src and r"\cvhonor{A}{}{}{}" in src
@@ -141,7 +142,7 @@ def test_resume_and_cv_sections_follow_upstream(env):
 
 
 def test_empty_sections_are_left_out_and_document_is_checked(env):
-    src = rb.render(role(env, honors=[], certificates=None, education=[], introduction=""), paper="a4")
+    src = rb.render(role(env, honors=[], certificates=None, education=[], introduction="", projects=[]), paper="a4")
     assert re.findall(r"\\cvsection\{([^}]*)\}", src) == ["Work Experience"]
     status, _, detail = rb.build(role(env, document="letter"), env / "o.pdf", max_pages=1, paper="a4")
     assert status == "FAIL" and "document must be resume or cv" in detail
@@ -155,7 +156,7 @@ def test_keys_the_document_does_not_show_are_warnings(env):
     assert rb.ignored_keys(data) == []
     assert rb.ignored_keys(yaml.safe_load((ROOT / "templates" / "Template-CV.yaml").read_text())) == []
     old = yaml.safe_load((env / "Operations-Analyst.yaml").read_text())
-    assert [w.split(" ")[0] for w in rb.ignored_keys(old)] == ["skills", "projects", "interests"]
+    assert [w.split(" ")[0] for w in rb.ignored_keys(old)] == ["skills", "interests"]
     assert rb.ignored_keys(dict(data, document="cv"))[0].startswith("introduction is not shown in a cv")
     assert rb.ignored_keys(dict(data, accent_color="#aa3311"))[0].startswith("accent_color")
     # old files still build (a warning, never a failure)
@@ -539,7 +540,6 @@ def test_build_all_lines_and_exit_codes(workspace):
     code, out = cli(workspace, "build-all")
     assert out.splitlines() == [
         "Operations-Analyst.yaml: OK", "WARNING Operations-Analyst.yaml: skills is not shown in a resume",
-        "WARNING Operations-Analyst.yaml: projects is no longer shown in any document",
         "WARNING Operations-Analyst.yaml: interests is no longer shown in any document",
         "Project-Coordinator.yaml: OK", "WARNING Project-Coordinator.yaml: skills is not shown in a resume",
         "SUMMARY 2 OK, 0 OVERFLOW, 0 FAIL"]
@@ -750,3 +750,24 @@ def test_template_copy_wins_and_reset_restores(workspace):
     run = subprocess.run(cli + ["--reset"], capture_output=True, text=True, env=env)
     assert run.stdout == f"RESET {mine}\n" and not mine.exists()
     assert "%% MINE" not in _py(workspace, render).stdout
+
+
+def test_projects_section_prints_in_both_documents(env):
+    for doc, before, after in (("resume", "Work Experience", "Honors & Awards"), ("cv", "Experience", "Extracurricular")):
+        data = yaml.safe_load((ROOT / "templates" / ("Template.yaml" if doc == "resume" else "Template-CV.yaml")).read_text())
+        data["projects"] = [{"title": "Dock & Co_1", "repo": "github.com/a/b", "bullets": ["**Did** a_thing", "Second"]},
+                            {"title": "Bare", "bullets": []}]
+        path = env / "P.yaml"
+        path.write_text(yaml.safe_dump(data))
+        tex = rb.render(path, paper="a4")
+        assert r"\cvsection{Projects}" in tex and r"\cventry{Dock \& Co\_1}{github.com/a/b}{}{}" in tex
+        assert r"\item{} \textbf{Did} a\_thing" in tex and r"\cventry{Bare}{}{}{}{}" in tex
+        assert rb.ignored_keys(data) == []
+        assert tex.index(before) < tex.index(r"\cvsection{Projects}")  # right after the experience section
+        del data["projects"]
+        path.write_text(yaml.safe_dump(data))
+        assert r"\cvsection{Projects}" not in rb.render(path, paper="a4")  # a section without entries is left out
+    data["projects"] = [{"bullets": ["x"]}]
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(rb.BuildError, match=r"projects\[0\].title is missing"):
+        rb.render(path, paper="a4")

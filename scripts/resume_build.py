@@ -49,17 +49,18 @@ TEMPLATE_NAME = "resume.tex.j2"
 OVERRIDE_DIR = W.ROOT / "Resume_Template"
 # Sections, their order and headings per document, exactly as in upstream's examples/resume/*.tex and examples/cv/*.tex.
 DOCUMENTS = {
-    "resume": {"summary": "Summary", "experience": "Work Experience", "honors": "Honors & Awards",
+    "resume": {"summary": "Summary", "experience": "Work Experience", "projects": "Projects", "honors": "Honors & Awards",
                "certificates": "Certificates", "education": "Education"},
-    "cv": {"education": "Education", "skills": "Skills", "experience": "Experience",
+    "cv": {"education": "Education", "skills": "Skills", "experience": "Experience", "projects": "Projects",
            "extracurricular": "Extracurricular Activity", "honors": "Honors & Awards", "certificates": "Certificates",
            "presentation": "Presentation", "writing": "Writing", "committees": "Program Committees"},
 }
 HONOR_KEYS = ("honors", "certificates", "committees")  # cvhonor lists {award, event, location, date}
-ENTRY_KEYS = ("extracurricular", "presentation", "writing")  # cventry lists {role, title, location, date, items}
+ENTRY_KEYS = ("projects", "extracurricular", "presentation", "writing")  # cventry lists {role, title, location, date, items}
+# (a project is {title, repo, bullets} in the yaml: _projects() maps it onto that shape, title as the bold role, repo as the title line)
 # yaml key -> the section that shows it (`introduction` is the Summary paragraph)
 KEY_SECTION = {"introduction": "summary"}
-OLD_KEYS = ("projects", "interests")  # still accepted so old files build; never printed
+OLD_KEYS = ("interests",)  # still accepted so old files build; never printed
 ACCENT_NAMES = ("emerald", "skyblue", "red", "pink", "orange", "nephritis", "concrete", "darknight")
 
 
@@ -265,6 +266,17 @@ def _entries(raw, key: str) -> list:
     return out
 
 
+def _projects(raw) -> list:
+    """The projects section as cventry rows: the title is the bold first line, the repo link the second, then the bullets."""
+    out = []
+    for i, p in enumerate(_list(raw, "projects")):
+        f = f"projects[{i}]"
+        p = _dict(p, f)
+        out.append({"role": _str(p.get("title"), f"{f}.title", required=True), "title": _str(p.get("repo"), f"{f}.repo"),
+                    "location": "", "date": "", "items": _bullets(p.get("bullets"), f"{f}.bullets")})
+    return out
+
+
 def _accent(data: dict) -> tuple[str, bool]:
     """(upstream colour name, whether the yaml named a colour upstream does not have)."""
     raw = _str(data.get("accent_color"), "accent_color").lower()
@@ -326,7 +338,8 @@ def _context(data: dict, paper: str, photo: str = "") -> dict:
     introduction = _str(data.get("introduction"), "introduction")
     experience = _experience(data.get("experience"))
     lists = {k: _honors(data.get(k), k) for k in HONOR_KEYS}
-    lists.update({k: _entries(data.get(k), k) for k in ENTRY_KEYS})
+    lists.update({k: _entries(data.get(k), k) for k in ENTRY_KEYS if k != "projects"})
+    lists["projects"] = _projects(data.get("projects"))
     present = {"summary": introduction, "experience": experience, "education": education, "skills": skills, **lists}
     order = [k for k in DOCUMENTS[document] if present.get(k)]  # a section without entries is left out
     return {

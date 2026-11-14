@@ -93,8 +93,8 @@ This folder is where your own resumes live, and it decides what stage 2 can do. 
 
 **Way one: fill in a template, and let the plugin build the PDF.** Setup puts two templates in the folder, so you can choose the document you want:
 
-- `Template.yaml` — a **resume**: Summary, Work Experience, Honors & Awards, Certificates, Education.
-- `Template-CV.yaml` — a **CV**: Education, Skills, Experience, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees.
+- `Template.yaml` — a **resume**: Summary, Work Experience, Projects, Honors & Awards, Certificates, Education.
+- `Template-CV.yaml` — a **CV**: Education, Skills, Experience, Projects, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees.
 
 Both follow [Awesome-CV](https://github.com/posquit0/Awesome-CV) exactly — the red accent, its page geometry, header and footer. `Template.pdf` and `Template-CV.pdf` next to them are sample builds, so you can see the result before you write a word. A section with no entries is simply left out, and a key that the chosen document does not print gives a `WARNING` line rather than an error.
 

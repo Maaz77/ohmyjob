@@ -46,7 +46,7 @@ quote: Be the change that you want to see in the world.
 # orange, nephritis, concrete, darknight. Default: red.
 # accent_color: red
 
-# optional: rename the section headings. Keys: summary, experience, honors, certificates, education.
+# optional: rename the section headings. Keys: summary, experience, projects, honors, certificates, education.
 # sections:
 #   summary: Profile
 
@@ -81,6 +81,15 @@ experience:
     bullets:
       - Forecast demand for 400 chilled products and raised forecast accuracy from 71% to 83%.
       - Worked with buyers on promotion calendars and cut write-offs of short-life products by 12%.
+
+# Projects (optional): title (printed in bold), repo (optional: an address or a short name, printed under the title),
+# bullets (a few lines, one achievement each). Remove the key to leave the section out.
+projects:
+  - title: Dock scheduling model
+    repo: github.com/alex-example-fixture/dock-scheduling
+    bullets:
+      - Wrote a slot-allocation model for inbound trucks in Python; two depots use it to plan their ramps.
+      - Cut average truck waiting time by 11% in a four-week pilot.
 
 # Honors & Awards (optional): award, event, location, date.
 honors:
