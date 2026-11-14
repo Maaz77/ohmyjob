@@ -673,8 +673,8 @@ def test_end_prints_the_run_tokens(pe):
                       "transcript_path": str(pe.root / "transcripts" / "sess.jsonl"),
                       "tool_input": {"command": "ohmyjob prep end"}})
     out = pe.pj("end")
-    assert re.search(r"screen-worker\s+claude-haiku-5-5\s+1\s+1\s+2\s+100\s+50\s+9\n", out), out
-    assert re.search(r"TOTAL\s+2\s+2\s+4\s+200\s+100\s+12$", out), out
+    assert re.search(r"Run cost ≈ \$0\.000 \(API-equivalent", out), out  # no job was screened: no screening line
+    assert re.search(r"overhead\s+master\s+\$0\.000\n", out), out
 
 
 def test_wave_fills_past_a_missing_folder(pe):
