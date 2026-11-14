@@ -200,14 +200,16 @@ class TestDreamKeys(unittest.TestCase):
         self.assertEqual(dream.safe_key(""), "unknown")
         self.assertEqual(dream.safe_key("a b/c"), "a-b-c")
 
-    def test_the_metrics_sum_the_token_dicts(self):
+    def test_the_metrics_are_costs(self):
         import dream  # noqa: E402
 
-        lines = [{"ats": "x", "outcome": "parked", "turns": 10, "tokens": {"input": 100, "output": 10}, "date": "2026-01-01"},
-                 {"ats": "x", "outcome": "parked", "turns": 20, "tokens": {"input": 300, "output": 10}, "date": "2026-01-02"}]
+        lines = [{"ats": "x", "outcome": "parked", "turns": 10, "cost_usd": 0.10, "date": "2026-01-01"},
+                 {"ats": "x", "outcome": "parked", "turns": 20, "cost_usd": 0.30, "date": "2026-01-02"},
+                 {"ats": "x", "outcome": "parked", "turns": 30, "cost_usd": None, "date": "2026-01-03"}]  # unknown: left out
         metrics = dream.ats_metrics(lines, "x", Path("/nope.md"))
-        self.assertEqual(metrics["median_tokens_parked"], 210)
-        self.assertEqual(metrics["median_turns_parked"], 15)
+        self.assertEqual(metrics["median_cost_parked"], 0.20)
+        self.assertIsNone(metrics["median_cost_handoff"])
+        self.assertEqual(metrics["median_turns_parked"], 20)
         self.assertEqual(metrics["wall_rate"], "0%")
 
 

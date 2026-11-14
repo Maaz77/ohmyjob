@@ -1222,10 +1222,11 @@ def cmd_end(args: argparse.Namespace) -> None:
             row = judge.setdefault(("Haiku check", entry.get("model") or "?"), collections.Counter())
             row["calls"] += 1
             row.update(counts)
-        table = L.usage_table(master.get("transcript"), master.get("agent_id"), judge)
+        state = L.load_state(run_dir)
+        counts = {"ohmyjob:application-worker": len([j for j in state["jobs"].values() if j.get("tab") is not None])}
+        table = L.run_report(master.get("transcript"), master.get("agent_id"), counts, judge)
         print(table)
         L.save_report(table)
-        state = L.load_state(run_dir)
         note = grouped_note(run_dir, state)
         if note:
             print(note)

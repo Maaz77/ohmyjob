@@ -256,14 +256,14 @@ def ats_metrics(lines: list[dict], key: str, note: Path) -> dict:
     denominator = counts["parked"] + counts["wall"]
     parked = [line for line in mine if line.get("outcome") == "parked"]
     handoffs = [line for line in mine if line.get("outcome") in ("handoff", "unverified_handoff")]
-    # every line's tokens are a dict: sum each one before the median (a list of dicts raises TypeError)
+    cost = lambda lines: _median([c for c in map(ledger.line_cost, lines) if c is not None])  # noqa: E731
     note_date = _dt.date.fromtimestamp(note.stat().st_mtime).isoformat() if note.exists() else None
     return {
         "attempts": len(mine), **counts,
         "wall_rate": f"{counts['wall'] / denominator:.0%}" if denominator else "n/a",
         "median_turns_parked": _median([line["turns"] for line in parked if line.get("turns") is not None]),
-        "median_tokens_parked": _median([sum((line["tokens"] or {}).values()) for line in parked if line.get("tokens")]),
-        "median_tokens_handoff": _median([sum((line["tokens"] or {}).values()) for line in handoffs if line.get("tokens")]),
+        "median_cost_parked": cost(parked),
+        "median_cost_handoff": cost(handoffs),
         "note_date": note_date,
         "before": sum(1 for line in mine if note_date and (line.get("date") or "") < note_date),
         "after": sum(1 for line in mine if not note_date or (line.get("date") or "") >= note_date),
@@ -284,11 +284,11 @@ def _report(state: dict, results: dict, rejected: list[dict], lines: list[dict])
         out.append(f"- attempts: {metrics['attempts']} (parked {metrics['parked']}, handoffs {metrics['handoff']}, "
                    f"unverified {metrics['unverified_handoff']}, walls {metrics['wall']}, harness {metrics['harness']})")
         out.append(f"- wall rate: {metrics['wall_rate']}")
-        for label, name in (("median turns (parked)", "median_turns_parked"),
-                            ("median tokens (parked)", "median_tokens_parked"),
-                            ("median tokens (handoff)", "median_tokens_handoff")):
+        for label, name, fmt in (("median turns (parked)", "median_turns_parked", "{:.0f}"),
+                                 ("median cost (parked)", "median_cost_parked", "${:.3f}"),
+                                 ("median cost (handoff)", "median_cost_handoff", "${:.3f}")):
             if metrics[name] is not None:
-                out.append(f"- {label}: {metrics[name]:.0f}")
+                out.append(f"- {label}: {fmt.format(metrics[name])}")
         if metrics["note_date"]:
             out.append(f"- note last changed: {metrics['note_date']} "
                        f"(before: {metrics['before']}, after: {metrics['after']})")

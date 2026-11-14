@@ -567,9 +567,42 @@ def worker_folder_from_transcript(agent_id: str, transcript_path: str, known_fol
     return None
 
 
-def usage_table(transcript: Optional[str], master_id: Optional[str], extra: Optional[dict] = None) -> str:
-    """Tokens of one run: the master and every agent it started, read from the transcripts Claude Code writes
-    (<session>/subagents/agent-<id>.jsonl, with the agent type and parent in agent-<id>.meta.json).
+# USD per million tokens, same order as USAGE_KEYS: input, cache write (5-minute), cache read, output.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (read 2026-11-14). One row per family, the newest
+# version listed there: haiku 5.5, sonnet 5.5, opus 5.5, fable 5.2. Older versions of a family cost more, so they are under-reported.
+# ponytail: cache writes are all priced at the 5-minute rate (agent_usage has one total); 1-hour writes (1.6x to 2x) are
+# under-priced. Upgrade: read cache_creation.ephemeral_1h_input_tokens in agent_usage and price it separately.
+# ponytail: Haiku 5.5 is priced for prompts up to 100,000 tokens; longer prompts cost 5x and are under-priced.
+PRICES = {
+    "haiku": (0.10, 0.125, 0.01, 0.50),
+    "sonnet": (2.00, 2.50, 0.10, 10.00),
+    "opus": (4.00, 5.00, 0.20, 20.00),
+    "fable": (8.00, 10.00, 0.20, 40.00),
+}
+
+
+def usage_cost(usage: dict, model: str) -> Optional[float]:
+    """API-equivalent dollars of one usage row; None for a model that is in no price family."""
+    for family, prices in PRICES.items():
+        if family in (model or "").lower():
+            return sum((usage.get(k) or 0) * p / 1_000_000 for k, p in zip(USAGE_KEYS, prices))
+    return None
+
+
+# agent type -> (line label, unit noun, name of one unit in "per ..."). The Haiku judge counts as application work.
+WORK = {"ohmyjob:screen-worker": ("screening", "job", "job"),
+        "ohmyjob:resume-worker": ("resumes", "resume", "resume"),
+        "ohmyjob:application-worker": ("applications", "job", "application")}
+
+
+def money(x: float) -> str:
+    return f"${x:.3f}" if x < 0.01 else f"${x:.2f}"
+
+
+def run_report(transcript: Optional[str], master_id: Optional[str], counts: Optional[dict] = None,
+               extra: Optional[dict] = None) -> str:
+    """Cost of one run in API-equivalent dollars, per kind of work, read from the transcripts Claude Code writes
+    (<session>/subagents/agent-<id>.jsonl). counts: {agent type: units of work}, else the number of agents of that type.
     extra: {(label, model): Counter} for calls outside the session (the Haiku judge's 'claude -p')."""
     rows: dict = {}
     agents: collections.Counter = collections.Counter()
@@ -580,30 +613,36 @@ def usage_table(transcript: Optional[str], master_id: Optional[str], extra: Opti
     for rec in agent_usage(transcript, master_id):
         agents[rec["agent_type"]] += 1
         rows.setdefault((rec["agent_type"], rec["model"] or "?"), collections.Counter()).update(rec["usage"])
-    for key, counter in (extra or {}).items():
-        rows.setdefault(key, collections.Counter()).update(counter)
+    for (kind, model), counter in (extra or {}).items():
+        kind = "ohmyjob:application-worker" if kind == "Haiku check" else kind
+        rows.setdefault((kind, model), collections.Counter()).update(counter)
     if not rows:
         where = f"no transcripts found in {folder}" if folder else "no transcript path was seen by the hook"
         return f"Token usage: unknown ({where})"
 
-    width = max([18] + [len(kind) for kind, _model in rows])  # scoped names (ohmyjob:application-worker) are longer
+    cost: collections.Counter = collections.Counter()
+    unknown: set = set()
+    for (kind, model), c in rows.items():
+        value = usage_cost(c, model)
+        if value is None:
+            unknown.add(model)
+        cost[kind if kind in WORK else "overhead"] += value or 0
+    lines = []
+    for kind, (label, noun, per) in WORK.items():
+        n = (counts or {}).get(kind)
+        n = agents[kind] if n is None else n
+        if n > 0 and (agents[kind] or kind in cost):
+            plural = noun + ("" if n == 1 else "s")
+            lines.append(f"{label:13} {n:>3} {plural:10} {money(cost[kind]):>7}   {money(cost[kind] / n)} per {per}")
+    if "overhead" in cost:
+        who = "master" if all(k.endswith("-master") for k, _m in rows if k not in WORK) else "master and other agents"
+        lines.append(f"{'overhead':13} {who:14} {money(cost['overhead']):>7}")
+    head = (f"Run cost ≈ {money(sum(cost.values()))} (API-equivalent, not billed on a subscription; "
+            "the master's last turn and the main session not included)")
+    return "\n".join([head, *lines] + ([f"cost unknown for model {', '.join(sorted(unknown))}"] if unknown else []))
 
-    def line(name: str, model: str, n: Any, c: collections.Counter) -> str:
-        return (f"{name:{width}} {model:18} {n:>6} {c['calls']:>6} {c['input_tokens']:>9,} {c['cache_creation_input_tokens']:>12,} "
-                f"{c['cache_read_input_tokens']:>12,} {c['output_tokens']:>9,}")
 
-    out = ["Token usage of this run (the master and the agents it started; the master's last turn and the main session "
-           "not included):",
-           f"{'agent':{width}} {'model':18} {'agents':>6} {'calls':>6} {'input':>9} {'cache_write':>12} {'cache_read':>12} {'output':>9}"]
-    total: collections.Counter = collections.Counter()
-    for (kind, model), c in sorted(rows.items()):
-        out.append(line(kind, model, agents[kind] or "", c))
-        total.update(c)
-    out.append(line("TOTAL", "", sum(agents.values()), total))
-    return "\n".join(out)
-
-
-# The master's text passes through 2 models, and either can drop the table. 'end' saves it here; the Stop hook makes
+# The master's text passes through 2 models, and either can drop the report. 'end' saves it here; the Stop hook makes
 # the main session show it (hooks.py report) and then deletes the file.
 REPORT_FILE = W.REPORT_FILE
 
@@ -613,11 +652,10 @@ def save_report(table: str) -> None:
 
 
 def report_shown(table: str, message: str) -> bool:
-    """True if the message has the table: the total output tokens (the last number of the TOTAL line), in any layout,
-    or the whole line when there is no TOTAL. The models often drop columns (often the input column)."""
-    last = table.splitlines()[-1]
-    numbers = re.findall(r"\d[\d,]*", last) if last.startswith("TOTAL") else []
-    return numbers[-1] in message if numbers else last in message
+    """True if the message has the run cost of the first line ("$1.90"), or the whole first line when it has none."""
+    first = table.splitlines()[0]
+    found = re.search(r"\$\d+\.\d+", first)
+    return (found.group(0) if found else first) in message
 
 
 # --------------------------------------------------------------------------- folders

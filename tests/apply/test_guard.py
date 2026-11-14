@@ -417,19 +417,24 @@ class TestBadConfig(T.Base):
             config.write_text(good)
 
 
-class TestTokenTableColumns(unittest.TestCase):
-    def test_scoped_names_fit_the_agent_column(self):
+class TestRunReport(unittest.TestCase):
+    def test_cost_per_unit_of_work_and_an_unknown_model(self):
         import collections
 
         import aa_lib
 
-        row = collections.Counter({"calls": 1, "input_tokens": 2, "output_tokens": 3})
-        table = aa_lib.usage_table(None, None, {("ohmyjob:application-worker", "claude-haiku-5-5"): row, ("Haiku check", "haiku"): row})
-        lines = table.splitlines()[1:]
-        width = lines[0].index("model")
-        for line in lines[1:]:
-            self.assertEqual(line[width - 1], " ", line)  # nothing runs into the model column
-        self.assertEqual(len({len(l) for l in lines}), 1, table)  # every row has the header's width
+        tokens = collections.Counter({"calls": 1, "input_tokens": 1_000_000, "cache_creation_input_tokens": 1_000_000,
+                                      "cache_read_input_tokens": 1_000_000, "output_tokens": 1_000_000})
+        self.assertAlmostEqual(aa_lib.usage_cost(tokens, "claude-haiku-5-5"), 0.10 + 0.125 + 0.01 + 0.50)
+        self.assertIsNone(aa_lib.usage_cost(tokens, "gpt-x"))
+        report = aa_lib.run_report(None, None, {"ohmyjob:application-worker": 2},
+                                   {("ohmyjob:application-worker", "claude-haiku-5-5"): tokens, ("Haiku check", "haiku"): tokens,
+                                    ("other", "gpt-x"): tokens})
+        self.assertIn("Run cost ≈ $1.47 ", report)  # two haiku rows, the unknown model adds nothing
+        self.assertIn("applications    2 jobs", report)
+        self.assertIn("$0.73 per application", report)
+        self.assertIn("overhead", report)
+        self.assertIn("cost unknown for model gpt-x", report)
 
 
 class TestSkillText(unittest.TestCase):
