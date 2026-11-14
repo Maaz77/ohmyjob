@@ -92,25 +92,42 @@ class TestClassifyOutcome(unittest.TestCase):
 
 class TestClassifyBin(unittest.TestCase):
     def test_walls_and_harness_failures_get_a_trace(self):
-        self.assertEqual(ledger.classify_bin("wall", "workday", 10, {"input": 1}, []), "wall")
-        self.assertEqual(ledger.classify_bin("unverified_handoff", "workday", 10, {"input": 1}, []), "wall")
-        self.assertEqual(ledger.classify_bin("harness", "workday", 10, {"input": 1}, []), "harness")
-        self.assertEqual(ledger.classify_bin("handoff", "workday", 10, {"input": 1}, []), "skip")
+        self.assertEqual(ledger.classify_bin("wall", "workday", 10, 0.1, []), "wall")
+        self.assertEqual(ledger.classify_bin("unverified_handoff", "workday", 10, 0.1, []), "wall")
+        self.assertEqual(ledger.classify_bin("harness", "workday", 10, 0.1, []), "harness")
+        self.assertEqual(ledger.classify_bin("handoff", "workday", 10, 0.1, []), "skip")
 
     def test_a_win_on_a_known_ats_is_skipped(self):
-        self.assertEqual(ledger.classify_bin("parked", "workday", 10, {"input": 1}, []), "skip")
+        self.assertEqual(ledger.classify_bin("parked", "workday", 10, 0.1, []), "skip")
 
     def test_the_first_win_on_an_unknown_ats_is_kept(self):
-        self.assertEqual(ledger.classify_bin("parked", "jobs.example.com", 10, {"input": 1}, []), "first_win")
+        self.assertEqual(ledger.classify_bin("parked", "jobs.example.com", 10, 0.1, []), "first_win")
 
     def test_a_costly_win_is_kept(self):
-        self.assertEqual(ledger.classify_bin("parked", "workday", 200, {"input": 1}, []), "costly_win")
+        self.assertEqual(ledger.classify_bin("parked", "workday", 200, 0.1, []), "costly_win")
 
-    def test_the_median_sums_the_token_dicts(self):
-        """A list of token dicts would raise TypeError in statistics.median."""
-        lines = [{"ats": "workday", "outcome": "parked", "turns": 10, "tokens": {"input": 100, "output": 10}}] * 5
-        self.assertEqual(ledger.classify_bin("parked", "workday", 10, {"input": 100, "output": 10}, lines), "skip")
-        self.assertEqual(ledger.classify_bin("parked", "workday", 40, {"input": 100, "output": 10}, lines), "costly_win")
+    def test_the_median_is_a_cost(self):
+        lines = [{"ats": "workday", "outcome": "parked", "turns": 10, "cost_usd": 0.10}] * 5
+        self.assertEqual(ledger.classify_bin("parked", "workday", 10, 0.15, lines), "skip")
+        self.assertEqual(ledger.classify_bin("parked", "workday", 10, 0.25, lines), "costly_win")
+        self.assertEqual(ledger.classify_bin("parked", "workday", 40, 0.10, lines), "costly_win")  # the turns rule
+        self.assertEqual(ledger.classify_bin("parked", "workday", 10, None, lines), "skip")  # no cost: only turns decide
+
+    def test_many_cheap_cache_reads_are_not_costly(self):
+        typical = {"input": 100_000, "cache_creation": 0, "cache_read": 0, "output": 0}  # $0.20
+        lines = [{"ats": "workday", "outcome": "parked", "turns": 10, "tokens": typical}] * 5
+        cost = ledger.line_cost({"tokens": {"input": 10_000, "cache_creation": 0, "cache_read": 1_000_000, "output": 0}})
+        self.assertGreater(1_010_000, 2 * 100_000)  # the raw token sum would call it costly; it costs $0.12
+        self.assertEqual(ledger.classify_bin("parked", "workday", 10, cost, lines), "skip")
+
+    def test_the_cost_of_a_line(self):
+        tokens = {"input": 1_000_000, "cache_creation": 0, "cache_read": 0, "output": 1_000_000}
+        self.assertAlmostEqual(ledger.line_cost({"tokens": tokens}), 12.0)  # an old line: sonnet, 2 + 10
+        self.assertEqual(ledger.line_cost({"tokens": tokens, "cost_usd": 0.5}), 0.5)
+        self.assertIsNone(ledger.line_cost({"tokens": tokens, "cost_usd": None}))  # unknown stays unknown
+        self.assertIsNone(ledger.line_cost({"tokens": None}))
+        lines = [{"ats": "workday", "outcome": "parked", "turns": 10, "cost_usd": None}] * 5
+        self.assertEqual(ledger.classify_bin("parked", "workday", 10, 5.0, lines), "skip")  # none left for the median: fallback rule
 
 
 class TestRedaction(unittest.TestCase):
@@ -249,6 +266,14 @@ class TestUsageHelpers(unittest.TestCase):
         self.assertRegex(report, r"Run cost ≈ \$0\.00")
         self.assertRegex(report, r"applications\s+3 jobs\s+\$0\.000\s+\$0\.000 per application")
         self.assertIn("overhead", report)
+
+    def test_a_job_cost_prices_each_worker_with_its_own_model(self):
+        state = {"jobs": {"42_Acme_Role": {"tab": 101}}, "tabs": {"101": {}}}
+        usage = ledger._folder_usage(L.agent_usage(self.session, "m1"), "42_Acme_Role", state)
+        self.assertEqual(usage["cost"], round(7 * 0.5 / 1_000_000, 4))  # one haiku worker: 7 output tokens
+        self.assertIsNone(ledger._folder_usage([{"agent_type": W, "model": "gpt-x", "usage": {"calls": 1}, "transcript": "x",
+                                                  "agent_id": "z", "description": ""}], "f",
+                                                 {"tabs": {"1": {"role": "job", "agent_id": "z", "folder": "f"}}})["cost"])
 
     def test_the_folder_comes_from_the_worker_prompt(self):
         self.assertEqual(L.folder_from_prompt("folder=42_Acme_Role tab=101"), "42_Acme_Role")

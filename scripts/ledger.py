@@ -31,6 +31,9 @@ DREAM_HINT_TRACES = 10      # new traces before 'end' suggests a dream
 COSTLY_FACTOR = 2.0         # a parked job this much over the median of its ATS is a "costly_win"
 COSTLY_MIN_SAMPLES = 5      # fewer parked jobs of this ATS in the ledger: use COSTLY_TURNS_FALLBACK instead
 COSTLY_TURNS_FALLBACK = 60
+# ponytail: ledger lines before cost_usd carry no model, so the model of agents/application-worker.md is assumed
+# for them (change this constant when that file changes); an old line from another model is mispriced.
+OLD_LINE_MODEL = "sonnet"
 
 SIGNIN_STEPS = ("none", "option", "popup", "account", "consent", "done")
 _SIGNIN_EVENTS = {"google-option": 1, "bind-signin": 2, "google-account": 3, "google-consent": 4, "signin-done": 5}
@@ -110,7 +113,19 @@ def classify_outcome(verdict: str, code: str, blocker: str, has_result: bool, st
     return "wall"
 
 
-def classify_bin(outcome: str, ats: str, turns: Optional[int], tokens: Any, ledger_lines: list[dict]) -> str:
+def line_cost(line: dict) -> Optional[float]:
+    """API-equivalent dollars of a ledger line: its cost_usd, or (an old line) its tokens priced with OLD_LINE_MODEL."""
+    if "cost_usd" in line:
+        return line["cost_usd"]
+    tokens = line.get("tokens")
+    if not tokens:
+        return None
+    usage = {"input_tokens": tokens.get("input"), "cache_creation_input_tokens": tokens.get("cache_creation"),
+             "cache_read_input_tokens": tokens.get("cache_read"), "output_tokens": tokens.get("output")}
+    return L.usage_cost(usage, OLD_LINE_MODEL)
+
+
+def classify_bin(outcome: str, ats: str, turns: Optional[int], cost: Optional[float], ledger_lines: list[dict]) -> str:
     """Which jobs are worth a trace: a wall, a harness failure, a costly win, the first win on an unknown ATS."""
     if outcome in ("wall", "unverified_handoff"):
         return "wall"
@@ -122,13 +137,11 @@ def classify_bin(outcome: str, ats: str, turns: Optional[int], tokens: Any, ledg
         return "skip"
     same = [line for line in ledger_lines
             if line.get("ats") == ats and line.get("outcome") == "parked"
-            and line.get("turns") is not None and line.get("tokens") is not None]
-    current = sum(tokens.values()) if isinstance(tokens, dict) else (tokens or 0)
+            and line.get("turns") is not None and line_cost(line) is not None]
     if len(same) >= COSTLY_MIN_SAMPLES:
         median_turns = statistics.median([line["turns"] for line in same])
-        # every ledger line holds a dict of token counts: sum each one before the median (a list of dicts raises)
-        median_tokens = statistics.median([sum((line["tokens"] or {}).values()) for line in same])
-        if (turns is not None and turns > COSTLY_FACTOR * median_turns) or current > COSTLY_FACTOR * median_tokens:
+        median_cost = statistics.median([line_cost(line) for line in same])
+        if (turns is not None and turns > COSTLY_FACTOR * median_turns) or (cost is not None and cost > COSTLY_FACTOR * median_cost):
             return "costly_win"
     elif turns is not None and turns > COSTLY_TURNS_FALLBACK:
         return "costly_win"
@@ -305,16 +318,20 @@ def _worker_folder(rec: dict, state: dict) -> Optional[str]:
 
 
 def _folder_usage(agents: list[dict], folder: str, state: dict) -> dict:
-    """The calls and tokens of every worker of this job (a retried job has two)."""
+    """The calls, tokens and cost of every worker of this job (a retried job has two). cost: None when there is
+    no worker or one has a model with no price."""
     turns = 0
+    costs = []
     tokens: collections.Counter = collections.Counter()
     for rec in agents:
         if rec["agent_type"] != L.WORKER or _worker_folder(rec, state) != folder:
             continue
         turns += rec["usage"].get("calls", 0)
+        costs.append(L.usage_cost(rec["usage"], rec["model"]))
         for key in L.USAGE_KEYS:
             tokens[key] += rec["usage"].get(key, 0)
-    return {"turns": turns, "tokens": dict(tokens)}
+    return {"turns": turns, "tokens": dict(tokens),
+            "cost": round(sum(costs), 4) if costs and None not in costs else None}
 
 
 def _tool_steps(agent_id: str, transcript_path: str) -> list[dict]:
@@ -446,10 +463,10 @@ def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str
             "attempt": 1 + sum(1 for line in ledger if line.get("folder") == folder),
             "url": url, "host": host, "ats": ats, "verdict": verdict,
             "blocker": redact_text(blocker[:300]) if blocker else None, "code": code or None,
-            "outcome": outcome, "bin": classify_bin(outcome, ats, usage["turns"], tokens, ledger),
+            "outcome": outcome, "bin": classify_bin(outcome, ats, usage["turns"], usage["cost"], ledger),
             "workers": max(1, sum(1 for rec in agents if rec["agent_type"] == L.WORKER
                                   and _worker_folder(rec, state) == folder)),
-            "turns": usage["turns"], "tokens": tokens, "denials": denials,
+            "turns": usage["turns"], "tokens": tokens, "cost_usd": usage["cost"], "denials": denials,
             "seconds": seconds, "calls": watchdog.get("calls", 0),
             "progress_events": watchdog.get("progress", 0), "max_stall": watchdog.get("max_stall", 0),
             "stopped_by": stopped_by,
