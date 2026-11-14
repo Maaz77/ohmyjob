@@ -718,7 +718,6 @@ def discard(state: dict, tracker: Tracker, plans: list[tuple]) -> None:
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    L.quota_start(os.environ.get("CLAUDE_CODE_SESSION_ID"))
     # A run that stopped early leaves its folder. Its jobs are still at Found or Matched, so they are queued again.
     if W.has_template_marker(W.PROFILE):  # the mock guard: Profile.md still holds the mock data
         fatal(f"{W.PROFILE.name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with yours, then delete that line")

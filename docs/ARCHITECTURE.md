@@ -184,7 +184,7 @@ Hooks are declared in `hooks/hooks.json` and all enter through `scripts/hook.sh 
 | `handback` | PreToolUse of `SubagentHandback` | Checks a worker's report; refuses a bad one (twice at most). |
 | `snapshot` | PostToolUse of Chrome tools | Saves each page and its element refs; compacts long pages for the application worker. |
 | `capture` | SubagentStop of an ohmyjob worker | The same report checks on the worker's final text. |
-| `report` | Stop | Shows the cost report (and the quota line) if the user has not seen it. Runs 2 to 3 times per run, so it is idempotent. |
+| `report` | Stop | Shows the cost report if the user has not seen it. Runs 2 to 3 times per run, so it is idempotent. |
 
 A worker's report reaches the scripts by two equal paths, `handback` (auto mode only) and `capture` (the only path in Manual and `-p` mode). Both feed one processor.
 
@@ -389,5 +389,3 @@ Exit codes: 0 clean, 1 done but some folder unresolved, 2 invariant failed (noth
 ## Run cost
 
 `end` of the prep and apply runs prints the cost of the run in API-equivalent dollars, summed from the transcripts Claude Code writes for the master and every worker it started (and the Haiku checks, counted as application work), priced with the `PRICES` table in `aa_lib.py`. One line per kind of work: screening and resumes (prep run), applications (apply run), each with its unit count (jobs screened, resumes attempted, jobs that got a tab) and the cost per unit; masters and other agents go into an `overhead` line. A model with no price is named in a `cost unknown` line. The text may be dropped on its way to the user, so it is also saved to `.ohmyjob/last_report.txt`, and the `report` hook shows it if the user has not seen it.
-
-The same hook adds a `Quota:` line: how far the 5-hour and weekly subscription quotas moved during the run. `start` of each run keeps a reading in `.ohmyjob/quota_start.json`; the hook takes the end reading. Both come from the status line data that the oh-my-claudecode HUD saves for the session (`~/.claude/hud/cache/stdin.<session_id>.json`, a private detail of that plugin). Without that data the line says so.

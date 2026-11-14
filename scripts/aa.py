@@ -31,7 +31,6 @@ import argparse
 import collections
 import itertools
 import json
-import os
 import re
 import shutil
 import sys
@@ -368,7 +367,6 @@ ROBOTS_MARKER_URL = "https://www.linkedin.com/robots.txt#aa-popups-as-tabs"
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    L.quota_start(os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if W.has_template_marker(W.PROFILE):
         fatal("Profile.md still has the template marker (the mock data of the template): fill in your own details, then "
               "delete the marker line, and run this again.")

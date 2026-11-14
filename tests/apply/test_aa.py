@@ -1357,22 +1357,20 @@ class TestEndTokens(Base):
         # the Stop hook of the main session: it shows the report when the reply lacks it, then the file is gone
         report = self.root / ".ohmyjob" / "last_report.txt"
         table = report.read_text()
-        quota = "Quota: not available (no status line data for this session)"
         stop = {"hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": "All done."}
         shown = json.loads(self.hook("report", stop).stdout)
-        self.assertEqual(shown, {"systemMessage": table.strip() + "\n" + quota})  # Claude Code shows it; no block, no second reply
+        self.assertEqual(shown, {"systemMessage": table.strip()})  # Claude Code shows it; no block, no second reply
         self.assertFalse(report.exists())
         self.assertEqual(self.hook("report", stop).stdout, "")
-        report.write_text(table)  # a reply with the cost: only the quota line is added
-        self.assertEqual(json.loads(self.hook("report", {**stop, "last_assistant_message": table}).stdout), {"systemMessage": quota})
+        report.write_text(table)
+        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": table}).stdout, "")
         self.assertFalse(report.exists())
 
         # a forked skill's own Stop is not the main session
         report.write_text(table)
         self.assertEqual(self.hook("report", {**stop, "agent_type": "prep-master"}).stdout, "")
         self.assertTrue(report.exists())
-        self.assertEqual(json.loads(self.hook("report", {**stop, "last_assistant_message": "Run cost $0.000"}).stdout),
-                         {"systemMessage": quota})
+        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": "Run cost $0.000"}).stdout, "")
         self.assertFalse(report.exists())
 
         # a forked skill run by the user: the master's report reached them as a local command output (in the transcript)
@@ -1381,8 +1379,7 @@ class TestEndTokens(Base):
         transcript = self.root / "main.jsonl"
         transcript.write_text(json.dumps({"type": "system", "subtype": "local_command", "timestamp": when,
                                           "content": "<local-command-stdout>Run cost $0.000</local-command-stdout>"}) + "\n")
-        shown = self.hook("report", {**stop, "last_assistant_message": "", "transcript_path": str(transcript)}).stdout
-        self.assertEqual(json.loads(shown), {"systemMessage": quota})
+        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": "", "transcript_path": str(transcript)}).stdout, "")
         self.assertFalse(report.exists())
 
 

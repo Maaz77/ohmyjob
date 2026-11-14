@@ -437,47 +437,6 @@ class TestRunReport(unittest.TestCase):
         self.assertIn("cost unknown for model gpt-x", report)
 
 
-class TestQuota(unittest.TestCase):
-    def reading(self, home, session, five, resets=100, week=None):
-        import json
-        import os
-
-        folder = home / ".claude" / "hud" / "cache"
-        folder.mkdir(parents=True, exist_ok=True)
-        limits = {"five_hour": {"used_percentage": five, "resets_at": resets}} if five is not None else {}
-        if week is not None:
-            limits["seven_day"] = {"used_percentage": week, "resets_at": 900}
-        (folder / f"stdin.{session}.json").write_text(json.dumps({"rate_limits": limits}), encoding="utf-8")
-        return folder / f"stdin.{session}.json"
-
-    def test_reader_and_line(self):
-        import os
-        import tempfile
-        from unittest import mock
-
-        import aa_lib
-
-        with tempfile.TemporaryDirectory() as tmp, mock.patch("pathlib.Path.home", return_value=Path(tmp)), \
-                mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": tmp}):
-            home = Path(tmp)
-            self.assertIsNone(aa_lib.quota_reading("s1"))  # no file
-            path = self.reading(home, "s1", 31, week=12)
-            os.utime(path, (1000, 1000))
-            start = aa_lib.quota_reading("s1")
-            self.reading(home, "s1", 38, week=13)
-            os.utime(path, (2000, 2000))
-            end = aa_lib.quota_reading("s1")
-            self.assertEqual(aa_lib.quota_line(start, end), "Quota: 5-hour window 31% → 38% (+7 points), week 12% → 13% (+1 point)")
-            self.assertIn("31% (not refreshed during the run)", aa_lib.quota_line(start, start))
-            self.reading(home, "s1", 5, resets=200, week=13)
-            self.assertIn("5-hour window reset during the run, week 12% → 13%", aa_lib.quota_line(start, aa_lib.quota_reading("s1")))
-            self.reading(home, "s2", 40)  # no week window: it is not printed as 0
-            self.assertEqual(aa_lib.quota_line(start, aa_lib.quota_reading("s2")), "Quota: 5-hour window 31% → 40% (+9 points)")
-            self.assertEqual(aa_lib.quota_line(None, end), "Quota: not available (no status line data for this session)")
-            path.write_text("{bad", encoding="utf-8")
-            self.assertIsNone(aa_lib.quota_reading("s1"))
-
-
 class TestSkillText(unittest.TestCase):
     def test_the_apostrophe_escape_is_written_out(self):
         for name in ("apply-jobs", "continue-applying"):

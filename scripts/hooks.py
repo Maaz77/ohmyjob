@@ -1762,9 +1762,9 @@ def report(inp: dict) -> None:
     table = L.REPORT_FILE.read_text(encoding="utf-8")
     seen = (inp.get("last_assistant_message") or "") + "\n" + shown_since(inp.get("transcript_path"), L.REPORT_FILE.stat().st_mtime)
     L.REPORT_FILE.unlink(missing_ok=True)
-    quota = L.quota_report(inp.get("session_id"))  # read now: the status line data is freshest at the end of the run
-    # shown to the candidate by Claude Code itself: no block, so the model does not run again and repeat its reply
-    print(json.dumps({"systemMessage": quota if L.report_shown(table, seen) else table.strip() + "\n" + quota}))
+    if not L.report_shown(table, seen):
+        # shown to the candidate by Claude Code itself: no block, so the model does not run again and repeat its reply
+        print(json.dumps({"systemMessage": table.strip()}))
     sys.exit(0)
 
 
