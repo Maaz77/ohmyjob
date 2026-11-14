@@ -56,7 +56,7 @@ Tell the user, with the real `workspace:` path:
 4. Open `ohmyjob/Profile.md`: revise the drafted `# Resume` section by hand (tailored resumes use it as their only source of facts), then write `# Fit Preferences` (three fields: seniority / experience level, what you are looking for, dealbreakers; the screening judges every posting against them first) and `# Follow Up Questions` (a numbered list of the questions forms ask, with your answers, work authorization included), and the optional `# Work Authorization` lines (one per country, status first: `citizen`, `permanent resident`, `authorized` or `needs sponsorship`; stage 2 drops a posting only when it states a requirement those lines say you cannot meet). Then delete the first line, the `OHMYJOB-TEMPLATE` marker line.
 5. Open `ohmyjob/ohmyjob.json` and set your job boards, search titles, location and country (a country is required while `indeed` or `glassdoor` is a source). Every field, its default and its valid values are in the table in `docs/SETTINGS.md`. Then delete the `"_template"` line. `/ohmyjob:help` prints every field.
 6. Close this session, then start Claude in the project folder (the folder that holds `.claude/` and `ohmyjob/`; project settings and hooks load only from the folder Claude starts in) with:
-`claude --setting-sources project,local --strict-mcp-config --chrome`
+`claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome`
 7. The four stages of a round: `/ohmyjob:find-jobs`, `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs` (fix the tabs in "Needs Attention", then `/ohmyjob:continue-applying`, then submit each parked form by hand), `/ohmyjob:reconcile`.
 Until the marker lines are deleted, the commands refuse to run: that is intended.
 

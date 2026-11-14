@@ -3,7 +3,7 @@
 This folder (`ohmyjob/` inside your project folder) is the job-search workspace of the ohmyjob plugin. Start Claude Code in
 the project folder, the one that holds `.claude/` and this folder (project settings and hooks load only from the folder
 Claude starts in):
-`claude --setting-sources project,local --strict-mcp-config --chrome`
+`claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome`
 
 ## Standing rules (never break these)
 - Never click the final Submit / Send application / Apply button of a job application. The candidate submits by hand.

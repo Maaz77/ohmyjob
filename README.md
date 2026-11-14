@@ -58,7 +58,7 @@ claude plugin install ohmyjob@ohmyjob --scope project
 Start Claude in that same folder. Use this line every time.
 
 ```bash
-claude --setting-sources project,local --strict-mcp-config --chrome
+claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome
 ```
 
 > [!IMPORTANT]
