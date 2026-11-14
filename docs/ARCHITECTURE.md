@@ -184,7 +184,7 @@ Hooks are declared in `hooks/hooks.json` and all enter through `scripts/hook.sh 
 | `handback` | PreToolUse of `SubagentHandback` | Checks a worker's report; refuses a bad one (twice at most). |
 | `snapshot` | PostToolUse of Chrome tools | Saves each page and its element refs; compacts long pages for the application worker. |
 | `capture` | SubagentStop of an ohmyjob worker | The same report checks on the worker's final text. |
-| `report` | Stop | Shows the usage table if the user has not seen it. Runs 2 to 3 times per run, so it is idempotent. |
+| `report` | Stop | Shows the cost report (and the quota line) if the user has not seen it. Runs 2 to 3 times per run, so it is idempotent. |
 
 A worker's report reaches the scripts by two equal paths, `handback` (auto mode only) and `capture` (the only path in Manual and `-p` mode). Both feed one processor.
 
@@ -217,7 +217,7 @@ Both masters are queue loops: a new worker starts as soon as one finishes, up to
    Before a brief is written, `assign-screen` runs the work authorization pre-pass (`work_auth.py`, a script: no model). A posting that states a work authorization requirement outright (no sponsorship, right to work, citizens only, permanent residency, a named clearance; English and German phrases) in the one country of its `Location`, which the `# Work Authorization` lines of `Profile.md` say the candidate does not meet, is answered by the script itself with a screen-shaped report (no score, a `note` that starts `Work authorization block:` and quotes both sides) and no worker is started; `record` then sets `Skipped-LowFit` as for any low score. Silence, positive or hedged wording, an unknown country, a country or a section the profile does not mention never block; a known country the profile does not cover, or a requirement it cannot decide, is written into the job's `Gaps` by `record`. The screen worker is told it does not judge work authorization.
 3. `record` writes the result into `job.md`, sets the row, saves the tracker, and only then deletes skipped folders. A match on a yaml sets `Matched` and joins the build queue at once. A match on a ready-made PDF needs no worker: `record` copies the PDF into the job folder as `<First>_<Company>_<Title>.pdf` and sets `Resume Built` directly; such a folder holds a PDF and no yaml. A skip sets `Skipped-LowFit`.
 4. `assign-build` copies the matched yaml into the job folder and writes the brief. The resume worker edits only that yaml and runs `ohmyjob prep build <job>`, which checks the mechanical rules (skeleton, bullet counts, title, line and skills budgets), compiles (at most 4 builds), and returns `OK`, `OVERFLOW` or `FAIL`. `record` then sets `Resume Built`, `Resume Failed`, or `Deleted` for a rejected posting.
-5. `end` prints the summary (every deletion listed one by one) and the token table, and deletes the run folder.
+5. `end` prints the summary (every deletion listed one by one) and the cost report, and deletes the run folder.
 
 ```mermaid
 flowchart TD
@@ -251,7 +251,7 @@ Order of writes in every step: `job.md`, then the tracker (saved), then folder d
 2. The master opens one tab per job; `assign` writes one brief per job: the full `Profile.md`, the tailored resume yaml and the job's overview and description.
 3. `next` starts workers in free slots; the first page loads are staggered so that many workers do not hit one account at once. Each worker's report is checked by `handback` or `capture`.
 4. A worker never guesses. On a question about the candidate that the brief does not answer, it stops with status `blocked` and the questions word for word; `finish` records them in `questions.json`, and the main session asks them and saves the answers in `Profile.md` (`ohmyjob apply questions` / `answer`).
-5. `finish` checks every result, writes `job.md` notes, moves folders (`Pending-Review/` for a form parked at the final step, `Needs-Attention/` for the rest) and updates the tracker in one save. `group-plan` and `cleanup-plan` let the extension group the tabs and close stray ones (job tabs stay open). `end` prints the token table and removes the run folder.
+5. `finish` checks every result, writes `job.md` notes, moves folders (`Pending-Review/` for a form parked at the final step, `Needs-Attention/` for the rest) and updates the tracker in one save. `group-plan` and `cleanup-plan` let the extension group the tabs and close stray ones (job tabs stay open). `end` prints the cost report and removes the run folder.
 6. `continue` mode (`adopt-plan`, `adopted`, `assign --continue`) takes every tab of the group "Needs Attention" back into the run group; each worker continues from the open page. `adopted` matches a tab to a job by the page it shows (the address of the last note, the Apply URL and the Job URL, then the shared path segments and the company in the tab title), not by Chrome's tab id, so a Chrome restart and a tab the candidate added are both handled. A job without a matching tab is left alone; a tab that fits no job stays open and goes back to "Needs Attention".
 7. A worker has no wall-clock limit: a progress watchdog stops it when nothing moves (`Worker_Limits.json`, the counters live in the run state). `next` frees the slot of a worker that ended or made no call for `idle_minutes`; a late report of such a worker is still accepted.
 8. `end` also writes the ledger and the traces (`ledger.py`) into `.ohmyjob/traces/`, before the run folder is deleted, and says when enough new traces are waiting for `/ohmyjob:dream`.
@@ -386,6 +386,8 @@ flowchart TD
 
 Exit codes: 0 clean, 1 done but some folder unresolved, 2 invariant failed (nothing written), 3 fatal. The dry run prints a plan digest; `--apply --expect <digest>` refuses when the plan changed since.
 
-## Token usage
+## Run cost
 
-`end` of the prep and apply runs prints one table per agent type and model (agents, API calls, input, cache write, cache read, output tokens), summed from the transcripts Claude Code writes for the master and every worker it started, plus the Haiku checks. The text may be dropped on its way to the user, so it is also saved to `.ohmyjob/last_report.txt`, and the `report` hook shows it if the user has not seen it.
+`end` of the prep and apply runs prints the cost of the run in API-equivalent dollars, summed from the transcripts Claude Code writes for the master and every worker it started (and the Haiku checks, counted as application work), priced with the `PRICES` table in `aa_lib.py`. One line per kind of work: screening and resumes (prep run), applications (apply run), each with its unit count (jobs screened, resumes attempted, jobs that got a tab) and the cost per unit; masters and other agents go into an `overhead` line. A model with no price is named in a `cost unknown` line. The text may be dropped on its way to the user, so it is also saved to `.ohmyjob/last_report.txt`, and the `report` hook shows it if the user has not seen it.
+
+The same hook adds a `Quota:` line: how far the 5-hour and weekly subscription quotas moved during the run. `start` of each run keeps a reading in `.ohmyjob/quota_start.json`; the hook takes the end reading. Both come from the status line data that the oh-my-claudecode HUD saves for the session (`~/.claude/hud/cache/stdin.<session_id>.json`, a private detail of that plugin). Without that data the line says so.

@@ -5,7 +5,7 @@
   hooks.py snapshot     PostToolUse  Chrome tools                saves page and tab data (application agents only)
   hooks.py handback     PreToolUse   SubagentHandback            checks and saves the worker result
   hooks.py capture      SubagentStop application-worker          the same, when the result is final text
-  hooks.py report       Stop                                     shows the token table of the last run, once
+  hooks.py report       Stop                                     shows the cost report of the last run, once
 
 Who is decided how (docs/ARCHITECTURE.md, "Hook routing and the guard model", rule 5): the model controls tool_input, so every decision rests on
 the parsed top-level fields of the hook input (agent_type, tool_name, cwd) and never on text inside tool_input.
@@ -1756,15 +1756,15 @@ def shown_since(transcript: Optional[str], since: float) -> str:
 
 
 def report(inp: dict) -> None:
-    """Stop of the main session: the token table of the last run must reach the candidate, one time."""
+    """Stop of the main session: the cost report of the last run must reach the candidate, one time."""
     if not L.REPORT_FILE.exists() or inp.get("agent_type"):
         sys.exit(0)  # a forked skill's own Stop: its text may never reach the candidate, so only the main session counts
     table = L.REPORT_FILE.read_text(encoding="utf-8")
     seen = (inp.get("last_assistant_message") or "") + "\n" + shown_since(inp.get("transcript_path"), L.REPORT_FILE.stat().st_mtime)
     L.REPORT_FILE.unlink(missing_ok=True)
-    if not L.report_shown(table, seen):
-        # shown to the candidate by Claude Code itself: no block, so the model does not run again and repeat its reply
-        print(json.dumps({"systemMessage": table.strip()}))
+    quota = L.quota_report(inp.get("session_id"))  # read now: the status line data is freshest at the end of the run
+    # shown to the candidate by Claude Code itself: no block, so the model does not run again and repeat its reply
+    print(json.dumps({"systemMessage": quota if L.report_shown(table, seen) else table.strip() + "\n" + quota}))
     sys.exit(0)
 
 

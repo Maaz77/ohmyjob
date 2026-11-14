@@ -4,7 +4,7 @@ What the errors mean, and what a run costs. [Back to the README](../README.md)
 
 ## What it costs
 
-Each run ends with a usage table: agents, API calls, and input, cache and output tokens per agent type and model. The defaults are deliberately modest so that a first round fits inside a Pro plan — screening uses a small model, `results_per_term` is 30, and the number of workers running at once is Claude Code's subagent cap (20) minus one. Raise them once you know what a round costs you.
+Each run ends with a cost report: API-equivalent dollars (not what a subscription bills) per job screened, per resume built and per application, plus the quota line when your status line data is available. The defaults are deliberately modest so that a first round fits inside a Pro plan — screening uses a small model, `results_per_term` is 30, and the number of workers running at once is Claude Code's subagent cap (20) minus one. Raise them once you know what a round costs you.
 
 ## When something goes wrong
 

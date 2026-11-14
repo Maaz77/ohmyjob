@@ -102,7 +102,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 | **It learns each site** | `/ohmyjob:dream` turns the traces of your runs into notes about each application system. Traces hold no filled values, drafted answers or email addresses. |
 | **You tune the screen** | `/ohmyjob:retro` turns your verdict on the jobs it skipped, and what you type, into proposed edits of your Fit Preferences. You accept or refuse each one, and the whole pass can be undone. |
 | **No runs on sample data** | The commands refuse to run while the made-up "Alex Example" data is still in your files. |
-| **A usage table** | Every run ends with a table of agents, API calls and tokens. |
+| **A cost report** | Every run ends with its cost in API-equivalent dollars per unit of work (per job screened, per resume, per application), and the share of your subscription quota it used when status line data is available. |
 
 ## The four stages
 

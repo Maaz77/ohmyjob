@@ -718,6 +718,7 @@ def discard(state: dict, tracker: Tracker, plans: list[tuple]) -> None:
 
 
 def cmd_start(args: argparse.Namespace) -> None:
+    L.quota_start(os.environ.get("CLAUDE_CODE_SESSION_ID"))
     # A run that stopped early leaves its folder. Its jobs are still at Found or Matched, so they are queued again.
     if W.has_template_marker(W.PROFILE):  # the mock guard: Profile.md still holds the mock data
         fatal(f"{W.PROFILE.name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with yours, then delete that line")
@@ -1250,7 +1251,10 @@ def cmd_end(args: argparse.Namespace) -> None:
         state = L.load_state(run_dir)
     master = L.read_json(RUN_BASE / "master.json", {})
     print(summary(state))
-    table = L.usage_table(master.get("transcript"), master.get("agent_id"))
+    jobs = state["jobs"].values()
+    counts = {"ohmyjob:screen-worker": len([j for j in jobs if "score" in j or j.get("outcome") == "Skipped-LowFit"]),
+              "ohmyjob:resume-worker": len([j for j in jobs if j["phase"] == "build" and j["assigned"]])}
+    table = L.run_report(master.get("transcript"), master.get("agent_id"), counts)
     print(table)
     L.save_report(table)
     try:  # one line when enough skips wait for /ohmyjob:retro; never an error, never a block

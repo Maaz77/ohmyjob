@@ -244,11 +244,11 @@ class TestUsageHelpers(unittest.TestCase):
         self.assertEqual(records[W]["usage"]["output_tokens"], 7)  # one call, written twice
         self.assertEqual(records[W]["usage"]["calls"], 1)
 
-    def test_the_table_is_built_on_the_same_records(self):
-        table = L.usage_table(self.session, "m1")
-        self.assertIn("Token usage of this run", table)
-        self.assertIn(W, table)
-        self.assertRegex(table, r"TOTAL\s+2\s+2\s+2\s+0\s+0\s+7")
+    def test_the_report_is_built_on_the_same_records(self):
+        report = L.run_report(self.session, "m1", {W: 3})
+        self.assertRegex(report, r"Run cost ≈ \$0\.00")
+        self.assertRegex(report, r"applications\s+3 jobs\s+\$0\.000\s+\$0\.000 per application")
+        self.assertIn("overhead", report)
 
     def test_the_folder_comes_from_the_worker_prompt(self):
         self.assertEqual(L.folder_from_prompt("folder=42_Acme_Role tab=101"), "42_Acme_Role")
