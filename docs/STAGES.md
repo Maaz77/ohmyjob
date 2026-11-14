@@ -13,7 +13,7 @@ What you do in each stage of a round, what you can steer, and what can go wrong.
 **Before anything else:** open a terminal, go to your job-search folder — the one you created before you installed the plugin, the parent of `ohmyjob/` — and start Claude there:
 
 ```bash
-cd /path/to/job-search && claude --setting-sources project,local --strict-mcp-config --chrome
+cd /path/to/job-search && claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome
 ```
 
 Every round runs from that folder. If you start Claude somewhere else, the hooks and settings of the project do not load and the commands will not work properly.

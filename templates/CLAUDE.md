@@ -3,7 +3,7 @@
 This folder (`ohmyjob/` inside your project folder) is the job-search workspace of the ohmyjob plugin. Start Claude Code in
 the project folder, the one that holds `.claude/` and this folder (project settings and hooks load only from the folder
 Claude starts in):
-`claude --setting-sources project,local --strict-mcp-config --chrome`
+`claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome`
 
 ## Standing rules (never break these)
 - Never click the final Submit / Send application / Apply button of a job application. The candidate submits by hand.
@@ -21,6 +21,7 @@ Claude starts in):
 - `Job_Tracker.xlsx`: one row per job. Close it in Excel / LibreOffice before running a command.
 - `Default_Resume_Files/`: one `<Field>.yaml` per role family (copied from `Template.yaml`) and its `<Field>.pdf`, plus
   optional ready-made `<Field>.pdf` files.
+- `Resume_Template/`: appears after `/ohmyjob:edit-template <request>`; the candidate's own copy of the LaTeX resume/CV template. Change it only through that command.
 - `Applications/`: one folder per job being prepared. `Pending-Review/` and `Needs-Attention/`: applications waiting for
   the candidate. `Submitted/`: done. Delete a job's folder to drop that job.
 - `.ohmyjob/`: working files of the plugin (environment, run state, builds). Do not edit.

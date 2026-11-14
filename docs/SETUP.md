@@ -36,7 +36,7 @@ claude plugin install ohmyjob@ohmyjob --scope project
 Now start Claude **in that same folder**:
 
 ```bash
-claude --setting-sources project,local --strict-mcp-config --chrome
+claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome
 ```
 
 This is the line you use every time, not only the first time. Two things about it matter:
@@ -70,6 +70,7 @@ Setup never asks you anything about yourself and never writes your real data. It
     CLAUDE.md                    a short guide, and the standing never-submit rule
     .gitignore                   keeps your personal files out of git
     Default_Resume_Files/        your resumes live here (see below)
+    Resume_Template/             your own copy of the LaTeX template, only once you run /ohmyjob:edit-template
     Applications/  Pending-Review/  Needs-Attention/  Submitted/
     .ohmyjob/                    working files: environment, run state, builds — do not edit
 ```
@@ -92,8 +93,8 @@ This folder is where your own resumes live, and it decides what stage 2 can do. 
 
 **Way one: fill in a template, and let the plugin build the PDF.** Setup puts two templates in the folder, so you can choose the document you want:
 
-- `Template.yaml` — a **resume**: Summary, Work Experience, Honors & Awards, Certificates, Education.
-- `Template-CV.yaml` — a **CV**: Education, Skills, Experience, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees.
+- `Template.yaml` — a **resume**: Summary, Work Experience, Projects, Honors & Awards, Certificates, Education.
+- `Template-CV.yaml` — a **CV**: Education, Skills, Experience, Projects, Extracurricular Activity, Honors & Awards, Certificates, Presentation, Writing, Program Committees.
 
 Both follow [Awesome-CV](https://github.com/posquit0/Awesome-CV) exactly — the red accent, its page geometry, header and footer. `Template.pdf` and `Template-CV.pdf` next to them are sample builds, so you can see the result before you write a word. A section with no entries is simply left out, and a key that the chosen document does not print gives a `WARNING` line rather than an error.
 
@@ -106,6 +107,15 @@ Copy a template once **per kind of role you apply for**, and name each copy afte
 That builds a PDF next to every yaml in the folder (never the `Template*` files), one line of output per file. `/ohmyjob:build-resumes Data-Analyst.yaml` builds just that one. Each role file is a complete resume on its own; there is no shared base file. Copy the template as many times as you like — one per role is the useful unit, because stage 2 picks the closest one for each job and tailors a copy of it.
 
 **Way two: drop in resumes you already have.** Copy your own finished PDFs into the folder, named after the role (`Nurse-ICU.pdf`), with no yaml beside them. Their layout and format do not matter — they do not have to look like the template at all. The catch: **a ready-made PDF is never tailored.** It is sent exactly as it is. The plugin reads its text to decide whether it fits a job, and if it does, it copies the file into the job's folder and moves straight on to stage 3.
+
+**Change the look of the template (optional).** The colour, the margins, the fonts, the header, or a section the template does not have are changed with one request in words:
+
+```
+/ohmyjob:edit-template add a section Selected Projects to the resume
+/ohmyjob:edit-template make the accent colour of the CV blue
+```
+
+The command works out which document you mean — resume, CV or both — from your words and from the `document:` line of your yamls, and asks when that is still unclear. Both documents are printed by one LaTeX template; the command changes your own copy of it, `ohmyjob/Resume_Template/resume.tex.j2`, so a plugin update does not replace your change, and every build (yours and the tailored ones) uses it. It then builds `Template.yaml` and `Template-CV.yaml` to check that both still compile, and tells you what to do in your own role yamls (for a new section, copy its sample lines from `Template.yaml` or `Template-CV.yaml`; your role yamls are never edited for you). A new section is copied as it is when a resume is tailored for a job, and `/ohmyjob:master-resume` does not merge it. Run `/ohmyjob:build-resumes` afterwards to rebuild your PDFs, and `ohmyjob resume template --reset` to go back to the default template.
 
 Two rules for this folder:
 
@@ -140,7 +150,7 @@ Set your boards, your search terms, your location and country, and whichever fil
 Only stage 3 needs this, so you can leave it until you get there — but do all five steps before your first application run, because each one of them blocks the run on its own.
 
 1. **Install the Claude in Chrome extension** in Chrome, Edge or Brave, from the Chrome Web Store, and sign in to it with the same Anthropic account you use in Claude Code. This is the extension that lets Claude see and click pages at all.
-2. **Load the ohmyjob helper extension.** It opens page pop-ups — a sign-in window, for instance — as ordinary tabs, so the application workers can reach them, and it groups finished tabs for you. Setup prints its folder path. In Chrome open `chrome://extensions`, switch on **Developer mode**, click **Load unpacked** and choose that folder. Keep the folder where it is: it survives plugin updates.
+2. **Load the ohmyjob helper extension.** It opens page pop-ups — a sign-in window, for instance — as ordinary tabs, so the application workers can reach them, and it groups finished tabs for you. Setup prints its folder path. In Chrome open `chrome://extensions`, switch on **Developer mode**, click **Load unpacked** and choose that folder. The folder is inside `~/.claude/`, which macOS hides in the file picker: press **Cmd+Shift+.** to show hidden folders, or **Cmd+Shift+G** and paste the path. Keep the folder where it is: it survives plugin updates.
 3. **Allow the Claude extension on the sites you will use** — the job boards and the company career sites. Open the Claude extension's settings in Chrome and grant per-site access there. These permissions live in the extension and nothing in this plugin can set them for you.
 4. **Sign in to the job boards in that Chrome profile** — LinkedIn above all, and any other board you search. The workers use the session that is already in the browser; they never type a password, and a site that asks for one stops the job with a note instead.
 5. **Sign in to Google in that Chrome profile**, with the account whose email is in your `Profile.md`. Many career sites offer "Continue with Google", and that is the one sign-in route the workers can take on their own. Without it, every site that puts a wall in front of its form ends the round at "Needs Attention" for you to handle by hand.

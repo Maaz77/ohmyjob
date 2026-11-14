@@ -3,7 +3,7 @@
 
 CLI: `ohmyjob resume build <resume.yaml> [--out <pdf>]` prints one line: `OK <pdf>`, `OVERFLOW <N> pages` or
 `FAIL <reason>`. `ohmyjob resume master [--apply]` drafts the Resume section of Profile.md (master_resume.py). `ohmyjob resume build-all [<name.yaml>] [--dir <dir>]` builds every *.yaml of the dir except Template*.yaml, or only the named one (default dir
-Default_Resume_Files) next to itself and prints one line per file. Import API (used by pj.py): `build()`, `render()`, `ignored_keys()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
+Default_Resume_Files) next to itself and prints one line per file. `ohmyjob resume template [--reset]` makes (or deletes) the user's editable copy of the template, `Resume_Template/` in the workspace. Import API (used by pj.py): `build()`, `render()`, `ignored_keys()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
 
 Everything in the yaml is data from a model: `tex()` escapes every LaTeX special, so yaml text never reaches LaTeX as a
 command. LuaLaTeX runs with shell escape off, in a throw-away dir under W.BUILD_DIR.
@@ -44,19 +44,23 @@ PAPERS = {"a4": "a4paper", "letter": "letterpaper"}
 CLASS_FILE = Path(__file__).resolve().parents[1] / "resume" / "awesome-cv.cls"
 TEMPLATE_DIR = CLASS_FILE.parent
 TEMPLATE_NAME = "resume.tex.j2"
+# The user's own copy of the template (made by `ohmyjob resume template`, edited by /ohmyjob:edit-template). It is searched
+# first, and lives in the workspace, so a plugin update does not replace it. Delete it (`template --reset`) for the default.
+OVERRIDE_DIR = W.ROOT / "Resume_Template"
 # Sections, their order and headings per document, exactly as in upstream's examples/resume/*.tex and examples/cv/*.tex.
 DOCUMENTS = {
-    "resume": {"summary": "Summary", "experience": "Work Experience", "honors": "Honors & Awards",
+    "resume": {"summary": "Summary", "experience": "Work Experience", "projects": "Projects", "honors": "Honors & Awards",
                "certificates": "Certificates", "education": "Education"},
-    "cv": {"education": "Education", "skills": "Skills", "experience": "Experience",
+    "cv": {"education": "Education", "skills": "Skills", "experience": "Experience", "projects": "Projects",
            "extracurricular": "Extracurricular Activity", "honors": "Honors & Awards", "certificates": "Certificates",
            "presentation": "Presentation", "writing": "Writing", "committees": "Program Committees"},
 }
 HONOR_KEYS = ("honors", "certificates", "committees")  # cvhonor lists {award, event, location, date}
-ENTRY_KEYS = ("extracurricular", "presentation", "writing")  # cventry lists {role, title, location, date, items}
+ENTRY_KEYS = ("projects", "extracurricular", "presentation", "writing")  # cventry lists {role, title, location, date, items}
+# (a project is {title, repo, bullets} in the yaml: _projects() maps it onto that shape, title as the bold role, repo as the title line)
 # yaml key -> the section that shows it (`introduction` is the Summary paragraph)
 KEY_SECTION = {"introduction": "summary"}
-OLD_KEYS = ("projects", "interests")  # still accepted so old files build; never printed
+OLD_KEYS = ("interests",)  # still accepted so old files build; never printed
 ACCENT_NAMES = ("emerald", "skyblue", "red", "pink", "orange", "nephritis", "concrete", "darknight")
 
 
@@ -262,6 +266,17 @@ def _entries(raw, key: str) -> list:
     return out
 
 
+def _projects(raw) -> list:
+    """The projects section as cventry rows: the title is the bold first line, the repo link the second, then the bullets."""
+    out = []
+    for i, p in enumerate(_list(raw, "projects")):
+        f = f"projects[{i}]"
+        p = _dict(p, f)
+        out.append({"role": _str(p.get("title"), f"{f}.title", required=True), "title": _str(p.get("repo"), f"{f}.repo"),
+                    "location": "", "date": "", "items": _bullets(p.get("bullets"), f"{f}.bullets")})
+    return out
+
+
 def _accent(data: dict) -> tuple[str, bool]:
     """(upstream colour name, whether the yaml named a colour upstream does not have)."""
     raw = _str(data.get("accent_color"), "accent_color").lower()
@@ -323,7 +338,8 @@ def _context(data: dict, paper: str, photo: str = "") -> dict:
     introduction = _str(data.get("introduction"), "introduction")
     experience = _experience(data.get("experience"))
     lists = {k: _honors(data.get(k), k) for k in HONOR_KEYS}
-    lists.update({k: _entries(data.get(k), k) for k in ENTRY_KEYS})
+    lists.update({k: _entries(data.get(k), k) for k in ENTRY_KEYS if k != "projects"})
+    lists["projects"] = _projects(data.get("projects"))
     present = {"summary": introduction, "experience": experience, "education": education, "skills": skills, **lists}
     order = [k for k in DOCUMENTS[document] if present.get(k)]  # a section without entries is left out
     return {
@@ -338,11 +354,12 @@ def _context(data: dict, paper: str, photo: str = "") -> dict:
         "quote": _str(data.get("quote"), "quote"), "photo": photo,
         "introduction": introduction, "experience": experience, "education": education, "skills": skills,
         "lists": lists, "order": order,
+        "data": data,  # the raw yaml, for sections that only a user's template copy knows; unvalidated: use the filters
     }
 
 
 _ENV = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(str(TEMPLATE_DIR)), autoescape=False, keep_trailing_newline=True,
+    loader=jinja2.FileSystemLoader([str(OVERRIDE_DIR), str(TEMPLATE_DIR)]), autoescape=False, keep_trailing_newline=True,
     trim_blocks=True, lstrip_blocks=True, undefined=jinja2.StrictUndefined,
     block_start_string="<%", block_end_string="%>", variable_start_string="<<", variable_end_string=">>",
     comment_start_string="<#", comment_end_string="#>",
@@ -622,7 +639,24 @@ def main(argv=None) -> int:
     j.add_argument("names", help='job folder names, comma separated: "Acme, Lumenfield"')
     m = sub.add_parser("master", help="draft the # Resume section of Profile.md from the resume files (no model)")
     m.add_argument("--apply", action="store_true", help="replace the # Resume section of Profile.md with the draft")
+    t = sub.add_parser("template", help="make the editable copy of the LaTeX template in the workspace")
+    t.add_argument("--reset", action="store_true", help="delete that copy, so builds use the plugin's template again")
     args = ap.parse_args(argv)
+    if args.cmd == "template":
+        mine = OVERRIDE_DIR / TEMPLATE_NAME
+        try:
+            if args.reset:
+                mine.unlink(missing_ok=True)
+                print(f"RESET {mine}")
+                return 0
+            if not mine.exists():
+                mine.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(TEMPLATE_DIR / TEMPLATE_NAME, mine)
+        except OSError as exc:
+            print(f"FATAL: {exc.strerror or exc}: {exc.filename or mine}")
+            return 1
+        print(f"TEMPLATE {mine}")
+        return 0
     if args.cmd == "master":
         import master_resume
 
