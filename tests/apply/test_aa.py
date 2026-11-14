@@ -1350,39 +1350,39 @@ class TestEndTokens(Base):
         subprocess.run([sys.executable, "-c", f"import judge; from pathlib import Path; judge.selftest(Path({str(run_dir)!r}))"],
                        env=self.env, cwd=SCRIPTS, check=True)
         out = self.aa("end")
-        self.assertRegex(out, r"ohmyjob:application-worker\s+claude-haiku-5-5\s+1\s+1\s+2\s+100\s+50\s+9\n")
-        self.assertRegex(out, r"Haiku check\s+haiku\s+1\s+10\s+0\s+0\s+5\n")
-        self.assertRegex(out, r"TOTAL\s+2\s+3\s+14\s+200\s+100\s+17\n")
+        self.assertRegex(out, r"Run cost ≈ \$0\.000 \(API-equivalent")  # a few dollars of nothing: no worker got a tab
+        self.assertRegex(out, r"overhead\s+master\s+\$0\.000\n")
         self.assertRegex(out, r"Ledger: \d+ lines in .*ledger\.jsonl\nRUN FOLDER DELETED$")
 
-        # the Stop hook of the main session: it blocks until the reply has the table, then the file is gone
+        # the Stop hook of the main session: it shows the report when the reply lacks it, then the file is gone
         report = self.root / ".ohmyjob" / "last_report.txt"
         table = report.read_text()
+        quota = "Quota: not available (no status line data for this session)"
         stop = {"hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": "All done."}
         shown = json.loads(self.hook("report", stop).stdout)
-        self.assertEqual(shown, {"systemMessage": table.strip()})  # Claude Code shows it; no block, no second reply
+        self.assertEqual(shown, {"systemMessage": table.strip() + "\n" + quota})  # Claude Code shows it; no block, no second reply
         self.assertFalse(report.exists())
         self.assertEqual(self.hook("report", stop).stdout, "")
-        report.write_text(table)
-        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": table}).stdout, "")
+        report.write_text(table)  # a reply with the cost: only the quota line is added
+        self.assertEqual(json.loads(self.hook("report", {**stop, "last_assistant_message": table}).stdout), {"systemMessage": quota})
         self.assertFalse(report.exists())
 
-        # a reply without the input column counts; a forked skill's own Stop is not the main session
-        total = table.splitlines()[-1].split()
-        L_main = "TOTAL  " + "  ".join(total[1:3] + total[4:])
+        # a forked skill's own Stop is not the main session
         report.write_text(table)
         self.assertEqual(self.hook("report", {**stop, "agent_type": "prep-master"}).stdout, "")
         self.assertTrue(report.exists())
-        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": L_main}).stdout, "")
+        self.assertEqual(json.loads(self.hook("report", {**stop, "last_assistant_message": "Run cost $0.000"}).stdout),
+                         {"systemMessage": quota})
         self.assertFalse(report.exists())
 
-        # a forked skill run by the user: the master's table reached them as a local command output (in the transcript)
+        # a forked skill run by the user: the master's report reached them as a local command output (in the transcript)
         report.write_text(table)
         when = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
         transcript = self.root / "main.jsonl"
         transcript.write_text(json.dumps({"type": "system", "subtype": "local_command", "timestamp": when,
-                                          "content": "<local-command-stdout>| TOTAL | " + total[-1] + " |</local-command-stdout>"}) + "\n")
-        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": "", "transcript_path": str(transcript)}).stdout, "")
+                                          "content": "<local-command-stdout>Run cost $0.000</local-command-stdout>"}) + "\n")
+        shown = self.hook("report", {**stop, "last_assistant_message": "", "transcript_path": str(transcript)}).stdout
+        self.assertEqual(json.loads(shown), {"systemMessage": quota})
         self.assertFalse(report.exists())
 
 
