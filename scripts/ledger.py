@@ -31,8 +31,9 @@ DREAM_HINT_TRACES = 10      # new traces before 'end' suggests a dream
 COSTLY_FACTOR = 2.0         # a parked job this much over the median of its ATS is a "costly_win"
 COSTLY_MIN_SAMPLES = 5      # fewer parked jobs of this ATS in the ledger: use COSTLY_TURNS_FALLBACK instead
 COSTLY_TURNS_FALLBACK = 60
-# ponytail: ledger lines before cost_usd carry no model, so the model of agents/application-worker.md is assumed
-# for them (change this constant when that file changes); an old line from another model is mispriced.
+# ponytail: ledger lines before cost_usd carry no model, so the model the workers ran on then is assumed for
+# them. Every such line predates the Haiku-first change, so this stays "sonnet" even though
+# agents/application-worker.md is now haiku: an old line from another model is mispriced.
 OLD_LINE_MODEL = "sonnet"
 
 SIGNIN_STEPS = ("none", "option", "popup", "account", "consent", "done")
