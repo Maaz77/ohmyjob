@@ -45,6 +45,15 @@ def main() -> None:
         else:
             reply({"verdict": "allow", "reason": "fake: navigation", "context_dependent": name.lower() == "procedi"})
         return
+    if "filled the fields of ONE job application" in prompt:
+        if "BOOM" in prompt:
+            print("not json at all")
+            sys.exit(1)
+        if "BADFILL" in prompt:
+            reply({"verdict": "suspect", "unsupported": [{"label": "Salary", "why": "not in profile"}]})
+        else:
+            reply({"verdict": "ok", "unsupported": []})
+        return
     print("not a click prompt")
     sys.exit(1)
 
