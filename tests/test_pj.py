@@ -538,7 +538,7 @@ def test_a_resume_worker_starts_while_other_screen_workers_still_run(pe):
     assert sum(1 for j in state["jobs"].values() if j["assigned"] and not j["done"]) == 3  # 2 screens + 1 resume, 4 slots
 
 
-def test_slots_are_shared_screens_first_then_builds(pe):
+def test_a_ready_build_takes_the_free_slot_before_a_waiting_screen(pe):
     for job_id, company in [("1001", "Acme"), ("1002", "Beta"), ("1003", "Gamma")]:
         pe.folder(job_id, company, "Analyst")
         pe.row(job_id, company, "Analyst", "Found")
@@ -547,12 +547,26 @@ def test_slots_are_shared_screens_first_then_builds(pe):
     briefs = dict(pe.workers(json.dumps({"workers": json.loads(pe.pj("next", env=env))["workers"]})))
     assert sorted(briefs) == ["1001", "1002"]
     finish_screen(pe, "1001", briefs["1001"], OPS)
-    nxt = json.loads(pe.pj("next", env=env))["workers"]  # one slot free: the waiting screen goes before the build
-    assert [w["subagent_type"] for w in nxt] == [SCREEN] and "job=1003" in nxt[0]["prompt"]
+    nxt = json.loads(pe.pj("next", env=env))["workers"]  # one slot free: the ready build goes before the waiting screen
+    assert [w["subagent_type"] for w in nxt] == [BUILDER] and "job=1001" in nxt[0]["prompt"]
     pe.bind(SCREEN, "s1002", briefs["1002"])
     assert pe.report(SCREEN, "s1002", {"job": "1002", **LOW}).returncode == 0
-    nxt = json.loads(pe.pj("next", env=env))["workers"]  # no screen left to start: the build takes the slot
+    nxt = json.loads(pe.pj("next", env=env))["workers"]  # no build is ready: the screen takes the freed slot
+    assert [w["subagent_type"] for w in nxt] == [SCREEN] and "job=1003" in nxt[0]["prompt"]
+
+
+def test_a_build_starts_while_found_jobs_are_still_unassigned(pe):
+    for job_id, company in [("1001", "Acme"), ("1002", "Beta"), ("1003", "Gamma"), ("1004", "Delta")]:
+        pe.folder(job_id, company, "Analyst")
+        pe.row(job_id, company, "Analyst", "Found")
+    env = {**pe.env, "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "3"}  # 2 slots, 4 Found jobs
+    pe.pj("start")
+    briefs = dict(pe.workers(json.dumps({"workers": json.loads(pe.pj("next", env=env))["workers"]})))
+    finish_screen(pe, "1001", briefs["1001"], OPS)
+    nxt = json.loads(pe.pj("next", env=env))["workers"]
     assert [w["subagent_type"] for w in nxt] == [BUILDER] and "job=1001" in nxt[0]["prompt"]
+    state = json.loads((pe.run_dir() / "state.json").read_text())
+    assert sorted(k for k, j in state["jobs"].items() if not j["assigned"])  # 1003 and 1004 still wait for a screen
 
 
 @pytest.mark.parametrize("template", ["Template.yaml", "Template-CV.yaml"])
