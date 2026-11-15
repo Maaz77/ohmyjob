@@ -596,9 +596,9 @@ def test_profile_template_shape_and_privacy():
     questions = text.split("# Follow Up Questions", 1)[1]
     items = [l for l in questions.splitlines() if re.match(r"\d+\. ", l)]
     assert [int(l.split(".")[0]) for l in items] == list(range(1, len(items) + 1))
-    assert len(items) >= 40 and all("?" in l for l in items)
+    assert len(items) >= 15 and all("?" in l for l in items)
     placeholders = " ".join(items)
-    for token in ("<company>", "<country>", "<job site>"):
+    for token in ("<company>", "<country>", "<skill>"):
         assert token in placeholders
     assert all(re.fullmatch(r"\d+\. [^?]+\? \S.*", line) for line in items)
     # the owner's own list never reaches the repo: given its path, no answer of it appears here

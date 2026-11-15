@@ -1076,7 +1076,8 @@ def fills_gate(run_dir: Path, folder: str, job: dict, result: Optional[dict], ch
 
 
 def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
-    """(label, value) of every `fill` event of this job in guard.log; the last value of a label wins."""
+    """(label, value, fallback) of every `fill` event of this job in guard.log. One pair per field (its ref and label; a ref
+    restarts on a new page): the last value of a field wins. `fallback`: no question text was found, the label is the field's name."""
     found: dict = {}
     try:
         lines = (run_dir / "guard.log").read_text(encoding="utf-8").splitlines()
@@ -1088,19 +1089,22 @@ def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
         except json.JSONDecodeError:
             continue
         if ev.get("event") == "fill" and ev.get("folder") == folder and ev.get("tab") == tab:
-            found[ev.get("label") or ""] = ev.get("value") or ""
-    return list(found.items())
+            label = ev.get("label") or ""
+            found[(ev.get("ref"), label)] = (label, ev.get("value") or "", bool(ev.get("fb")))
+    return list(found.values())
 
 
 def fills_check(run_dir: Path, profile: str, pairs: list) -> dict:
     """Is each filled value supported by Profile.md? Fail open: any error is recorded and nothing else changes.
-    Returns {"verdict", "unsupported": n, "labels": [...]} (no values) or {"error": ...}."""
+    Returns {"verdict", "unsupported": n, "labels": [...], "unlabelled": n} (no values) or {"error": ...}.
+    `pairs`: (label, value) or (label, value, fallback); `unlabelled` counts the fallback ones."""
     try:
-        result, error = J.ask(run_dir, "fills", {"profile": profile, "fills": pairs}, model="sonnet")
+        result, error = J.ask(run_dir, "fills", {"profile": profile, "fills": [p[:2] for p in pairs]}, model="sonnet")
         if result is None:
             return {"error": error[:200]}
         bad = [str(u.get("label")) for u in result["unsupported"] if isinstance(u, dict)]
-        return {"verdict": result["verdict"], "unsupported": len(bad), "labels": bad}
+        return {"verdict": result["verdict"], "unsupported": len(bad), "labels": bad,
+                "unlabelled": sum(1 for p in pairs if len(p) > 2 and p[2])}
     except Exception as exc:  # noqa: BLE001  (advisory metric: never stall a finish)
         return {"error": f"{type(exc).__name__}: {exc}"[:200]}
 

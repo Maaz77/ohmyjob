@@ -394,7 +394,7 @@ class TestModelAndFillsInTheLedger(T.Base):
         line = next(json.loads(x) for x in (traces / "ledger.jsonl").read_text(encoding="utf-8").splitlines()
                     if json.loads(x)["folder"] == folder)
         self.assertEqual((line["model"], line["handover"]), ("haiku", False))
-        self.assertEqual(line["fills_check"], {"verdict": "ok", "unsupported": 0, "labels": []})
+        self.assertEqual(line["fills_check"], {"verdict": "ok", "unsupported": 0, "labels": [], "unlabelled": 1})
         for path in traces.rglob("*"):
             if path.is_file():
                 self.assertNotIn("ZZSECRETVALUE", path.read_text(encoding="utf-8", errors="ignore"))

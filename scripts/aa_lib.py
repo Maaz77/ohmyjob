@@ -1108,6 +1108,37 @@ def parse_refs(text: str) -> dict[str, dict]:
     return refs
 
 
+def question_labels(text: str) -> dict[str, str]:
+    """ref -> question text of the fields in an "all" read: the label line right above the field
+    (`label [ref]` with a child `generic "Question"`, or `label "Question" [ref]`). The label of a group of radio
+    buttons or checkboxes holds until the status line after them; a label that repeats the previous field's own name
+    (the "Yes" after a checkbox) is no question."""
+    out: dict[str, str] = {}
+    lines = text.splitlines()
+    pending, used, last = "", False, ""
+    for i, raw in enumerate(lines):
+        match = ELEMENT_RE.match(raw.rstrip())
+        if not match:
+            continue
+        role, name, ref = match.group("role").lower(), _unescape(match.group("name") or ""), match.group("ref")
+        if role == "label":
+            indent = len(match.group("indent"))
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            text_ = name or (line_name(nxt) if len(nxt) - len(nxt.lstrip()) > indent else "")
+            if text_ and last != text_ and not last.startswith(text_ + ","):
+                pending, used = text_, False
+        elif role == "status":
+            if used:
+                pending = ""
+        elif role in TYPE_ROLES or role in TICK_ROLES:
+            if pending:
+                out[ref], used = pending, True
+                if role in TYPE_ROLES:
+                    pending = ""
+            last = name
+    return out
+
+
 def context_names(text: str, ref: str, span: int = 2) -> str:
     """Names on the line of `ref`, on its parent line, and on `span` lines above and below it.
 
