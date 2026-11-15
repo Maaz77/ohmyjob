@@ -106,7 +106,7 @@ def classify_outcome(verdict: str, code: str, blocker: str, has_result: bool, st
         return "harness"
     if verdict == "PASS":
         return "parked"
-    if code in ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED"):
+    if code in ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "FILL_REVIEW"):
         return "handoff"
     if code == "ACCOUNT_WALL":
         return "unverified_handoff" if account_wall_verified is False else "handoff"

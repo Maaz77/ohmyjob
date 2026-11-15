@@ -939,7 +939,7 @@ def retry_workers(run_dir: Path) -> list:
 # A blocker with one of these codes is never handed to Sonnet. OTHER is in the list because every OTHER blocker in the
 # ledger so far (geo walls, auto-mode refusals, a sign-in-only route, a consent denial) came from Sonnet itself: it
 # describes an environment Sonnet cannot pass either, so a handover would pay twice for nothing. One line to revisit.
-NO_HANDOVER_CODES = ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "OTHER")
+NO_HANDOVER_CODES = ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "OTHER", "FILL_REVIEW")  # FILL_REVIEW: the user fixes it
 WATCHDOG_STOPS = ("idle", "ended", "stall", "repeat_deny", "budget")
 NO_FINAL_MARKER = "stopped before any final control"  # check_result: a park with no final control evidenced
 
@@ -994,12 +994,12 @@ def handover_workers(run_dir: Path) -> list:
 
 
 def cmd_finish(args: argparse.Namespace) -> None:
-    """Check and record every assigned job with one tracker load and one save, then print the summary.
+    """Check (the fills check gates a PASS) and record every assigned job with one tracker load and one save, then print the summary.
 
     A job that cannot be recorded (for example: its destination folder exists already) stays in
     Applications/ at "Resume Built" and is listed; the other jobs are recorded."""
     run_dir = need_run()
-    with L.locked(run_dir):
+    with L.locked(run_dir):  # lock 1: release the tabs, read the reports, collect the fills
         state = L.load_state(run_dir)
         todo = [f for f, j in state["jobs"].items() if j.get("tab") is not None and not j.get("recorded")]
         results = {}
@@ -1009,36 +1009,61 @@ def cmd_finish(args: argparse.Namespace) -> None:
             if entry is not None:
                 entry["agent_id"] = None  # the worker has returned: release the tab
             results[folder] = L.read_json(L.job_dir(run_dir, folder) / "result.json", None)
-            job["verdict"], job["reasons"] = L.check_result(run_dir, state, job, results[folder])
-            job.pop("error", None)
         # the sign-in lease of a worker that has returned is free again (4.8)
         returned = {L.tab_key(state["jobs"][f]["tab"]) for f in todo if state["jobs"][f].get("tab") is not None}
         for host, lease in list((state.get("signin_hosts") or {}).items()):
             if isinstance(lease, dict) and lease.get("status") == "pending" and lease.get("holder") in returned:
                 del state["signin_hosts"][host]
-        stop = None
+        fills = {f: job_fills(run_dir, f, state["jobs"][f].get("tab")) for f in todo}
+        profile = L.PROFILE.read_text(encoding="utf-8") if any(fills.values()) else ""
+        L.save_state(run_dir, state)
+    # the fills check gates the verdict and can take seconds: outside the run lock
+    checks = {f: fills_check(run_dir, profile, pairs) for f, pairs in fills.items() if pairs}
+    stop = None
+    with L.locked(run_dir):  # lock 2: verdicts (gated), recording
+        state = L.load_state(run_dir)
+        for folder in todo:
+            job = state["jobs"][folder]
+            if folder in checks:
+                job["fills_check"] = checks[folder]
+            job["verdict"], job["reasons"] = L.check_result(run_dir, state, job, results[folder])
+            job.pop("error", None)
+            try:
+                fills_gate(run_dir, folder, job, results[folder], checks.get(folder))
+            except Exception as exc:  # noqa: BLE001  (fail closed, but never raise out of finish)
+                fills_gate(run_dir, folder, job, results[folder],
+                           {"error": f"{type(exc).__name__}: {exc}"[:200]})
         if todo:
             stop = record_all(state, todo, results)
             for folder in todo:
                 job = state["jobs"][folder]
                 if job.get("recorded") and isinstance(results.get(folder), dict):
                     add_questions(results[folder].get("questions") or [], f"{job['company']} | {job['title']}")
-        fills = {f: job_fills(run_dir, f, state["jobs"][f].get("tab")) for f in todo}
-        profile = L.PROFILE.read_text(encoding="utf-8") if any(fills.values()) else ""
         state["status"] = "done"
         state["ended"] = L.now_iso()
         L.save_state(run_dir, state)
-    # the fills check is advisory and can take seconds: outside the run lock, and it never changes a verdict
-    checks = {f: fills_check(run_dir, profile, pairs) for f, pairs in fills.items() if pairs}
-    if checks:
-        with L.locked(run_dir):
-            state = L.load_state(run_dir)
-            for folder, check in checks.items():
-                state["jobs"][folder]["fills_check"] = check
-            L.save_state(run_dir, state)
     print(summary(state))
     if stop:  # the tracker could not be read or saved: nothing was recorded; running 'finish' again retries
         fatal(f"{stop} Close the tracker if it is open elsewhere, then run 'finish' again.")
+
+
+def fills_gate(run_dir: Path, folder: str, job: dict, result: Optional[dict], check: Optional[dict]) -> None:
+    """A PASS job whose worker typed values becomes BLOCKED (FILL_REVIEW) when Sonnet finds a value unsupported by
+    Profile.md, or when the check could not run (fail closed). Any other verdict, and a job with no fills (check is
+    None), is left alone. Labels only: values never reach the blocker, the ledger or the summary."""
+    if check is None or job.get("verdict") != "PASS" or not isinstance(result, dict):
+        return
+    if "error" in check:
+        reason = f"FILL_REVIEW: the fills check could not run ({check['error']})"
+    elif check.get("verdict") == "suspect":
+        reason = (f"FILL_REVIEW: {check['unsupported']} value(s) not supported by Profile.md: "
+                  f"{', '.join(check['labels'])}")
+    else:
+        return
+    job["verdict"], job["reasons"] = "BLOCKED", [reason]
+    result.update({"status": "blocked", "blocker": reason})
+    L.write_json(L.job_dir(run_dir, folder) / "result.json", result)  # the ledger and the job.md note read it
+    L.log(run_dir, "fills-gate", folder=folder, reason=reason)
 
 
 def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
@@ -1418,6 +1443,9 @@ def summary(state: dict) -> str:
         lines.append(f"- DELETED (closed) {j['folder']} (tab {j.get('tab')})")
     for j in needs:
         lines.append(f"- NEEDS ATTENTION {j['folder']} (tab {j.get('tab')}): {'; '.join(j.get('reasons') or [])[:200]}")
+    for j in needs:
+        if str((j.get("reasons") or [""])[0]).startswith("FILL_REVIEW"):
+            lines.append(f"- FIX BY HAND {j['folder']}: {j['reasons'][0]}")
     for j in not_done:
         if j.get("tab") is None:
             lines.append(f"- NOT STARTED {j['folder']}" + (f": {j['skip_reason']}" if j.get("skip_reason") else ""))

@@ -1552,3 +1552,71 @@ class TestFillsJudge(unittest.TestCase):
             self.assertIn("error", boom)
             with mock.patch.object(aa.J, "ask", side_effect=RuntimeError("down")):
                 self.assertIn("error", aa.fills_check(run_dir, "p", [("a", "b")]))
+
+
+class FillsGateBase(Base):
+    """The fills check gates a PASS: suspect or error blocks (FILL_REVIEW); anything else is left alone."""
+
+    def run_one(self, value, **report):
+        self.aa_json("start")
+        self.master_setup()
+        (folder, tab, _brief), _other = self.assign(101, 102)
+        self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1")
+        if value is not None:
+            self.page(tab, "constructed_form_page.txt")
+            self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_41", "value": value}, W, "A1"))
+        body = {"folder": folder, "tab": tab, "status": "parked", "where": "review", "final_button": "Submit application",
+                "url": "https://careers.example.com/a", "filled": ["First name"], "uploaded": None, "drafted": [],
+                "open": ["x"], "questions": [], "declarations": [], "blocker": None, **report}
+        self.assertAllowed(self.handback(json.dumps(body), agent_id="A1"))
+        out = self.aa("finish")
+        return folder, self.state()["jobs"][folder], out
+
+
+class TestGateSuspectBlocksWith(FillsGateBase):
+    def test_suspect_blocks_with_labels_only(self):
+        _f, job, out = self.run_one("BADFILL")
+        self.assertEqual(job["verdict"], "BLOCKED")
+        self.assertEqual(job["reasons"], ["FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"])
+        self.assertIn("FIX BY HAND", out)
+        self.assertNotIn("BADFILL", out + json.dumps(job))
+
+
+class TestGateAnErrorFails(FillsGateBase):
+    def test_an_error_fails_closed_with_its_own_wording(self):
+        _f, job, _out = self.run_one("BOOM")
+        self.assertEqual(job["verdict"], "BLOCKED")
+        self.assertTrue(job["reasons"][0].startswith("FILL_REVIEW: the fills check could not run ("), job["reasons"])
+
+
+class TestGateOk(FillsGateBase):
+    def test_ok_passes(self):
+        self.assertEqual(self.run_one("Alex")[1]["verdict"], "PASS")
+
+
+class TestGateNoFills(FillsGateBase):
+    def test_no_fills_pass(self):
+        self.assertEqual(self.run_one(None)[1]["verdict"], "PASS")
+
+
+class TestGateAJobThat(FillsGateBase):
+    def test_a_job_that_was_not_pass_is_unchanged(self):
+        _f, job, _out = self.run_one("BADFILL", status="blocked", blocker="CAPTCHA: a bot check")
+        self.assertEqual((job["verdict"], job["reasons"]), ("BLOCKED", ["CAPTCHA: a bot check"]))
+
+
+class TestGateTheGateNever(FillsGateBase):
+    def test_the_gate_never_raises_and_fill_review_is_not_handed_over(self):
+        import aa
+        job = {"verdict": "PASS"}
+        aa.fills_gate(Path("/nonexistent"), "f", job, None, {"error": "x"})  # no result dict: left alone
+        self.assertEqual(job["verdict"], "PASS")
+        self.assertIn("FILL_REVIEW", aa.NO_HANDOVER_CODES)
+        folder, tab = None, None
+        self.aa_json("start")
+        self.master_setup()
+        (folder, tab, _b), _o = self.assign(101, 102)
+        (self.run_dir() / "jobs" / folder / "result.json").write_text(json.dumps(
+            {"folder": folder, "tab": tab, "status": "blocked", "where": "w", "open": [], "filled": [],
+             "blocker": "FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"}))
+        self.assertEqual(TestHandover.handover(self), [])

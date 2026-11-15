@@ -42,12 +42,19 @@ class TestBlockerCodes(unittest.TestCase):
         # GOOGLE_MISSED is a relabel the ledger makes, and TIMEOUT is only kept for the lines of older runs
         text = (T.REPO / "agents" / "application-worker.md").read_text(encoding="utf-8")
         for code in L.BLOCKER_CODES:
-            if code in ("GOOGLE_MISSED", "TIMEOUT"):
+            if code in ("GOOGLE_MISSED", "TIMEOUT", "FILL_REVIEW"):  # FILL_REVIEW: the fills gate of 'finish'
+                continue
+            if False:
                 continue
             self.assertIn(code, text, code)
 
 
 class TestClassifyBlocker(unittest.TestCase):
+    def test_fill_review(self):
+        self.assertEqual(ledger.classify_blocker("FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"),
+                         "FILL_REVIEW")
+        self.assertEqual(ledger.classify_outcome("BLOCKED", "FILL_REVIEW", "FILL_REVIEW: x", True), "handoff")
+
     def test_the_prefix_wins(self):
         self.assertEqual(ledger.classify_blocker("STALLED: no progress"), "STALLED")
         self.assertEqual(ledger.classify_blocker("TIMEOUT: ran out of time"), "TIMEOUT")
