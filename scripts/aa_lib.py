@@ -642,20 +642,13 @@ def run_report(transcript: Optional[str], master_id: Optional[str], counts: Opti
     return "\n".join([head, *lines] + ([f"cost unknown for model {', '.join(sorted(unknown))}"] if unknown else []))
 
 
-# The master's text passes through 2 models, and either can drop the report. 'end' saves it here; the Stop hook makes
-# the main session show it (hooks.py report) and then deletes the file.
+# The master's text passes through 2 models, and either can drop the report. 'end' saves it here; the Stop hook always
+# shows it in the main session (hooks.py report) and then deletes the file.
 REPORT_FILE = W.REPORT_FILE
 
 
 def save_report(table: str) -> None:
     write_text(REPORT_FILE, table)
-
-
-def report_shown(table: str, message: str) -> bool:
-    """True if the message has the run cost of the first line ("$1.90"), or the whole first line when it has none."""
-    first = table.splitlines()[0]
-    found = re.search(r"\$\d+\.\d+", first)
-    return (found.group(0) if found else first) in message
 
 
 # --------------------------------------------------------------------------- folders

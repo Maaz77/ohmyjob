@@ -24,7 +24,6 @@ Haiku check (judge.py). The guard calls Haiku outside the run lock, so the other
 """
 from __future__ import annotations
 
-import datetime as _dt
 import io
 import json
 import os
@@ -1272,7 +1271,7 @@ def guard(inp: dict) -> None:
         sys.exit(0)
 
     if agent_type == L.MASTER and run_dir is not None and agent_id:
-        # where the run's transcripts are, for the token table of 'end'
+        # where the run's transcripts are, for the cost report of 'end'
         L.write_json(run_dir / "master.json", {"agent_id": agent_id, "transcript": inp.get("transcript_path")})
 
     # ---- ohmyjob application agents: validate, then allow explicitly (or deny)
@@ -1739,42 +1738,15 @@ def capture(inp: dict) -> None:
     sys.exit(0)
 
 
-def shown_since(transcript: Optional[str], since: float) -> str:
-    """The text that the candidate saw in the main session since `since`: its replies, and the output of a skill that
-    they ran themselves (a forked skill: the master's text goes to them directly, as a local command output)."""
-    try:
-        lines = Path(str(transcript)).read_text(encoding="utf-8").splitlines() if transcript else []
-    except OSError:
-        return ""
-    texts = []
-    for line in reversed(lines):
-        try:
-            entry = json.loads(line)
-            stamp = _dt.datetime.fromisoformat(str(entry.get("timestamp")).replace("Z", "+00:00")).timestamp()
-        except (json.JSONDecodeError, ValueError, AttributeError):
-            continue
-        if stamp < since:
-            break
-        if entry.get("isSidechain"):
-            continue
-        if entry.get("type") == "system" and entry.get("subtype") == "local_command":
-            texts.append(str(entry.get("content") or ""))
-        elif entry.get("type") == "assistant":
-            content = (entry.get("message") or {}).get("content") or []
-            texts += [b.get("text") or "" for b in content if isinstance(b, dict) and b.get("type") == "text"]
-    return "\n".join(texts)
-
-
 def report(inp: dict) -> None:
     """Stop of the main session: the cost report of the last run must reach the candidate, one time."""
     if not L.REPORT_FILE.exists() or inp.get("agent_type"):
         sys.exit(0)  # a forked skill's own Stop: its text may never reach the candidate, so only the main session counts
-    table = L.REPORT_FILE.read_text(encoding="utf-8")
-    seen = (inp.get("last_assistant_message") or "") + "\n" + shown_since(inp.get("transcript_path"), L.REPORT_FILE.stat().st_mtime)
+    table = L.REPORT_FILE.read_text(encoding="utf-8").strip()
     L.REPORT_FILE.unlink(missing_ok=True)
-    if not L.report_shown(table, seen):
+    if table:
         # shown to the candidate by Claude Code itself: no block, so the model does not run again and repeat its reply
-        print(json.dumps({"systemMessage": table.strip()}))
+        print(json.dumps({"systemMessage": table}))
     sys.exit(0)
 
 

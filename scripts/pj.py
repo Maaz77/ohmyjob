@@ -1313,7 +1313,7 @@ def hook_guard(inp: dict) -> None:
             mark_started(str(ti.get("prompt") or ""))
             return allow()
         if tool == "Bash" and W.PREP_MASTER_CMD_RE.match(str(ti.get("command") or "").strip()):
-            # where the run's transcripts are, for the token table of 'end' ('start' deletes it; the next command writes it again)
+            # where the run's transcripts are, for the cost report of 'end' ('start' deletes it; the next command writes it again)
             L.write_json(RUN_BASE / "master.json", {"agent_id": agent_id, "transcript": inp.get("transcript_path")})
             return allow()
         deny("The master runs only its 'ohmyjob prep' commands and starts only screen-worker and resume-worker agents.")

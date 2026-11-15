@@ -1354,33 +1354,30 @@ class TestEndTokens(Base):
         self.assertRegex(out, r"overhead\s+master\s+\$0\.000\n")
         self.assertRegex(out, r"Ledger: \d+ lines in .*ledger\.jsonl\nRUN FOLDER DELETED$")
 
-        # the Stop hook of the main session: it shows the report when the reply lacks it, then the file is gone
+        # the Stop hook of the main session always prints the saved report once, then the file is gone
         report = self.root / ".ohmyjob" / "last_report.txt"
         table = report.read_text()
         stop = {"hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": "All done."}
         shown = json.loads(self.hook("report", stop).stdout)
         self.assertEqual(shown, {"systemMessage": table.strip()})  # Claude Code shows it; no block, no second reply
         self.assertFalse(report.exists())
-        self.assertEqual(self.hook("report", stop).stdout, "")
+        self.assertEqual(self.hook("report", stop).stdout, "")  # no report: nothing
+
+        # the real failing case: the reply only says the total in prose, the report is still printed in full
         report.write_text(table)
-        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": table}).stdout, "")
+        prose = {**stop, "last_assistant_message": "The run cost about $0.00 at API-equivalent rates."}
+        self.assertEqual(json.loads(self.hook("report", prose).stdout), {"systemMessage": table.strip()})
+        self.assertFalse(report.exists())
+
+        # an empty report: nothing printed, the file is deleted
+        report.write_text("  \n")
+        self.assertEqual(self.hook("report", stop).stdout, "")
         self.assertFalse(report.exists())
 
         # a forked skill's own Stop is not the main session
         report.write_text(table)
         self.assertEqual(self.hook("report", {**stop, "agent_type": "prep-master"}).stdout, "")
         self.assertTrue(report.exists())
-        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": "Run cost $0.000"}).stdout, "")
-        self.assertFalse(report.exists())
-
-        # a forked skill run by the user: the master's report reached them as a local command output (in the transcript)
-        report.write_text(table)
-        when = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
-        transcript = self.root / "main.jsonl"
-        transcript.write_text(json.dumps({"type": "system", "subtype": "local_command", "timestamp": when,
-                                          "content": "<local-command-stdout>Run cost $0.000</local-command-stdout>"}) + "\n")
-        self.assertEqual(self.hook("report", {**stop, "last_assistant_message": "", "transcript_path": str(transcript)}).stdout, "")
-        self.assertFalse(report.exists())
 
 
 class TestFinishErrorsAndCleanup(Base):
