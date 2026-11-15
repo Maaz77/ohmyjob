@@ -5,8 +5,9 @@ Run as `ohmyjob prep <command>`.
 
   start                    queue the Found rows (screen) and the Matched rows (build); rows without a folder,
                            folders without a row, duplicate postings and closed postings (liveness.py) are settled here
-  next                     record the finished jobs, then print workers for the free slots (screens first, then
-                           builds); waits up to NEXT_SECONDS for a free slot; prints "done": true when no job is left
+  next                     record the finished jobs, then print workers for the free slots (a ready build
+                           takes a slot first, then screens, so a resume starts as soon as its screener finishes);
+                           waits up to NEXT_SECONDS for a free slot; prints "done": true when no job is left
   assign-screen [--max N]  write the briefs of the next screen jobs, print the screen-worker prompts
   assign-build [--max N]   copy the matched yaml, write the briefs of the next build jobs, print the resume-worker prompts
   build <job>              (resume-worker only) check the job's yaml, then compile its PDF
@@ -974,9 +975,9 @@ def cmd_next(args: argparse.Namespace) -> None:
         free = W.slots() - running
         workers = [worker(run_dir, k, state["jobs"][k]) for k in lost]
         if free > 0:
-            new = assign_screen(run_dir, free)[0]
+            new = assign_build(run_dir, free)[0]
             if len(new) < free:
-                new += assign_build(run_dir, free - len(new))[0]
+                new += assign_screen(run_dir, free - len(new))[0]
             workers += new
         if workers:
             return emit({"workers": workers})
