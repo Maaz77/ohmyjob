@@ -2,7 +2,8 @@
 
 Columns are found by header name, and a row is matched by the job_key of its "Job URL".
 A row's `_index` counts the header row as 0: the first job is 1, and its sheet row is `_index + 1`.
-Every script uses this API only. save() is atomic; it refuses while Excel or LibreOffice holds the file open and when
+Every script uses this API only. set_status enforces the lifecycle in TRANSITIONS; an illegal jump raises instead of
+corrupting a row. save() is atomic; it refuses while Excel or LibreOffice holds the file open and when
 the file changed on disk since it was loaded (a stale workbook would revert another run's statuses).
 Text written to a cell is always stored as text (scraped "=..." is no formula), without control characters, clipped.
 """
@@ -27,6 +28,21 @@ STATUSES = (
     "Found", "Matched", "Skipped-LowFit", "Resume Built", "Resume Failed",
     "Pending Review", "Needs Attention", "Submitted", "Deleted",
 )
+TERMINAL_STATUSES = frozenset({"Skipped-LowFit", "Submitted", "Deleted"})
+# The job lifecycle, enforced by set_status. Two standing rules live in code, not here:
+# a row may always keep its status (a note-only write), and any non-terminal row may
+# go to "Submitted" or "Deleted" (reconcile, liveness checks, folders tidied by hand).
+TRANSITIONS: dict[str, frozenset] = {
+    "Found": frozenset({"Matched", "Resume Built", "Skipped-LowFit"}),  # ready-made PDF goes straight to Resume Built
+    "Matched": frozenset({"Resume Built", "Resume Failed"}),
+    "Resume Built": frozenset({"Pending Review", "Needs Attention"}),
+    "Resume Failed": frozenset({"Resume Built"}),  # yaml fixed by hand, rebuilt with /ohmyjob:build-job-resumes
+    "Pending Review": frozenset(),
+    "Needs Attention": frozenset({"Pending Review"}),
+    "Skipped-LowFit": frozenset(),
+    "Submitted": frozenset(),
+    "Deleted": frozenset(),
+}
 
 
 class TrackerError(Exception):
@@ -142,10 +158,21 @@ class Tracker:
 
     def set_status(self, index: int, status: str, note_line: Optional[str]) -> None:
         self._check_status(status)
+        current = self.sheet.cell(row=index + 1, column=self.col["Status"] + 1).value
+        current = str(current).strip() if current is not None else ""
+        if current in STATUSES and status != current:  # a blank or hand-typed status cannot be checked, so it is not
+            allowed = set(TRANSITIONS[current])
+            if current not in TERMINAL_STATUSES:
+                allowed |= {"Submitted", "Deleted"}
+            if status not in allowed:
+                raise TrackerError(
+                    f"Sheet row {index + 1}: a job at '{current}' cannot go to '{status}'. "
+                    f"Allowed: {', '.join(sorted(allowed)) or 'none (terminal)'}"
+                )
         self.set_cell(index, "Status", status)
         if note_line:
-            current = self.sheet.cell(row=index + 1, column=self.col["Notes"] + 1).value or ""
-            combined = f"{current}\n{note_line}" if current else note_line
+            current_notes = self.sheet.cell(row=index + 1, column=self.col["Notes"] + 1).value or ""
+            combined = f"{current_notes}\n{note_line}" if current_notes else note_line
             self.set_cell(index, "Notes", ILLEGAL_CHARACTERS_RE.sub("", combined)[-MAX_CELL_CHARS:])  # a long history loses its oldest lines
 
     def add_row(self, values: dict) -> int:

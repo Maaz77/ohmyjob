@@ -34,12 +34,11 @@ from pathlib import Path
 from typing import Optional
 
 import workspace as W
-from tracker import STATUSES, Tracker, TrackerError
+from tracker import STATUSES, TERMINAL_STATUSES, Tracker, TrackerError
 
 SCAN_ROOTS = [W.APPLICATIONS, W.PENDING_REVIEW, W.NEEDS_ATTENTION, W.SUBMITTED]
 REVIEWED_ROOTS = (W.PENDING_REVIEW, W.NEEDS_ATTENTION)  # a folder here means the user reviewed and submitted it
 
-TERMINAL_STATUSES = {"Submitted", "Deleted", "Skipped-LowFit"}
 OPEN_STATUSES = set(STATUSES) - TERMINAL_STATUSES
 
 FOLDER_ID_RE = re.compile(r"^(\d+)_")

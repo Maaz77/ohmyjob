@@ -79,6 +79,7 @@ def test_set_status_appends_the_note_on_a_new_line(path, tr):
     index = tr.add_row({"Job URL": LINKEDIN, "Status": "Found"})
     tr.set_status(index, "Matched", None)
     tr.set_status(index, "Resume Failed", "Resume Failed 2026-10-21: overflow")
+    tr.set_status(index, "Resume Built", None)
     tr.set_status(index, "Needs Attention", "second note")
     tr.save()
     row = Tracker(path).rows()[0]
@@ -96,8 +97,8 @@ def test_set_status_refuses_an_unknown_status(tr):
 
 
 def test_every_status_is_accepted(tr):
-    index = tr.add_row({"Job URL": LINKEDIN})
     for status in STATUSES:
+        index = tr.add_row({"Job URL": LINKEDIN})  # a blank status is unchecked, so any status is reachable
         tr.set_status(index, status, None)
 
 
@@ -336,3 +337,42 @@ def test_the_check_runs_again_after_the_slow_write_and_before_the_replace(path, 
     monkeypatch.undo()
     assert [r["Company"] for r in Tracker(path).rows()] == ["Other run"]
     assert [p.name for p in path.parent.iterdir() if p.name.startswith(".")] == []
+
+
+# --------------------------------------------------------------------------- lifecycle
+
+
+def test_a_legal_transition_succeeds(tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Status": "Found"})
+    tr.set_status(index, "Matched", None)
+    assert tr.rows()[0]["Status"] == "Matched"
+
+
+@pytest.mark.parametrize("start, end", [("Pending Review", "Submitted"), ("Matched", "Deleted")])
+def test_an_open_row_may_go_to_submitted_or_deleted(tr, start, end):
+    index = tr.add_row({"Job URL": LINKEDIN, "Status": start})
+    tr.set_status(index, end, None)
+    assert tr.rows()[0]["Status"] == end
+
+
+@pytest.mark.parametrize("start", ["Submitted", "Found"])
+def test_an_illegal_transition_names_both_statuses(tr, start):
+    index = tr.add_row({"Job URL": LINKEDIN, "Status": start})
+    with pytest.raises(TrackerError, match=f"'{start}' cannot go to 'Pending Review'"):
+        tr.set_status(index, "Pending Review", None)
+    assert tr.rows()[0]["Status"] == start
+
+
+def test_a_terminal_row_accepts_a_note_only_write(tr):
+    index = tr.add_row({"Job URL": LINKEDIN, "Status": "Submitted", "Notes": "first"})
+    tr.set_status(index, "Submitted", "second")
+    row = tr.rows()[0]
+    assert (row["Status"], row["Notes"]) == ("Submitted", "first\nsecond")
+
+
+@pytest.mark.parametrize("typed", ["whatever", None])
+def test_a_status_that_is_not_in_the_list_accepts_any_valid_status(tr, typed):
+    index = tr.add_row({"Job URL": LINKEDIN})
+    tr.set_cell(index, "Status", typed)  # add_row and set_status refuse it, but a user can type it in Excel
+    tr.set_status(index, "Pending Review", None)
+    assert tr.rows()[0]["Status"] == "Pending Review"
