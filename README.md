@@ -30,8 +30,8 @@ Every round has four stages. You start each one with a command and check the res
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/pipeline-dark.svg">
-    <img alt="The ohmyjob pipeline. ohmyjob does the work in three stages. 1, Find (/ohmyjob:find-jobs): searches up to 10 job boards, filters by title and level, drops duplicates; tracker status Found. 2, Screen and Tailor (/ohmyjob:prep-jobs): scores each job out of 10, drops the weak matches, tailors your resume and builds the PDF; status Resume Built. 3, Fill (/ohmyjob:apply-jobs): one Chrome tab per job, fills the form, uploads the resume, stops before the final button; status Pending Review. Then you, by hand: read each form and press Submit. 4, Reconcile (/ohmyjob:reconcile): shows a dry run first, syncs the tracker with your folders, archives the sent jobs; status Submitted. Below: it never submits, because hooks block every final button; resumes come only from your Profile.md; /ohmyjob:dream turns runs into notes about each site." src="docs/pipeline-light.svg" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/pipeline-dark.svg">
+    <img alt="The ohmyjob pipeline. ohmyjob does the work in three stages. 1, Find (/ohmyjob:find-jobs): searches up to 10 job boards, filters by title and level, drops duplicates; tracker status Found. 2, Screen and Tailor (/ohmyjob:prep-jobs): scores each job out of 10, drops the weak matches, tailors your resume and builds the PDF; status Resume Built. 3, Fill (/ohmyjob:apply-jobs): one Chrome tab per job, fills the form, uploads the resume, stops before the final button; status Pending Review. Then you, by hand: read each form and press Submit. 4, Reconcile (/ohmyjob:reconcile): shows a dry run first, syncs the tracker with your folders, archives the sent jobs; status Submitted. Below: it never submits, because hooks block every final button; resumes come only from your Profile.md; /ohmyjob:dream turns runs into notes about each site." src="assets/pipeline-light.svg" width="100%">
   </picture>
 </p>
 
@@ -158,8 +158,8 @@ You can drop a job at any time, at any stage, by deleting its folder.
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.png">
-    <img alt="ohmyjob architecture as nested layers. At the core, Anthropic models: Haiku runs prep-master and screen-worker, Sonnet runs resume-worker, the application agents and the dream hosts, Opus runs dream-master. Around it, the Claude Code harness: skills, subagents, hook events, tools, Chrome MCP and the agent loop. Around that, the ohmyjob harness, whose agents run in a clockwise round: Find, Prep (master, screen workers, tailor workers, LuaLaTeX build; a failed resume is fixed by you and rebuilt with /build-job-resumes), Apply (application-master and one hook-guarded worker per Chrome tab, never pressing Submit; you submit, fix blocked tabs and answer questions), Dream (traces become ATS notes for the next Apply), and Reconcile, then the next round." src="docs/architecture-light.png" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-dark.png">
+    <img alt="ohmyjob architecture as nested layers. At the core, Anthropic models: Haiku runs prep-master and screen-worker, Sonnet runs resume-worker, the application agents and the dream hosts, Opus runs dream-master. Around it, the Claude Code harness: skills, subagents, hook events, tools, Chrome MCP and the agent loop. Around that, the ohmyjob harness, whose agents run in a clockwise round: Find, Prep (master, screen workers, tailor workers, LuaLaTeX build; a failed resume is fixed by you and rebuilt with /build-job-resumes), Apply (application-master and one hook-guarded worker per Chrome tab, never pressing Submit; you submit, fix blocked tabs and answer questions), Dream (traces become ATS notes for the next Apply), and Reconcile, then the next round." src="assets/architecture-light.png" width="100%">
   </picture>
 </p>
 
