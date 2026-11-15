@@ -83,6 +83,15 @@ class TestParsers(unittest.TestCase):
         self.assertIsNotNone(L.note_problem("Clicks Apply", True))
         self.assertIsNone(L.note_problem("Uploads the resume", True))
 
+    def test_click_notes_step_words(self):
+        # the real regression: Next on step 1 of an Easy Apply dialog
+        self.assertIsNone(L.note_problem("Goes to the next Easy Apply step", True))
+        self.assertIsNone(L.note_problem("Opens the Easy Apply dialog", True))
+        # the weak apply-word branch still works, and a final word wins over a progression phrase
+        self.assertIsNotNone(L.note_problem("Clicks Apply", True))
+        self.assertIsNotNone(L.note_problem("Submits the application", True))
+        self.assertIsNotNone(L.note_problem("Goes to the next step and submits the application", True))
+
     def test_helper_titles(self):
         self.assertTrue(L.HELPER_ON_RE.match("[AA on 1.6.0] Feed | LinkedIn"))
         self.assertTrue(L.HELPER_ON_RE.match("[AA on] Feed | LinkedIn"))  # an older extension: on, version unknown
@@ -218,3 +227,31 @@ class TestHandbackInput(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCheckResultParked(unittest.TestCase):
+    """A parked result is a win only when the end of the flow is evidenced."""
+
+    def run_check(self, refs, final_button, open_items):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            L.snap_dir(run_dir).mkdir(parents=True, exist_ok=True)
+            L.refs_path(run_dir, 7).write_text(json.dumps(refs), encoding="utf-8")
+            result = {"status": "parked", "final_button": final_button, "open": open_items}
+            return L.check_result(run_dir, {"tabs": {"7": {"filled": True}}}, {"tab": 7}, result)[0]
+
+    DISMISS = {"ref_1": {"role": "button", "name": "Dismiss", "attrs": {}, "line": 'button "Dismiss"'}}
+    SUBMIT = {"ref_2": {"role": "button", "name": "Submit application", "attrs": {}, "line": 'button "Submit application"'}}
+
+    def test_no_final_control_is_blocked_even_with_open_items(self):
+        self.assertEqual(self.run_check(self.DISMISS, "", ["q1", "q2"]), "BLOCKED")
+
+    def test_no_final_control_and_no_open_is_still_fail(self):
+        self.assertEqual(self.run_check(self.DISMISS, "", []), "FAIL")
+
+    def test_final_control_in_snapshot_passes(self):
+        self.assertEqual(self.run_check(self.SUBMIT, "", ["q1"]), "PASS")
+
+    def test_named_final_button_passes(self):
+        self.assertEqual(self.run_check(self.DISMISS, "Submit application", ["q1"]), "PASS")

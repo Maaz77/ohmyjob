@@ -885,6 +885,14 @@ NOTE_FINAL_RE = re.compile(
     re.I,
 )
 NOTE_APPLY_RE = re.compile(r"\b(apply|applies|applying)\b", re.I)
+# A note that moves within a flow ("Goes to the next Easy Apply step"): "Easy Apply" is LinkedIn's product name,
+# so the bare word alone must not deny a mid-dialog click. Only the weak apply-word branch ignores it;
+# NOTE_FINAL_RE still denies a note that also says it submits.
+NOTE_STEP_RE = re.compile(
+    r"\b(next\s+(\w+\s+){0,2}?step|advances?|continues?|proceeds?|goes\s+to|moves\s+to|review\s+step"
+    r"|back|previous|opens?\s+(the\s+)?(\w+\s+){0,3}?(dialog|form|modal))\b",
+    re.I,
+)
 
 
 def note_problem(note: Optional[str], filled: bool) -> Optional[str]:
@@ -893,7 +901,7 @@ def note_problem(note: Optional[str], filled: bool) -> Optional[str]:
     match = NOTE_FINAL_RE.search(text)
     if match:
         return match.group(0)
-    if filled:
+    if filled and not NOTE_STEP_RE.search(text):
         match = NOTE_APPLY_RE.search(text)
         if match:
             return match.group(0)
@@ -1282,6 +1290,11 @@ def check_result(run_dir: Path, state: dict, job: dict, result: Optional[dict]) 
             "You stopped before the final step and listed no open question. "
             "Go on to the step with the final button, or list in 'open' what stops you."
         ]
+    if not finals and not result.get("final_button"):
+        # a park counts as a win only when the end of the flow is evidenced (a run parked on step 1 of 5 of an
+        # Easy Apply dialog with 4 open entries was graded PASS)
+        return "BLOCKED", ["OTHER: The worker stopped before any final control: no final button in the last "
+                           "snapshot and none named in 'final_button'."]
     return "PASS", []
 
 
