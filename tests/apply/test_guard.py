@@ -835,6 +835,25 @@ class TestForeignOneClickPerRead(T.Base):
         self.assertDenied(self.computer(None, **self.click("ref_1")), "read the page")
 
 
+class TestFillLog(T.Base):
+    """B1: every filled value is logged to guard.log (run folder only) with its label."""
+
+    def fills(self):
+        lines = (self.run_dir() / "guard.log").read_text(encoding="utf-8").splitlines()
+        return [json.loads(x) for x in lines if '"event": "fill"' in x]
+
+    def test_form_input_and_type_log_a_fill(self):
+        self.aa_json("start")
+        (folder, tab, _brief), _other = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
+        self.page(tab, "constructed_form_page.txt")
+        self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_41", "value": "Alex"}, W, "A1"))
+        self.assertExplicitAllow(self.click(tab, "ref_42", "A1"))
+        self.assertExplicitAllow(self.guard(C + "computer", {"tabId": tab, "action": "type", "text": "alex@example.com"}, W, "A1"))
+        got = [(f["folder"], f["tab"], f["label"], f["value"]) for f in self.fills()]
+        self.assertEqual(got, [(folder, tab, "First name", "Alex"), (folder, tab, "Email", "alex@example.com")])
+
+
 class TestForeignPageRules(T.Base):
     """The worker's page rules hold for the main session and other agents too: a nameless submit button, an Apply under a
     form, an Apply on a job board; form_input and file_upload on fields only; every non-text click voids the refs."""

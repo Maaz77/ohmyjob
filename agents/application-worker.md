@@ -2,7 +2,7 @@
 name: application-worker
 description: Fills one job application in one assigned Chrome tab and stops before the final submit. Only application-master starts it.
 background: true
-model: sonnet
+model: haiku
 effort: high
 maxTurns: 160
 autoCompactWindow: 200000

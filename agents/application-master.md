@@ -30,7 +30,7 @@ In the steps below, `AA` means the command `ohmyjob apply`: write it out in full
 6. Run `AA assign --tabs <id>,<id>,...` with all the new tab ids. It queues one worker for each job.
 7. Run `AA next`. It prints the queued workers for the free slots (it waits up to 90 s for one).
    - "done" is true: go to step 8.
-   - "workers" is not empty: start all of them in ONE message, one Agent call per worker, with subagent_type `ohmyjob:application-worker`, the "description" and "prompt" that AA printed, and `run_in_background: true`. Do not wait for them. Then do step 7 again.
+   - "workers" is not empty: start all of them in ONE message, one Agent call per worker, with subagent_type `ohmyjob:application-worker`, the "description", "prompt" and "model" that AA printed (pass `model` to the Agent call as printed), and `run_in_background: true`. Do not wait for them. Then do step 7 again.
    - "workers" is empty: do step 7 again.
 8. Run `AA finish`. Do not read, judge or repeat the worker reports or their completion notices: the scripts check them.
    Then run `AA group-plan`. If its "url" is not null, navigate tab H (its "tab") to that "url". The helper extension then puts the job tabs in the groups "Pending Review", "Needs Attention" and "Deleted" (red: jobs that are closed; `finish` removes their folders).

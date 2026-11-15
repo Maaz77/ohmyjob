@@ -36,6 +36,7 @@ import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 from typing import Any, Optional
@@ -142,6 +143,31 @@ The last run stopped as follows:
 """
 
 
+def handover_section(result: Optional[dict]) -> str:
+    """The brief section of a job that went from a smaller model to a bigger one: the tab shows where it stopped."""
+    result = result if isinstance(result, dict) else {}
+    lines = [f"- where it stopped: {result.get('where') or '(unknown)'}",
+             f"- blocker it reported: {result.get('blocker') or '(none)'}"]
+    if result.get("open"):
+        lines.append("- open: " + "; ".join(str(x) for x in result["open"]))
+    if result.get("filled"):
+        lines.append("- fields it filled (names only): " + "; ".join(str(x) for x in result["filled"]))
+    prev = "\n".join(lines)
+    if len(prev) > 2500:
+        prev = prev[:2500] + "\n(...)"
+    return f"""
+## Continue from the open page
+An earlier worker on a smaller model stopped on this job. Your tab still shows the page where it stopped. Do not
+navigate first: call read_page on your tab and go on with the application from that page (Flow step 2). If the page
+says that the application was sent or submitted, stop at once with status "blocked" and blocker "already submitted":
+never start this job again. Navigate to the Apply URL (else the Job URL) of the brief only when the tab shows no
+application for this job (an empty or error page, or a page about something else).
+What the earlier worker reported:
+
+{prev}
+"""
+
+
 def resume_head(yaml_path: Path) -> Optional[str]:
     """The `title` and `introduction` of a tailored resume yaml, as a small yaml block; None when it cannot be read.
 
@@ -203,7 +229,7 @@ def write_brief(run_dir: Path, job: dict) -> Path:
 - ATS notes. When you reach one of these, Read the note once:
 {ats_note_lines()}
 
-{continue_section(job_md) if job.get("continue") else ""}
+{handover_section(job.get("handover_result")) if job.get("handover") else continue_section(job_md) if job.get("continue") else ""}
 ## Job: Overview (from job.md)
 {overview.strip()}
 
@@ -758,7 +784,8 @@ def assign_continue(run_dir: Path) -> None:
             }
             brief = write_brief(run_dir, job)
             workers.append({"folder": folder, "description": f"Continue: {job['company']}",
-                            "prompt": f"folder={folder} tab={tab} brief={brief}"})
+                            "prompt": f"folder={folder} tab={tab} brief={brief}",
+                            "model": job.setdefault("model", FIRST_MODEL)})
         state["waiting"] = workers
         L.save_state(run_dir, state)
     emit({"queued": len(workers)})
@@ -800,12 +827,14 @@ def cmd_assign(args: argparse.Namespace) -> None:
             }
             brief = write_brief(run_dir, job)
             workers.append({"folder": folder, "description": f"Apply: {job['company']}",
-                            "prompt": f"folder={folder} tab={tab} brief={brief}"})
+                            "prompt": f"folder={folder} tab={tab} brief={brief}",
+                            "model": job.setdefault("model", FIRST_MODEL)})
         state["waiting"] = workers
         L.save_state(run_dir, state)
     emit({"queued": len(workers)})
 
 
+FIRST_MODEL = "haiku"  # the model of a first attempt; a handover runs on "sonnet"
 HANG = "UPLOAD_HANG"  # a worker blocker: file_upload hung (Chrome shows a hidden alert, e.g. "File name is too long")
 
 
@@ -819,7 +848,7 @@ def cmd_next(args: argparse.Namespace) -> None:
     run_dir = need_run()
     deadline = time.time() + L.NEXT_SECONDS
     while True:
-        retry = retry_workers(run_dir)
+        retry = retry_workers(run_dir) + handover_workers(run_dir)
         with L.locked(run_dir):
             state = L.load_state(run_dir)
             now = time.time()
@@ -902,18 +931,76 @@ def retry_workers(run_dir: Path) -> list:
                  "google_continue": 0})
             brief = write_brief(run_dir, job)
             workers.append({"folder": folder, "description": f"Apply again: {job['company']}",
-                            "prompt": f"folder={folder} tab={job['tab']} brief={brief}"})
+                            "prompt": f"folder={folder} tab={job['tab']} brief={brief}",
+                            "model": job.setdefault("model", FIRST_MODEL)})
+        L.save_state(run_dir, state)
+    return workers
+
+
+# A blocker with one of these codes is never handed to Sonnet. OTHER is in the list because every OTHER blocker in the
+# ledger so far (geo walls, auto-mode refusals, a sign-in-only route, a consent denial) came from Sonnet itself: it
+# describes an environment Sonnet cannot pass either, so a handover would pay twice for nothing. One line to revisit.
+NO_HANDOVER_CODES = ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "OTHER", "FILL_REVIEW")  # FILL_REVIEW: the user fixes it
+WATCHDOG_STOPS = ("idle", "ended", "stall", "repeat_deny", "budget")
+NO_FINAL_MARKER = "stopped before any final control"  # check_result: a park with no final control evidenced
+
+
+def handover_reason(run_dir: Path, state: dict, job: dict, result: Optional[dict]) -> Optional[str]:
+    """Why a Haiku job should go to Sonnet on the same tab; None when it should not."""
+    if job.get("model") != FIRST_MODEL or job.get("handover") or job.get("tab") is None or job.get("recorded"):
+        return None
+    if not isinstance(result, dict) and not job.get("stopped_by"):
+        return None
+    blocker = (result or {}).get("blocker") if isinstance(result, dict) else None
+    code = ledger.classify_blocker(blocker) if blocker else ""
+    if code in NO_HANDOVER_CODES:
+        return None
+    unverified = code == "ACCOUNT_WALL" and not ledger.snapshot_has_password_or_signup(run_dir, job["tab"])
+    if code == "ACCOUNT_WALL" and not unverified:
+        return None  # a verified wall: Sonnet will see the same page
+    if isinstance(result, dict) and "status" in result and "open" in result:  # a well-formed report only
+        verdict, reasons = L.check_result(run_dir, state, job, result)
+        if verdict == "BLOCKED" and any(NO_FINAL_MARKER in r for r in reasons):
+            return "parked with no final control evidenced"
+    if job.get("stopped_by") in WATCHDOG_STOPS:
+        return f"watchdog stop: {job['stopped_by']}"
+    if unverified:
+        return "account wall the page does not confirm"
+    return None
+
+
+def handover_workers(run_dir: Path) -> list:
+    """A Haiku job that got stuck goes to a Sonnet worker on the same tab. Once for each job."""
+    workers = []
+    with L.locked(run_dir):
+        state = L.load_state(run_dir)
+        for folder, job in state["jobs"].items():
+            result_path = L.job_dir(run_dir, folder) / "result.json"
+            result = L.read_json(result_path, None)
+            reason = handover_reason(run_dir, state, job, result)
+            if reason is None:
+                continue
+            job.update({"handover": True, "model": "sonnet", "capture_blocks": 0, "handover_result": result})
+            job.pop("stopped_by", None)
+            L.reset_worker_slot(job)
+            result_path.unlink(missing_ok=True)
+            state["tabs"][L.tab_key(job["tab"])].update(
+                {"agent_id": None, "started": False, "google_clicks": 0, "google_continue": 0})
+            brief = write_brief(run_dir, job)
+            L.log(run_dir, "handover", folder=folder, reason=reason)
+            workers.append({"folder": folder, "description": f"Sonnet takes over: {job['company']}",
+                            "prompt": f"folder={folder} tab={job['tab']} brief={brief}", "model": "sonnet"})
         L.save_state(run_dir, state)
     return workers
 
 
 def cmd_finish(args: argparse.Namespace) -> None:
-    """Check and record every assigned job with one tracker load and one save, then print the summary.
+    """Check (the fills check gates a PASS) and record every assigned job with one tracker load and one save, then print the summary.
 
     A job that cannot be recorded (for example: its destination folder exists already) stays in
     Applications/ at "Resume Built" and is listed; the other jobs are recorded."""
     run_dir = need_run()
-    with L.locked(run_dir):
+    with L.locked(run_dir):  # lock 1: release the tabs, read the reports, collect the fills
         state = L.load_state(run_dir)
         todo = [f for f, j in state["jobs"].items() if j.get("tab") is not None and not j.get("recorded")]
         results = {}
@@ -923,14 +1010,35 @@ def cmd_finish(args: argparse.Namespace) -> None:
             if entry is not None:
                 entry["agent_id"] = None  # the worker has returned: release the tab
             results[folder] = L.read_json(L.job_dir(run_dir, folder) / "result.json", None)
-            job["verdict"], job["reasons"] = L.check_result(run_dir, state, job, results[folder])
-            job.pop("error", None)
         # the sign-in lease of a worker that has returned is free again (4.8)
         returned = {L.tab_key(state["jobs"][f]["tab"]) for f in todo if state["jobs"][f].get("tab") is not None}
         for host, lease in list((state.get("signin_hosts") or {}).items()):
             if isinstance(lease, dict) and lease.get("status") == "pending" and lease.get("holder") in returned:
                 del state["signin_hosts"][host]
-        stop = None
+        fills = {f: job_fills(run_dir, f, state["jobs"][f].get("tab")) for f in todo}
+        profile = L.PROFILE.read_text(encoding="utf-8") if any(fills.values()) else ""
+        L.save_state(run_dir, state)
+    # the fills check gates the verdict and can take seconds: outside the run lock
+    # concurrently (each call is a subprocess of up to J.TIMEOUT s); judge.store serialises the cache writes with flock
+    todo_fills = {f: pairs for f, pairs in fills.items() if pairs}
+    with ThreadPoolExecutor(max_workers=max(1, min(6, len(todo_fills)))) as pool:
+        futures = {f: pool.submit(fills_check, run_dir, profile, pairs) for f, pairs in todo_fills.items()}
+        checks = {f: fut.result() for f, fut in futures.items()}
+    stop = None
+    with L.locked(run_dir):  # lock 2: verdicts (gated), recording
+        state = L.load_state(run_dir)
+        for folder in todo:
+            job = state["jobs"][folder]
+            if folder in checks:
+                job["fills_check"] = checks[folder]
+            job["verdict"], job["reasons"] = L.check_result(run_dir, state, job, results[folder])
+            job.pop("error", None)
+            try:
+                fills_gate(run_dir, folder, job, results[folder], checks.get(folder))
+            except Exception as exc:  # noqa: BLE001  (fail closed, but never raise out of finish)
+                if job.get("verdict") == "PASS" and folder in checks:
+                    job["verdict"] = "BLOCKED"
+                    job["reasons"] = [f"FILL_REVIEW: the fills check could not run ({type(exc).__name__}: {exc})"[:300]]
         if todo:
             stop = record_all(state, todo, results)
             for folder in todo:
@@ -943,6 +1051,58 @@ def cmd_finish(args: argparse.Namespace) -> None:
     print(summary(state))
     if stop:  # the tracker could not be read or saved: nothing was recorded; running 'finish' again retries
         fatal(f"{stop} Close the tracker if it is open elsewhere, then run 'finish' again.")
+
+
+def fills_gate(run_dir: Path, folder: str, job: dict, result: Optional[dict], check: Optional[dict]) -> None:
+    """A PASS job whose worker typed values becomes BLOCKED (FILL_REVIEW) when Sonnet finds a value unsupported by
+    Profile.md, or when the check could not run (fail closed). Any other verdict, and a job with no fills (check is
+    None), is left alone. Labels only: values never reach the blocker, the ledger or the summary."""
+    if check is None or job.get("verdict") != "PASS" or not isinstance(result, dict):
+        return
+    if "error" in check:
+        reason = f"FILL_REVIEW: the fills check could not run ({check['error']})"
+    elif check.get("verdict") == "suspect":
+        reason = (f"FILL_REVIEW: {check['unsupported']} value(s) not supported by Profile.md: "
+                  f"{', '.join(check['labels'])}")
+    else:
+        return
+    job["verdict"], job["reasons"] = "BLOCKED", [reason]
+    result.update({"status": "blocked", "blocker": reason})
+    try:  # the ledger and the job.md note read the blocker from result.json; a failed write must not undo the verdict
+        L.write_json(L.job_dir(run_dir, folder) / "result.json", result)
+        L.log(run_dir, "fills-gate", folder=folder, reason=reason)
+    except OSError:
+        pass
+
+
+def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
+    """(label, value) of every `fill` event of this job in guard.log; the last value of a label wins."""
+    found: dict = {}
+    try:
+        lines = (run_dir / "guard.log").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("event") == "fill" and ev.get("folder") == folder and ev.get("tab") == tab:
+            found[ev.get("label") or ""] = ev.get("value") or ""
+    return list(found.items())
+
+
+def fills_check(run_dir: Path, profile: str, pairs: list) -> dict:
+    """Is each filled value supported by Profile.md? Fail open: any error is recorded and nothing else changes.
+    Returns {"verdict", "unsupported": n, "labels": [...]} (no values) or {"error": ...}."""
+    try:
+        result, error = J.ask(run_dir, "fills", {"profile": profile, "fills": pairs}, model="sonnet")
+        if result is None:
+            return {"error": error[:200]}
+        bad = [str(u.get("label")) for u in result["unsupported"] if isinstance(u, dict)]
+        return {"verdict": result["verdict"], "unsupported": len(bad), "labels": bad}
+    except Exception as exc:  # noqa: BLE001  (advisory metric: never stall a finish)
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 def record_all(state: dict, folders: list[str], results: dict) -> Optional[str]:
@@ -1291,7 +1451,9 @@ def summary(state: dict) -> str:
     for j in deleted:
         lines.append(f"- DELETED (closed) {j['folder']} (tab {j.get('tab')})")
     for j in needs:
-        lines.append(f"- NEEDS ATTENTION {j['folder']} (tab {j.get('tab')}): {'; '.join(j.get('reasons') or [])[:200]}")
+        reasons = "; ".join(j.get("reasons") or [])
+        label = "FIX BY HAND" if reasons.startswith("FILL_REVIEW") else "NEEDS ATTENTION"  # one line for each job
+        lines.append(f"- {label} {j['folder']} (tab {j.get('tab')}): {reasons[:200]}")
     for j in not_done:
         if j.get("tab") is None:
             lines.append(f"- NOT STARTED {j['folder']}" + (f": {j['skip_reason']}" if j.get("skip_reason") else ""))
