@@ -1532,6 +1532,9 @@ class TestFillsJudge(unittest.TestCase):
         prompt = judge.build_prompt("fills", {"profile": "Name: Alex", "fills": [["First name", "Alex"]]})
         self.assertIn("Name: Alex", prompt)
         self.assertIn('["First name", "Alex"]', prompt)
+        tail = "- Have you used Amazon SageMaker? Yes"
+        long = judge.build_prompt("fills", {"profile": "x" * 25000 + "\n" + tail, "fills": []})
+        self.assertIn(tail, long)  # the Follow Up Questions tail is never cut
         for verdict in ("ok", "suspect"):
             self.assertTrue(judge.valid("fills", {"verdict": verdict, "unsupported": []}))
         for bad in ({"verdict": "allow", "unsupported": []}, {"verdict": "ok"}, "ok", None):
@@ -1575,10 +1578,11 @@ class FillsGateBase(Base):
 
 class TestGateSuspectBlocksWith(FillsGateBase):
     def test_suspect_blocks_with_labels_only(self):
-        _f, job, out = self.run_one("BADFILL")
+        folder, job, out = self.run_one("BADFILL")
         self.assertEqual(job["verdict"], "BLOCKED")
         self.assertEqual(job["reasons"], ["FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"])
         self.assertIn("FIX BY HAND", out)
+        self.assertEqual(sum(1 for line in out.splitlines() if folder in line), 1, out)
         self.assertNotIn("BADFILL", out + json.dumps(job))
 
 

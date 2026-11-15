@@ -93,8 +93,9 @@ def build_prompt(kind: str, payload: dict) -> str:
             filled="unknown" if payload.get("filled") == "unknown" else "yes" if payload.get("filled") else "no",
         )
     if kind == "fills":
+        # the profile is not capped: it is the candidate's own file and its tail (Follow Up Questions) holds the answers
         pairs = [[str(label)[:200], str(value)[:200]] for label, value in payload.get("fills") or []]
-        return FILLS_PROMPT.format(profile=str(payload.get("profile") or "")[:20000],
+        return FILLS_PROMPT.format(profile=str(payload.get("profile") or ""),
                                    fills=json.dumps(pairs, ensure_ascii=False))
     raise ValueError(kind)
 

@@ -36,6 +36,7 @@ import shutil
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 from typing import Any, Optional
@@ -1018,7 +1019,11 @@ def cmd_finish(args: argparse.Namespace) -> None:
         profile = L.PROFILE.read_text(encoding="utf-8") if any(fills.values()) else ""
         L.save_state(run_dir, state)
     # the fills check gates the verdict and can take seconds: outside the run lock
-    checks = {f: fills_check(run_dir, profile, pairs) for f, pairs in fills.items() if pairs}
+    # concurrently (each call is a subprocess of up to J.TIMEOUT s); judge.store serialises the cache writes with flock
+    todo_fills = {f: pairs for f, pairs in fills.items() if pairs}
+    with ThreadPoolExecutor(max_workers=max(1, min(6, len(todo_fills)))) as pool:
+        futures = {f: pool.submit(fills_check, run_dir, profile, pairs) for f, pairs in todo_fills.items()}
+        checks = {f: fut.result() for f, fut in futures.items()}
     stop = None
     with L.locked(run_dir):  # lock 2: verdicts (gated), recording
         state = L.load_state(run_dir)
@@ -1031,8 +1036,9 @@ def cmd_finish(args: argparse.Namespace) -> None:
             try:
                 fills_gate(run_dir, folder, job, results[folder], checks.get(folder))
             except Exception as exc:  # noqa: BLE001  (fail closed, but never raise out of finish)
-                fills_gate(run_dir, folder, job, results[folder],
-                           {"error": f"{type(exc).__name__}: {exc}"[:200]})
+                if job.get("verdict") == "PASS" and folder in checks:
+                    job["verdict"] = "BLOCKED"
+                    job["reasons"] = [f"FILL_REVIEW: the fills check could not run ({type(exc).__name__}: {exc})"[:300]]
         if todo:
             stop = record_all(state, todo, results)
             for folder in todo:
@@ -1062,8 +1068,11 @@ def fills_gate(run_dir: Path, folder: str, job: dict, result: Optional[dict], ch
         return
     job["verdict"], job["reasons"] = "BLOCKED", [reason]
     result.update({"status": "blocked", "blocker": reason})
-    L.write_json(L.job_dir(run_dir, folder) / "result.json", result)  # the ledger and the job.md note read it
-    L.log(run_dir, "fills-gate", folder=folder, reason=reason)
+    try:  # the ledger and the job.md note read the blocker from result.json; a failed write must not undo the verdict
+        L.write_json(L.job_dir(run_dir, folder) / "result.json", result)
+        L.log(run_dir, "fills-gate", folder=folder, reason=reason)
+    except OSError:
+        pass
 
 
 def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
@@ -1442,10 +1451,9 @@ def summary(state: dict) -> str:
     for j in deleted:
         lines.append(f"- DELETED (closed) {j['folder']} (tab {j.get('tab')})")
     for j in needs:
-        lines.append(f"- NEEDS ATTENTION {j['folder']} (tab {j.get('tab')}): {'; '.join(j.get('reasons') or [])[:200]}")
-    for j in needs:
-        if str((j.get("reasons") or [""])[0]).startswith("FILL_REVIEW"):
-            lines.append(f"- FIX BY HAND {j['folder']}: {j['reasons'][0]}")
+        reasons = "; ".join(j.get("reasons") or [])
+        label = "FIX BY HAND" if reasons.startswith("FILL_REVIEW") else "NEEDS ATTENTION"  # one line for each job
+        lines.append(f"- {label} {j['folder']} (tab {j.get('tab')}): {reasons[:200]}")
     for j in not_done:
         if j.get("tab") is None:
             lines.append(f"- NOT STARTED {j['folder']}" + (f": {j['skip_reason']}" if j.get("skip_reason") else ""))
