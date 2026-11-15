@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import math
+import random
 import re
 import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -70,10 +72,31 @@ def normalize(record: dict, board: str) -> dict:
     }
 
 
-# Terms of one board that run at once. A scrape is almost all network wait (LinkedIn pauses between pages), so LinkedIn
-# takes 10 at a time; the other boards block several searches from one address at once, so they take 2.
-BOARD_WORKERS = {"linkedin": 10}
+# Terms of one board that run at once. JobSpy spaces LinkedIn's search pages but not the job detail pages (one request
+# per job, no pause), so terms are not run wide: every board takes 2 unless it has an entry here.
+BOARD_WORKERS: dict[str, int] = {}
 DEFAULT_BOARD_WORKERS = 2
+
+# seconds slept before each LinkedIn detail page: JobSpy fires them back to back, which gets the run rate limited
+DETAIL_PAUSE = (1.0, 2.5)
+
+
+def space_linkedin_details() -> None:
+    """Make every LinkedIn detail-page request in this process wait a short random time first (once, however often called)."""
+    try:
+        from jobspy.linkedin import LinkedIn
+    except ImportError:
+        return
+    original = LinkedIn._fetch_details
+    if getattr(original, "spaced", False):
+        return
+
+    def spaced(self, *args, **kwargs):
+        time.sleep(random.uniform(*DETAIL_PAUSE))
+        return original(self, *args, **kwargs)
+
+    spaced.spaced = True
+    LinkedIn._fetch_details = spaced
 
 
 def workers_for(board: str) -> int:
@@ -97,6 +120,8 @@ def scrape_board(board: str, search: dict) -> Scraped:
         )
         return Scraped(found.rows, found.error, found.warnings, found.unusable, found.repeated)
     import jobspy  # looked up at call time: the tests replace jobspy.scrape_jobs
+    if board == "linkedin":
+        space_linkedin_details()
 
     def one_term(term: str):
         args: dict[str, Any] = dict(
@@ -215,8 +240,8 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
                 known.append(job)
             elif key in run_ids:
                 count["dup id"] += 1
-            elif not job["job_type"] and board == "linkedin" and search["employment_types"]:
-                # JobSpy gets the type from the job's own page; none means that page did not load (throttling)
+            elif not job["description"] and board == "linkedin":
+                # fetch_description is always on, so no description means the job's own page did not load (throttling)
                 count["failed"] += 1
             elif not C.employment_ok(job["job_type"], search["employment_types"]):
                 count["type"] += 1
@@ -243,6 +268,10 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
         totals["scraped"] += len(got) + unusable + repeated
         totals["new"] += len(kept) - excluded
         totals["excluded"] += excluded
+        scraped_n = len(got) + unusable + repeated
+        if count["failed"] >= 3 and count["failed"] * 2 > scraped_n:
+            say(f"WARNING {board}: {count['failed']} of {scraped_n} detail pages did not load (rate limited); "
+                "lower search.results_per_term or search_query")
         dropped = ", ".join(f"{n} {why}" for why, n in count.items() if n)
         say(f"{board}: {len(got) + unusable + repeated} scraped, {len(kept) - excluded} new"
             + (f", {excluded} auto-excluded" if excluded else "")
