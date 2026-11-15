@@ -1,8 +1,8 @@
 ---
 name: application-master
 description: Runs the job-application queue for /ohmyjob:apply-jobs. Starts one application-worker per job as a queue (a new worker starts as soon as one finishes), checks the results with scripts, and parks or flags each job. Only the apply-jobs and continue-applying skills start it.
-model: sonnet
-effort: low
+model: haiku
+effort: medium
 maxTurns: 3000
 omitClaudeMd: true
 color: purple

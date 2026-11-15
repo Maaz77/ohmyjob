@@ -854,6 +854,75 @@ class TestFillLog(T.Base):
         self.assertEqual(got, [(folder, tab, "First name", "Alex"), (folder, tab, "Email", "alex@example.com")])
 
 
+class TestFillLabels(T.Base):
+    """The label of a fill is the question text of the field, not its shared accessible name (placeholder)."""
+
+    FULL = ('form [ref_1]\n label [ref_2]\n  generic "Are you authorized to work here?" [ref_3]\n status [ref_4]\n'
+            ' combobox "Select" [ref_5] type="text" placeholder="Select"\n'
+            ' label [ref_6]\n  generic "Gender" [ref_7]\n status [ref_8]\n'
+            ' combobox "Select" [ref_9] type="text" placeholder="Select"\n'
+            ' label [ref_10]\n  generic "Military service?" [ref_11]\n status [ref_12]\n'
+            ' combobox "Select" [ref_13] type="text" placeholder="Select"\n'
+            ' textbox "Nickname" [ref_14] type="text"\n')
+    INTERACTIVE = ('combobox "Select" [ref_5] type="text" placeholder="Select"\ncombobox "Select" [ref_9] type="text" '
+                   'placeholder="Select"\ncombobox "Select" [ref_13] type="text" placeholder="Select"\n'
+                   'textbox "Nickname" [ref_14] type="text"\noption "No" [ref_20]\n')
+
+    def setUp(self):
+        super().setUp()
+        self.aa_json("start")
+        (self.folder, self.tab, _brief), _other = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": self.tab, "url": "https://careers.example.com/a"}, W, "A1"))
+
+    def fill(self, ref, value):
+        self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": self.tab, "ref": ref, "value": value}, W, "A1"))
+
+    def pairs(self):
+        import aa
+        return aa.job_fills(self.run_dir(), self.folder, self.tab)
+
+    def test_shared_names_keep_their_questions_and_a_refill_replaces(self):
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.FULL, W, "A1")
+        self.post("read_page", {"tabId": self.tab, "filter": "interactive"}, self.INTERACTIVE, W, "A1")  # no label lines
+        for ref, value in (("ref_5", "Yes"), ("ref_9", "Prefer not to say"), ("ref_13", "No"), ("ref_5", "No")):
+            self.fill(ref, value)
+        self.assertEqual([p[:2] for p in self.pairs()], [("Are you authorized to work here?", "No"),
+                                                         ("Gender", "Prefer not to say"), ("Military service?", "No")])
+        self.assertFalse(any(p[2] for p in self.pairs()))
+
+    def test_an_option_click_is_a_fill_of_the_clicked_dropdown(self):
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.FULL, W, "A1")
+        self.post("read_page", {"tabId": self.tab, "filter": "interactive"}, self.INTERACTIVE, W, "A1")
+        self.assertExplicitAllow(self.click(self.tab, "ref_9", "A1", "Opens the list"))
+        self.assertExplicitAllow(self.click(self.tab, "ref_20", "A1", "Selects No"))
+        self.assertEqual([p[:2] for p in self.pairs()], [("Gender", "No")])
+
+    def test_a_field_without_question_text_falls_back_to_its_name(self):
+        import aa
+        from unittest import mock
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.FULL, W, "A1")
+        self.fill("ref_14", "Al")
+        self.assertEqual(self.pairs(), [("Nickname", "Al", True)])
+        with mock.patch.object(aa.J, "ask", return_value=({"verdict": "ok", "unsupported": []}, "")):
+            check = aa.fills_check(self.run_dir(), "p", self.pairs())
+        self.assertEqual(check["unlabelled"], 1)
+
+
+    def test_same_ref_with_another_label_is_another_field(self):
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.FULL, W, "A1")
+        self.fill("ref_5", "Yes")
+        page2 = 'form [ref_1]\n label [ref_2]\n  generic "Second page question?" [ref_3]\n status [ref_4]\n combobox "Select" [ref_5] type="text"\n'
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, page2, W, "A1")
+        self.fill("ref_5", "No")
+        self.assertEqual([p[:2] for p in self.pairs()], [("Are you authorized to work here?", "Yes"), ("Second page question?", "No")])
+
+    def test_a_reused_ref_with_another_name_gets_no_old_label(self):
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.FULL, W, "A1")
+        self.post("read_page", {"tabId": self.tab, "filter": "interactive"}, 'textbox "Phone" [ref_5] type="text"\n', W, "A1")
+        self.fill("ref_5", "123")
+        self.assertEqual(self.pairs(), [("Phone", "123", True)])
+
+
 class TestForeignPageRules(T.Base):
     """The worker's page rules hold for the main session and other agents too: a nameless submit button, an Apply under a
     form, an Apply on a job board; form_input and file_upload on fields only; every non-text click voids the refs."""

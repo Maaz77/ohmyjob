@@ -523,7 +523,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
         if not L.is_search_field(item):
             ctx.mark_filled(tab)
-            log_fill(ctx, tab, item.get("name"), ti.get("value"))
+            log_fill(ctx, tab, ref, item, ti.get("value"))
         ctx.set_focus(tab, role, ref)
         return None
 
@@ -559,7 +559,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
             if not L.is_search_field(focused):
                 ctx.mark_filled(tab)
-                log_fill(ctx, tab, focused.get("name"), text)
+                log_fill(ctx, tab, ctx.focus_ref(tab), focused, text)
             return None
         if action in CLICKS:
             if not ti.get("ref"):
@@ -592,6 +592,12 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
                 raise Deny("This sign-in tab is not a Google page. Do not use it. If you cannot go on in your own tab, "
                            f"stop with status 'blocked' (blocker: sign-in pop-up of {ctx.host(tab) or 'another site'}).")
             check_click_name(ctx, tab, ti["ref"], item)
+            if role in L.TICK_ROLES:  # an answer given by a click is a fill
+                log_fill(ctx, tab, ti["ref"], item, item.get("name"))
+            elif role == "option":  # the answer of the dropdown that was clicked open before
+                asked = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+                if asked.get("role") != "option" and asked and not L.is_search_field(asked):
+                    log_fill(ctx, tab, ctx.focus_ref(tab), asked, item.get("name"))
             ctx.set_focus(tab, role, ti["ref"])
             if pressable:
                 ctx.set_last_click(tab, ti["ref"])
@@ -637,11 +643,13 @@ COORDINATE_KEYS = ("coordinate", "start_coordinate", "end_coordinate")
 FOREIGN_FREE_ACTIONS = {"screenshot", "zoom", "wait", "scroll", "scroll_to"}  # they press and type nothing
 
 
-def log_fill(ctx: "Ctx", tab: Any, label: Any, value: Any) -> None:
-    """One guard.log line per filled value, for the once-per-job fills check (aa.py finish). The values are the
-    candidate's personal data: guard.log goes with the run folder; they never go to traces/ or the ledger."""
-    L.log(ctx.run_dir, "fill", tab=int(tab), folder=(ctx.entry(tab) or {}).get("folder"),
-          label=str(label or "")[:200], value=str(value if value is not None else "")[:200])
+def log_fill(ctx: "Ctx", tab: Any, ref: Any, item: dict, value: Any) -> None:
+    """One guard.log line per filled value, for the once-per-job fills check (aa.py finish). The label is the question
+    text that a read showed, else the accessible name (`fb`: the fallback). The values are the candidate's personal
+    data: guard.log goes with the run folder; they never go to traces/ or the ledger."""
+    label = item.get("label") or item.get("name")
+    L.log(ctx.run_dir, "fill", tab=int(tab), folder=(ctx.entry(tab) or {}).get("folder"), ref=ref,
+          label=str(label or "")[:200], fb=not item.get("label"), value=str(value if value is not None else "")[:200])
 
 
 def foreign_click_problem(run_dir: Optional[Path], ti: dict) -> Optional[str]:
@@ -1407,6 +1415,15 @@ def save_page(run_dir: Path, tab: Any, text: str, partial: bool) -> bool:
     if not refs and "Tab Context:" not in text:
         return False  # an error, not a page: keep the last page and its refs (a page without refs, such as "submitted", is saved)
     path = L.snapshot_path(run_dir, tab)
+    old_refs = L.snapshot_refs(run_dir, tab)
+    questions = L.question_labels(text)
+    for ref, item in refs.items():
+        # a question learned from an "all" read survives a read without label lines, while the ref names the same element
+        before = old_refs.get(ref) or {}
+        if ref in questions:
+            item["label"] = questions[ref]
+        elif before.get("label") and (before.get("role"), before.get("name")) == (item["role"], item["name"]):
+            item["label"] = before["label"]
     if partial and path.exists():
         # keep the whole page first: the labels and questions around a ref are looked up there (first match)
         text = path.read_text(encoding="utf-8") + "\n" + text

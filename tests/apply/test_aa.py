@@ -1158,6 +1158,22 @@ class TestBadReports(Base):
 
 
 class TestGoogle(Base):
+    def test_job_board_signup_wall_takes_the_google_option(self):
+        """A board whose Apply link goes to its sign-up page: navigate there, then only the Google option passes."""
+        self.aa_json("start")
+        self.assign(201, 202)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 201, "url": "https://board.example.org/jobs/1"}, W, "G1"))
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 201, "url": "https://board.example.org/signup?redirect=%2Fjobs%2F1&reason=apply"}, W, "G1"))
+        modal = ('dialog "Sign up to apply" [ref_1]\n button "Continue with Email" [ref_2] type="button"\n'
+                 ' button "Sign up with Google" [ref_3] type="button"\n button "Continue with Google" [ref_4] type="button"\n'
+                 ' button "Sign up" [ref_5] type="button"\n')
+        self.post("read_page", {"tabId": 201}, modal, W, "G1")
+        self.assertAllowed(self.click(201, "ref_3", "G1", "Opens Sign up with Google"))
+        self.post("read_page", {"tabId": 201}, modal, W, "G1")
+        self.assertAllowed(self.click(201, "ref_4", "G1", "Opens Continue with Google"))
+        self.post("read_page", {"tabId": 201}, modal, W, "G1")
+        self.assertDenied(self.click(201, "ref_5", "G1"), "email and a password")
+
     def test_sign_in_with_google(self):
         self.aa_json("start")
         self.assign(201, 202)
@@ -1547,7 +1563,7 @@ class TestFillsJudge(unittest.TestCase):
                 mock.patch.dict(os.environ, {"AA_JUDGE_CMD": f"{sys.executable} {FAKE_JUDGE}"}):
             run_dir = Path(tmp)
             ok = aa.fills_check(run_dir, "Name: Alex", [("First name", "Alex")])
-            self.assertEqual(ok, {"verdict": "ok", "unsupported": 0, "labels": []})
+            self.assertEqual(ok, {"verdict": "ok", "unsupported": 0, "labels": [], "unlabelled": 0})
             bad = aa.fills_check(run_dir, "Name: Alex", [("Salary", "BADFILL")])
             self.assertEqual((bad["verdict"], bad["labels"]), ("suspect", ["Salary"]))
             self.assertNotIn("BADFILL", json.dumps(bad))
