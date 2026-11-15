@@ -3,7 +3,8 @@
 1. A very recent LinkedIn card renders its date as <time class="job-search-card__listdate--new">, which 1.1.82 missed
    (date_posted came back None). 1.4.1 reads the first <time> whatever its class.
 2. 1.1.82 swallowed a failed detail-page request without a trace. 1.4.1 logs a warning and returns {} (also for the
-   signup wall), so no patch is needed to see a throttled run.
+   signup wall), but verbose=0 suppresses that warning and it never reaches attrs["warnings"], so scripts/scrape.py
+   detects a throttled run itself, through the missing description (counted as `failed`).
 3. The search term tag on JobSpy's progress log lines was cosmetic (a log format of the old app); this script runs
    JobSpy with verbose=0 and prints its own summary, so it is not kept.
 """

@@ -97,7 +97,7 @@ def test_jobspy_arguments(setup):
 def test_employment_type_filter_runs_for_every_board(setup):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/1", job_type=["internship"]),
-                               post(url="https://www.linkedin.com/jobs/view/2", company="B", job_type=None),
+                               post(url="https://www.linkedin.com/jobs/view/2", company="B", job_type=None, description=None),
                                post(url="https://www.linkedin.com/jobs/view/3", company="C", job_type=["contract", "fulltime"]))
     boards["google"] = frame(post(title="Operations Analyst", company="G Co", url="https://jobs.g.example/1", job_type=["parttime"]),
                              post(title="Operations Analyst", company="H Co", url="https://jobs.g.example/2", job_type=None))
@@ -593,8 +593,7 @@ def test_each_board_has_its_own_term_parallelism(setup, monkeypatch):
     import threading
     import time
 
-    assert scrape.workers_for("linkedin") == 10
-    assert all(scrape.workers_for(b) == 2 for b in ("indeed", "glassdoor", "zip_recruiter", "google", "bayt", "naukri"))
+    assert all(scrape.workers_for(b) == 2 for b in ("linkedin", "indeed", "glassdoor", "zip_recruiter", "google", "bayt", "naukri"))
     root, boards, calls, configure = setup
     live, peak, lock = [0], [0], threading.Lock()
 
@@ -678,3 +677,42 @@ def test_mock_guard_refuses_while_a_template_marker_is_left(setup, capsys, name,
     assert calls == [] and rows(root) == []
     with pytest.raises(scrape.Stop, match="template marker"):
         scrape.run(root, search)
+
+
+@pytest.mark.parametrize("types", [[], ["fulltime"]])
+def test_linkedin_row_without_description_is_failed_and_other_boards_are_not(setup, capsys, types):
+    root, boards, calls, configure = setup
+    boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/1", description=None))
+    boards["indeed"] = frame(post(url="https://de.indeed.com/viewjob?jk=aa", description=None))
+    scrape.run(root, configure(sources=["linkedin", "indeed"], employment_types=types))
+    out = capsys.readouterr().out
+    assert "linkedin: 1 scraped, 0 new (1 failed dropped)" in out
+    assert "failed" not in out.split("indeed:")[1] and [r["Source"] for r in rows(root)] == ["indeed"]
+
+
+def test_throttle_warning_needs_more_than_half_and_at_least_three(setup, capsys):
+    root, boards, calls, configure = setup
+
+    def run(empty, filled):
+        urls = iter(range(1, 100))
+        mk = lambda d: post(url=f"https://www.linkedin.com/jobs/view/{next(urls)}", description=d)
+        boards["linkedin"] = frame(*[mk(None) for _ in range(empty)], *[mk("Do it.") for _ in range(filled)])
+        scrape.run(root, configure(sources=["linkedin"], title_filter="off"), dry_run=True)
+        return capsys.readouterr().out
+
+    assert "detail pages did not load" not in run(2, 0)  # fewer than 3
+    assert "detail pages did not load" not in run(3, 3)  # not more than half
+    assert "WARNING linkedin: 4 of 6 detail pages did not load (rate limited)" in run(4, 2)
+
+
+def test_detail_fetch_wrapper_is_installed_once(setup, monkeypatch):
+    from jobspy.linkedin import LinkedIn
+
+    root, boards, calls, configure = setup
+    monkeypatch.setattr(LinkedIn, "_fetch_details", lambda self, job_id: {"id": job_id})
+    monkeypatch.setattr(scrape, "DETAIL_PAUSE", (0, 0))
+    scrape.run(root, configure(sources=["linkedin"]))
+    first = LinkedIn._fetch_details
+    scrape.run(root, configure(sources=["linkedin", "indeed"]))
+    assert LinkedIn._fetch_details is first and first.spaced
+    assert first(LinkedIn(), "7") == {"id": "7"}  # one layer: the original is called, not another wrapper
