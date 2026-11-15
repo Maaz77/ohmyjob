@@ -156,6 +156,13 @@ You can drop a job at any time, at any stage, by deleting its folder.
 
 ## Architecture
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.png">
+    <img alt="ohmyjob architecture as nested layers. At the core, Anthropic models: Haiku runs prep-master and screen-worker, Sonnet runs resume-worker, the application agents and the dream hosts, Opus runs dream-master. Around it, the Claude Code harness: skills, subagents, hook events, tools, Chrome MCP and the agent loop. Around that, the ohmyjob harness, whose agents run in a clockwise round: Find, Prep (master, screen workers, tailor workers, LuaLaTeX build; a failed resume is fixed by you and rebuilt with /build-job-resumes), Apply (application-master and one hook-guarded worker per Chrome tab, never pressing Submit; you submit, fix blocked tabs and answer questions), Dream (traces become ATS notes for the next Apply), and Reconcile, then the next round." src="docs/architecture-light.png" width="100%">
+  </picture>
+</p>
+
 - **Skills** are the slash commands you type.
 - **Agents** judge and act: a master runs a stage and starts one worker per job.
 - **Scripts**, behind one command called `ohmyjob`, do all the bookkeeping: queues, tracker rows, folder moves.

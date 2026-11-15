@@ -59,27 +59,48 @@ One line per committee: `- <Position> | <Committee> | <Location> | <Date>`.
 
 # Follow Up Questions
 
-Answers the application workers reuse on forms. One numbered line per item: `1. Question? Answer.` Keep the heading exact. Replace the mock answers with yours; apply-jobs asks you any question that is missing and saves the answer here, with the next number. The list holds only questions that most forms ask: the worker answers ordinary consents and form questions itself and asks you the rest.
+Answers the application workers reuse on forms. One numbered line per item: `1. Question? Answer.` Keep the heading exact. Replace the mock answers with yours; apply-jobs asks you any question that is missing and saves the answer here, with the next number. The list holds only questions that most forms ask: the worker answers ordinary consents and form questions itself and asks you the rest. The block after the "Tech roles" line holds questions that tech-job forms ask: not applying to tech jobs? Delete that whole block.
 
-1. What are your salary expectations? 60,000 - 66,000 EUR gross per year, negotiable, not below 58,000.
+1. What are your salary expectations? 60,000 - 66,000 EUR gross per year, negotiable, not below 58,000. When the form needs one number: 62,000.
 2. What is your current annual salary? 58,000 EUR gross per year.
 3. What is your notice period? Two months to the end of a calendar month.
 4. What is your earliest start date? The first of the month after the notice period ends.
 5. Are you legally authorized to work in <country>? Yes in Germany and the Netherlands (EU citizen). No elsewhere without a visa.
 6. Will you now or in the future require sponsorship for an employment visa? Not in the EU. Yes in <country> outside the EU.
-7. What work arrangement do you want (onsite, hybrid, remote)? Hybrid or remote, up to 2 office days a week.
-8. What job type do you want (permanent, part-time, contract)? A permanent contract.
-9. Are you willing to relocate? Yes, within the EU.
-10. What is your preferred location or office? The location of the job.
-11. How many years of professional experience do you have with <skill>? 6 for SQL and Excel, 3 for Python, 0 for anything not listed in Resume.
-12. Do you have experience with <tool or technology>? Answer Yes only for what is written in Resume, otherwise No.
-13. Have you used <the company's product>, even in a personal project? No.
-14. Have you worked for <company> before, or do you have relatives there? No.
-15. Do you have any convictions, cautions, reprimands or warnings? No.
-16. Do you have a health condition or disability that needs reasonable adjustments? No.
-17. What is your home address (street, postal code, city, country)? Musterstrasse 12, 10115 Berlin, Germany.
-18. Date of birth? 1 January 1990.
-19. Title (Mr., Ms., Mx., none)? Leave empty.
+7. What is your current visa or immigration status in <country>? EU citizen in every EU country; no status elsewhere. On a list without that choice: Other.
+8. What is your citizenship or nationality? German.
+9. What work arrangement do you want (onsite, hybrid, remote)? Hybrid or remote, up to 2 office days a week.
+10. What job type do you want (permanent, part-time, contract)? A permanent contract.
+11. Are you willing to relocate? Yes, within the EU.
+12. What is your preferred location or office? The location of the job. When the form lists several offices, the one nearest to Berlin; when it offers only one, that one.
+13. Are you willing to travel for work? Yes, up to 20 percent of the time.
+14. Which languages do you speak, and how well? German native, English fluent (C1).
+15. What is your highest level of education? Bachelor's degree.
+16. How many years of professional experience do you have in total? 6.
+17. How many years of professional experience do you have with <skill>? 6 for SQL and Excel, 3 for Python, 0 for anything not listed in Resume.
+18. Do you have experience with <tool or technology>? Answer Yes only for what is written in Resume, otherwise No.
+19. Have you used <the company's product>, even in a personal project? No.
+20. Have you worked for <company> before, directly or as a contractor, applied there before, or do you have relatives or acquaintances there? No.
+21. Are you at least 18 years old? Yes.
+22. Do you have a valid driver's license? Yes, EU class B.
+23. Are you willing to undergo a background check? Yes.
+24. Do you have any convictions, cautions, reprimands, warnings or court cases? No.
+25. Do you have a health condition or disability that needs reasonable adjustments? No.
+26. Can you provide references from previous employers? Yes, on request.
+27. Do you consent to AI tools (including large language models) being used in the recruitment process? Yes.
+28. What is your home address (street, postal code, city, country)? Musterstrasse 12, 10115 Berlin, Germany.
+29. What goes in a second address line, when the form requires one? Leave it empty.
+30. Is your phone number a mobile or a landline? Mobile number.
+31. Date of birth? 1 January 1990.
+32. Title (Mr., Ms., Mx., none)? Leave empty.
+33. Preferred pronouns? Leave empty when optional; otherwise they/them.
+
+Tech roles — the questions below are asked on tech-job forms. Not applying to tech jobs? Delete every line below this one.
+
+34. Which services or products of <cloud or software platform> have you worked with (a multiple-choice list)? Only those named in Resume; when none is listed, Other.
+35. On a scale of 1-10, how proficient are you with <skill or framework>? 8 for the main Resume skills, 6 for secondary ones, 1 for anything else.
+36. Have you built and shipped a system end to end, from design to production? Yes.
+37. Do you have experience with on-call rotations? No.
 
 # Work Authorization
 
