@@ -31,8 +31,9 @@ DREAM_HINT_TRACES = 10      # new traces before 'end' suggests a dream
 COSTLY_FACTOR = 2.0         # a parked job this much over the median of its ATS is a "costly_win"
 COSTLY_MIN_SAMPLES = 5      # fewer parked jobs of this ATS in the ledger: use COSTLY_TURNS_FALLBACK instead
 COSTLY_TURNS_FALLBACK = 60
-# ponytail: ledger lines before cost_usd carry no model, so the model of agents/application-worker.md is assumed
-# for them (change this constant when that file changes); an old line from another model is mispriced.
+# ponytail: ledger lines before cost_usd carry no model, so the model the workers ran on then is assumed for
+# them. Every such line predates the Haiku-first change, so this stays "sonnet" even though
+# agents/application-worker.md is now haiku: an old line from another model is mispriced.
 OLD_LINE_MODEL = "sonnet"
 
 SIGNIN_STEPS = ("none", "option", "popup", "account", "consent", "done")
@@ -106,7 +107,7 @@ def classify_outcome(verdict: str, code: str, blocker: str, has_result: bool, st
         return "harness"
     if verdict == "PASS":
         return "parked"
-    if code in ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED"):
+    if code in ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "FILL_REVIEW"):
         return "handoff"
     if code == "ACCOUNT_WALL":
         return "unverified_handoff" if account_wall_verified is False else "handoff"
@@ -470,6 +471,11 @@ def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str
             "seconds": seconds, "calls": watchdog.get("calls", 0),
             "progress_events": watchdog.get("progress", 0), "max_stall": watchdog.get("max_stall", 0),
             "stopped_by": stopped_by,
+            "model": next((rec["model"] for rec in reversed(agents) if rec["agent_type"] == L.WORKER
+                           and _worker_folder(rec, state) == folder and rec.get("model")), job.get("model")),
+            "handover": bool(job.get("handover")),
+            # verdict, count and labels only: the values stay in guard.log (redact_result keeps them out of here)
+            "fills_check": job.get("fills_check"),
             # a worker the watchdog gave up on still sent its report: the line says so
             "late_report": True if stopped_by == "idle" and result is not None else None,
             "signin": signin, "google": google, "trace": None,

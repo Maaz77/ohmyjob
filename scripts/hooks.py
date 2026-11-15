@@ -523,6 +523,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
         if not L.is_search_field(item):
             ctx.mark_filled(tab)
+            log_fill(ctx, tab, item.get("name"), ti.get("value"))
         ctx.set_focus(tab, role, ref)
         return None
 
@@ -555,8 +556,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
                            "Use form_input for text with line breaks.")
             if ctx.focus(tab) not in L.TYPE_ROLES:
                 raise Deny("Type only right after you click a text field by its ref. Better: use form_input with the field's ref.")
-            if not L.is_search_field(ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}):
+            focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+            if not L.is_search_field(focused):
                 ctx.mark_filled(tab)
+                log_fill(ctx, tab, focused.get("name"), text)
             return None
         if action in CLICKS:
             if not ti.get("ref"):
@@ -632,6 +635,13 @@ def check_master_action(ctx: Ctx, short: str, ti: dict) -> Optional[dict]:
 
 COORDINATE_KEYS = ("coordinate", "start_coordinate", "end_coordinate")
 FOREIGN_FREE_ACTIONS = {"screenshot", "zoom", "wait", "scroll", "scroll_to"}  # they press and type nothing
+
+
+def log_fill(ctx: "Ctx", tab: Any, label: Any, value: Any) -> None:
+    """One guard.log line per filled value, for the once-per-job fills check (aa.py finish). The values are the
+    candidate's personal data: guard.log goes with the run folder; they never go to traces/ or the ledger."""
+    L.log(ctx.run_dir, "fill", tab=int(tab), folder=(ctx.entry(tab) or {}).get("folder"),
+          label=str(label or "")[:200], value=str(value if value is not None else "")[:200])
 
 
 def foreign_click_problem(run_dir: Optional[Path], ti: dict) -> Optional[str]:

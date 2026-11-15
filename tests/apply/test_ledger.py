@@ -42,12 +42,19 @@ class TestBlockerCodes(unittest.TestCase):
         # GOOGLE_MISSED is a relabel the ledger makes, and TIMEOUT is only kept for the lines of older runs
         text = (T.REPO / "agents" / "application-worker.md").read_text(encoding="utf-8")
         for code in L.BLOCKER_CODES:
-            if code in ("GOOGLE_MISSED", "TIMEOUT"):
+            if code in ("GOOGLE_MISSED", "TIMEOUT", "FILL_REVIEW"):  # FILL_REVIEW: the fills gate of 'finish'
+                continue
+            if False:
                 continue
             self.assertIn(code, text, code)
 
 
 class TestClassifyBlocker(unittest.TestCase):
+    def test_fill_review(self):
+        self.assertEqual(ledger.classify_blocker("FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"),
+                         "FILL_REVIEW")
+        self.assertEqual(ledger.classify_outcome("BLOCKED", "FILL_REVIEW", "FILL_REVIEW: x", True), "handoff")
+
     def test_the_prefix_wins(self):
         self.assertEqual(ledger.classify_blocker("STALLED: no progress"), "STALLED")
         self.assertEqual(ledger.classify_blocker("TIMEOUT: ran out of time"), "TIMEOUT")
@@ -367,3 +374,27 @@ class TestDreamHint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestModelAndFillsInTheLedger(T.Base):
+    def test_model_handover_and_fills_check_without_values(self):
+        self.aa_json("start")
+        self.master_setup()
+        (folder, tab, _brief), *_rest = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
+        self.page(tab, "constructed_form_page.txt")
+        self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_41", "value": "ZZSECRETVALUE"}, W, "A1"))
+        self.assertAllowed(self.handback(json.dumps(
+            {"folder": folder, "tab": tab, "status": "blocked", "where": "step 1", "final_button": "",
+             "url": "https://careers.example.com/a", "filled": ["First name"], "uploaded": None, "drafted": [],
+             "open": [], "questions": [], "declarations": [], "blocker": "NOT_ACCESSIBLE: iframe"}), agent_id="A1"))
+        self.aa("finish")
+        self.aa("end")
+        traces = self.root / ".ohmyjob" / "traces"
+        line = next(json.loads(x) for x in (traces / "ledger.jsonl").read_text(encoding="utf-8").splitlines()
+                    if json.loads(x)["folder"] == folder)
+        self.assertEqual((line["model"], line["handover"]), ("haiku", False))
+        self.assertEqual(line["fills_check"], {"verdict": "ok", "unsupported": 0, "labels": []})
+        for path in traces.rglob("*"):
+            if path.is_file():
+                self.assertNotIn("ZZSECRETVALUE", path.read_text(encoding="utf-8", errors="ignore"))

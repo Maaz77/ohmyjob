@@ -1323,6 +1323,7 @@ ALREADY_SUBMITTED = "already submitted"  # /continue-applying: the page says the
 BLOCKER_CODES = (
     "CLOSED", "UPLOAD_HANG", "ACCOUNT_WALL", "GOOGLE_NO_REF", "CAPTCHA",
     "NOT_ACCESSIBLE", "LOAD_FAIL", "NO_APPLY_CONTROL", "GOOGLE_MISSED", "STALLED", "OTHER", "TIMEOUT",
+    "FILL_REVIEW",
 )
 
 

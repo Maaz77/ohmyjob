@@ -1442,3 +1442,185 @@ class TestStaleRefsAndPermissions(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHandover(Base):
+    """Haiku first, Sonnet takes the same tab over once: the trigger is the verdict, not the blocker text."""
+
+    def result(self, folder, tab, **fields):
+        base = {"folder": folder, "tab": tab, "status": "parked", "where": "step 2 of 5", "final_button": "", "url": "u",
+                "filled": ["First name"], "uploaded": None, "drafted": [], "open": ["Work authorisation"],
+                "declarations": [], "blocker": None}
+        (self.run_dir() / "jobs" / folder / "result.json").write_text(json.dumps({**base, **fields}))
+
+    def handover(self) -> list:
+        code = ("import sys, json; from pathlib import Path; import aa; "
+                "print(json.dumps(aa.handover_workers(Path(sys.argv[1]))))")
+        proc = subprocess.run([sys.executable, "-c", code, str(self.run_dir())], capture_output=True, text=True,
+                              env={**self.env, "PYTHONPATH": str(SCRIPTS)}, cwd=self.root)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def setup_run(self):
+        self.aa_json("start")
+        self.master_setup()
+        (folder, tab, _brief), _other = self.assign(101, 102)
+        return folder, tab
+
+    def test_payloads_carry_a_model_and_the_job_stores_it(self):
+        self.aa_json("start")
+        self.master_setup()
+        self.assertEqual(self.aa_json("assign", "--tabs", "101,102")["queued"], 2)
+        workers = self.aa_json("next")["workers"]
+        self.assertEqual({w["model"] for w in workers}, {"haiku"})
+        self.assertEqual({j["model"] for j in self.state()["jobs"].values()}, {"haiku"})
+
+    def test_a_park_with_no_final_control_is_handed_over_once(self):
+        folder, tab = self.setup_run()
+        self.result(folder, tab)
+        workers = self.handover()
+        self.assertEqual([(w["folder"], w["model"]) for w in workers], [(folder, "sonnet")])
+        self.assertTrue(workers[0]["description"].startswith("Sonnet takes over: "))
+        job = self.state()["jobs"][folder]
+        self.assertEqual((job["model"], job["handover"], job.get("stopped_by")), ("sonnet", True, None))
+        self.assertFalse((self.run_dir() / "jobs" / folder / "result.json").exists())
+        self.assertEqual(self.state()["tabs"][str(tab)]["agent_id"], None)
+        brief = Path(PROMPT_RE.match(workers[0]["prompt"]).group(3)).read_text()
+        self.assertIn("## Continue from the open page", brief)
+        self.assertIn("Work authorisation", brief)
+        # once only
+        self.result(folder, tab)
+        self.assertEqual(self.handover(), [])
+
+    def test_codes_that_are_not_handed_over(self):
+        folder, tab = self.setup_run()
+        for blocker in (BLOCKER, "OTHER: Ireland only", "CLOSED: no longer accepting", "already submitted"):
+            self.result(folder, tab, status="blocked", blocker=blocker)
+            self.assertEqual(self.handover(), [], blocker)
+
+    def test_an_account_wall_is_handed_over_only_when_the_page_does_not_confirm_it(self):
+        folder, tab = self.setup_run()
+        self.result(folder, tab, status="blocked", blocker="ACCOUNT_WALL: it wants an account")
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  f'textbox "Password" [ref_2] type="password"\n\nTab Context:\n- tab {tab}', W, "A1")
+        self.assertEqual(self.handover(), [])  # verified: Sonnet would see the same page
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  f'link "Jobs" [ref_2]\n\nTab Context:\n- tab {tab}', W, "A1")
+        self.assertEqual(len(self.handover()), 1)
+
+    def test_a_watchdog_stop_is_handed_over_but_not_a_sonnet_job(self):
+        folder, tab = self.setup_run()
+        self.set_job(folder, stopped_by="stall")
+        self.assertEqual(len(self.handover()), 1)
+        self.set_job(folder, stopped_by="stall")  # now a Sonnet job that handed over
+        self.assertEqual(self.handover(), [])
+
+    def test_the_handover_brief_tells_the_truth(self):
+        import aa
+        text = aa.handover_section({"where": "step 2 of 5", "blocker": "OTHER: stuck", "open": ["Visa"],
+                                    "filled": ["First name"]})
+        self.assertNotIn("fixed this job by hand", text)
+        self.assertNotIn("ACCOUNT_WALL", text)
+        for part in ("## Continue from the open page", "step 2 of 5", "OTHER: stuck", "Visa", "First name", "already submitted"):
+            self.assertIn(part, text)
+        self.assertIn("fixed this job by hand", aa.continue_section("**Run:** x"))
+
+
+class TestFillsJudge(unittest.TestCase):
+    def test_prompt_and_validation(self):
+        import judge
+        prompt = judge.build_prompt("fills", {"profile": "Name: Alex", "fills": [["First name", "Alex"]]})
+        self.assertIn("Name: Alex", prompt)
+        self.assertIn('["First name", "Alex"]', prompt)
+        tail = "- Have you used Amazon SageMaker? Yes"
+        long = judge.build_prompt("fills", {"profile": "x" * 25000 + "\n" + tail, "fills": []})
+        self.assertIn(tail, long)  # the Follow Up Questions tail is never cut
+        for verdict in ("ok", "suspect"):
+            self.assertTrue(judge.valid("fills", {"verdict": verdict, "unsupported": []}))
+        for bad in ({"verdict": "allow", "unsupported": []}, {"verdict": "ok"}, "ok", None):
+            self.assertFalse(judge.valid("fills", bad))
+
+    def test_the_check_fails_open(self):
+        import aa
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"AA_JUDGE_CMD": f"{sys.executable} {FAKE_JUDGE}"}):
+            run_dir = Path(tmp)
+            ok = aa.fills_check(run_dir, "Name: Alex", [("First name", "Alex")])
+            self.assertEqual(ok, {"verdict": "ok", "unsupported": 0, "labels": []})
+            bad = aa.fills_check(run_dir, "Name: Alex", [("Salary", "BADFILL")])
+            self.assertEqual((bad["verdict"], bad["labels"]), ("suspect", ["Salary"]))
+            self.assertNotIn("BADFILL", json.dumps(bad))
+            boom = aa.fills_check(run_dir, "Name: Alex", [("Salary", "BOOM")])  # the judge errors out: no raise
+            self.assertIn("error", boom)
+            with mock.patch.object(aa.J, "ask", side_effect=RuntimeError("down")):
+                self.assertIn("error", aa.fills_check(run_dir, "p", [("a", "b")]))
+
+
+class FillsGateBase(Base):
+    """The fills check gates a PASS: suspect or error blocks (FILL_REVIEW); anything else is left alone."""
+
+    def run_one(self, value, **report):
+        self.aa_json("start")
+        self.master_setup()
+        (folder, tab, _brief), _other = self.assign(101, 102)
+        self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1")
+        if value is not None:
+            self.page(tab, "constructed_form_page.txt")
+            self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_41", "value": value}, W, "A1"))
+        body = {"folder": folder, "tab": tab, "status": "parked", "where": "review", "final_button": "Submit application",
+                "url": "https://careers.example.com/a", "filled": ["First name"], "uploaded": None, "drafted": [],
+                "open": ["x"], "questions": [], "declarations": [], "blocker": None, **report}
+        self.assertAllowed(self.handback(json.dumps(body), agent_id="A1"))
+        out = self.aa("finish")
+        return folder, self.state()["jobs"][folder], out
+
+
+class TestGateSuspectBlocksWith(FillsGateBase):
+    def test_suspect_blocks_with_labels_only(self):
+        folder, job, out = self.run_one("BADFILL")
+        self.assertEqual(job["verdict"], "BLOCKED")
+        self.assertEqual(job["reasons"], ["FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"])
+        self.assertIn("FIX BY HAND", out)
+        self.assertEqual(sum(1 for line in out.splitlines() if folder in line), 1, out)
+        self.assertNotIn("BADFILL", out + json.dumps(job))
+
+
+class TestGateAnErrorFails(FillsGateBase):
+    def test_an_error_fails_closed_with_its_own_wording(self):
+        _f, job, _out = self.run_one("BOOM")
+        self.assertEqual(job["verdict"], "BLOCKED")
+        self.assertTrue(job["reasons"][0].startswith("FILL_REVIEW: the fills check could not run ("), job["reasons"])
+
+
+class TestGateOk(FillsGateBase):
+    def test_ok_passes(self):
+        self.assertEqual(self.run_one("Alex")[1]["verdict"], "PASS")
+
+
+class TestGateNoFills(FillsGateBase):
+    def test_no_fills_pass(self):
+        self.assertEqual(self.run_one(None)[1]["verdict"], "PASS")
+
+
+class TestGateAJobThat(FillsGateBase):
+    def test_a_job_that_was_not_pass_is_unchanged(self):
+        _f, job, _out = self.run_one("BADFILL", status="blocked", blocker="CAPTCHA: a bot check")
+        self.assertEqual((job["verdict"], job["reasons"]), ("BLOCKED", ["CAPTCHA: a bot check"]))
+
+
+class TestGateTheGateNever(FillsGateBase):
+    def test_the_gate_never_raises_and_fill_review_is_not_handed_over(self):
+        import aa
+        job = {"verdict": "PASS"}
+        aa.fills_gate(Path("/nonexistent"), "f", job, None, {"error": "x"})  # no result dict: left alone
+        self.assertEqual(job["verdict"], "PASS")
+        self.assertIn("FILL_REVIEW", aa.NO_HANDOVER_CODES)
+        folder, tab = None, None
+        self.aa_json("start")
+        self.master_setup()
+        (folder, tab, _b), _o = self.assign(101, 102)
+        (self.run_dir() / "jobs" / folder / "result.json").write_text(json.dumps(
+            {"folder": folder, "tab": tab, "status": "blocked", "where": "w", "open": [], "filled": [],
+             "blocker": "FILL_REVIEW: 1 value(s) not supported by Profile.md: Salary"}))
+        self.assertEqual(TestHandover.handover(self), [])
