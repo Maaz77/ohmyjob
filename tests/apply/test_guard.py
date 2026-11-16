@@ -1152,7 +1152,7 @@ class TestSlots(T.Base):
         code = "import aa_lib as L; print(L.SLOTS)"
         run = lambda env: subprocess.run([sys.executable, "-c", code], env=env, cwd=SCRIPTS, capture_output=True,  # noqa: E731
                                          text=True).stdout.strip()
-        self.assertEqual(run(self.env), "19")  # the default cap of 20, less the master
+        self.assertEqual(run(self.env), "49")  # the default cap of 50, less the master
         self.assertEqual(run({**self.env, "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "2"}), "1")
         (self.root / "ohmyjob.json").write_text("{not json")  # the config plays no part
         self.assertEqual(run(self.env), "19")

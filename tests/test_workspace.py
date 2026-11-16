@@ -368,13 +368,13 @@ def test_the_languages_match_the_pinned_simplemma():
 
 def test_slots_is_the_subagent_cap_minus_one(monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", raising=False)
-    assert W.slots() == 19  # default cap 20
+    assert W.slots() == 49  # default cap 50
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "60")
     assert W.slots() == 59
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "1")
     assert W.slots() == 1  # never below one
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "many")
-    assert W.slots() == 19
+    assert W.slots() == 49
 
 
 # --------------------------------------------------------------------------- file_prefix

@@ -238,7 +238,7 @@ from pathlib import Path
 
 template = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 target = Path(sys.argv[2])
-cap = "20"  # the subagent cap; W.slots() is this minus one
+cap = "50"  # the subagent cap; W.slots() is this minus one
 
 if target.exists():
     existing = json.loads(target.read_text(encoding="utf-8"))

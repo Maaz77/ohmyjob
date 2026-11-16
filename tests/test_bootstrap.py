@@ -401,7 +401,7 @@ def test_settings_created_from_template(env):
     settings = read_settings(env)
     template = json.loads((ROOT / "templates" / "workspace-settings.json").read_text())
     assert settings == template
-    assert settings["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "20"
+    assert settings["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "50"
     assert "Agent(" not in json.dumps(settings)
 
 
@@ -423,7 +423,7 @@ def test_settings_merge_keeps_user_keys(env):
     assert merged["hooks"] == mine["hooks"]
     assert merged["env"]["MY_VAR"] == "1"
     assert merged["env"]["MAX_MCP_OUTPUT_TOKENS"] == "90000"  # higher than the 60000 the pipeline needs: kept
-    assert merged["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "20"  # too low: raised to the floor
+    assert merged["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "50"  # too low: raised to the floor
     assert merged["enabledPlugins"] == {"other@market": True, "ohmyjob@ohmyjob": False}
     assert merged["permissions"]["allow"] == ["Bash(git status)", "Bash(ohmyjob *)"]
     assert merged["permissions"]["deny"] == ["Read(./secrets/**)", "mcp__claude-in-chrome__javascript_tool"]
@@ -457,7 +457,7 @@ def test_invalid_settings_json_is_not_overwritten(env):
 def test_subagent_cap_is_the_default_twenty(env):
     env.ws.mkdir(parents=True)
     ok(env.run())
-    assert read_settings(env)["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "20"
+    assert read_settings(env)["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "50"
 
 
 # --------------------------------------------------------------------------- never overwrite

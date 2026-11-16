@@ -3,7 +3,7 @@
   "autoMemoryEnabled": false,
   "disableClaudeAiConnectors": true,
   "env": {
-    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "20",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "50",
     "MAX_MCP_OUTPUT_TOKENS": "60000"
   },
   "enabledPlugins": {

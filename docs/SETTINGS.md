@@ -22,7 +22,7 @@ Setup creates this file with mock values; you edit it. It is plain JSON with no 
 | `languages` | list of text | `["en"]` | The languages of the postings, used for word-form matching. Choices: `ar ast bg ca cs cy da de el en enm eo es et fa fi fr ga gd gl grc gv hbs he hi hu hy id is it ka la lb lt lv mk ml ms nb nl nn pl pt ro ru se sk sl sq sv sw tl tr uk`. |
 | `uk_sponsor_only` | `true` or `false` | `false` | `freehire` only: keep only jobs from UK sponsor-licensed employers. Other boards ignore it. |
 
-**Not settings.** The title aliases (the software preset in `templates/presets/software.json`, plus common abbreviations such as "ops", "mgr", "sr") are always applied. The git snapshot is a flag you ask for when you run stage 1. How many workers run at once is Claude Code's own subagent cap, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (default 20), minus one for the master. The paper size is `a4` unless a resume yaml sets `paper: letter`. And the page count of a tailored resume is always the page count of the resume it came from.
+**Not settings.** The title aliases (the software preset in `templates/presets/software.json`, plus common abbreviations such as "ops", "mgr", "sr") are always applied. The git snapshot is a flag you ask for when you run stage 1. How many workers run at once is Claude Code's own subagent cap, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (default 50), minus one for the master. The paper size is `a4` unless a resume yaml sets `paper: letter`. And the page count of a tailored resume is always the page count of the resume it came from.
 
 **Per-board notes.**
 

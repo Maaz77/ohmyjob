@@ -416,10 +416,10 @@ def load_config(root: Optional[Path] = None) -> dict:
 
 
 def slots() -> int:
-    """Workers that may run at once: Claude Code's subagent cap (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, else 20) minus
+    """Workers that may run at once: Claude Code's subagent cap (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, else 50) minus
     one for the master."""
     try:
-        cap = int(os.environ.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") or 20)
+        cap = int(os.environ.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") or 50)
     except ValueError:
-        cap = 20
+        cap = 50
     return max(1, cap - 1)
