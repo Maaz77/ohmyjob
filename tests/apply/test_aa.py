@@ -967,6 +967,66 @@ class TestNumberedAnswers(Base):
         self.assertTrue(out.rstrip().endswith("7. Dot one? C.\n8. New one? D.\n9. Other: E."), out)
 
 
+class TestGaps(Base):
+    """`gaps` names the countries of the jobs that `start` would queue for which Work Authorization has no line;
+    `authorize` adds the line."""
+    jobs = (LINKEDIN_JOB,)
+
+    def setUp(self):
+        self.profile = self.root / "Profile.md"
+        self.job_md = self.root / "Applications" / LINKEDIN_JOB / "job.md"
+        for path in (self.profile, self.job_md):
+            self.addCleanup(path.write_text, path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    def set_up(self, location: str, section: str) -> None:
+        text = self.job_md.read_text(encoding="utf-8")
+        self.job_md.write_text(re.sub(r"(- Location: ).*", lambda m: m.group(1) + location, text), encoding="utf-8")
+        profile = self.profile.read_text(encoding="utf-8")
+        head, rest = profile.split("# Work Authorization", 1)
+        tail = rest[rest.index("\n# "):] if "\n# " in rest else ""
+        self.profile.write_text(head + section + tail, encoding="utf-8")
+
+    def test_a_country_with_no_line_is_a_gap(self):
+        self.set_up("Dublin, Ireland", "# Work Authorization\n\n- Germany: citizen. x\n- Security clearance: none.\n")
+        self.assertEqual(self.aa_json("gaps")["gaps"], [{"country": "Ireland", "jobs": ["Lumenfield Logistics | Operations Analyst"]}])
+        self.assertEqual(self.aa_json("gaps", "--selected", "Lumenfield")["gaps"][0]["country"], "Ireland")
+
+    def test_an_eu_line_covers_the_country(self):
+        self.set_up("Dublin, Ireland", "# Work Authorization\n\n- EU: citizen. x\n")
+        self.assertEqual(self.aa_json("gaps")["gaps"], [])
+
+    def test_no_clear_country_is_no_gap(self):
+        self.set_up("Remote", "# Work Authorization\n\n- Germany: citizen. x\n")
+        self.assertEqual(self.aa_json("gaps")["gaps"], [])
+
+    def test_authorize_writes_a_line_that_the_check_reads(self):
+        import work_auth as WA
+
+        self.set_up("Dublin, Ireland", "# Work Authorization\n\n- Germany: citizen. x\n- Security clearance: none.\n")
+        out = self.aa("authorize", "--json", json.dumps([{"country": "Ireland", "status": "needs sponsorship", "words": "Need a visa."}]))
+        self.assertEqual(json.loads(out), {"saved": 1})
+        text = self.profile.read_text(encoding="utf-8")
+        self.assertIn("- Ireland: needs sponsorship. Need a visa.\n- Security clearance: none.", text)
+        self.assertEqual(WA.candidate_level(WA.profile_rows(text), "IE")[0], WA.NEEDS)
+        self.assertEqual(self.aa_json("gaps")["gaps"], [])
+
+    def test_authorize_creates_a_missing_section(self):
+        profile = self.profile.read_text(encoding="utf-8")
+        self.profile.write_text(profile.split("# Work Authorization")[0].rstrip() + "\n", encoding="utf-8")
+        self.aa("authorize", "--json", json.dumps([{"country": "Ireland", "status": "citizen", "words": ""}]))
+        self.assertTrue(self.profile.read_text(encoding="utf-8").endswith("# Work Authorization\n\n- Ireland: citizen.\n"))
+
+    def test_authorize_refuses_a_bad_status_a_duplicate_and_bad_json(self):
+        self.set_up("Dublin, Ireland", "# Work Authorization\n\n- Germany: citizen. x\n")
+        before = self.profile.read_text(encoding="utf-8")
+        for data in ('[{"country": "Ireland", "status": "maybe", "words": ""}]',
+                     '[{"country": "Germany", "status": "citizen", "words": ""}]',
+                     '[{"country": "Ireland", "status": "citizen"}, {"country": "ireland", "status": "authorized"}]',
+                     "not json"):
+            self.assertTrue(self.aa("authorize", "--json", data).startswith("RETRY:"), data)
+        self.assertEqual(self.profile.read_text(encoding="utf-8"), before)
+
+
 class TestStagger(Base):
     def test_first_page_loads_are_spaced_out(self):
         """Each worker's first navigation waits for its own start slot; later navigations do not wait."""

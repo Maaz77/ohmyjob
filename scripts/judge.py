@@ -68,9 +68,10 @@ Answer with this JSON only:
 
 FILLS_PROMPT = """The agent filled the fields of ONE job application for the candidate. For each (field label, value) pair,
 decide whether the value is supported by the candidate's profile (stated there, or a plain consequence of it).
-A value is unsupported when it states a fact about the candidate that the profile neither states nor implies, or
-contradicts it. Facts: years of a skill, experience with a technology, salary number, work authorization, education,
-employers, dates, personal details.
+A value is unsupported when it states a legal status (work authorization, visa or sponsorship, citizenship, residence
+status, security clearance, criminal record) or a number or credential (years of a skill, a proficiency level or score,
+a certificate, licence, degree, grade, salary figure) that the profile neither states nor implies, or when any value
+contradicts the profile. A plausible default answer to any other question that contradicts nothing is not unsupported.
 Not unsupported: a consent, declaration or acknowledgement tick; "prefer not to say" on a voluntary diversity question;
 "how did you hear about us"; a natural default answer to a common form question (military service, non-compete,
 relatives at the company and similar) that contradicts nothing in the profile; the safest or most neutral choice on a

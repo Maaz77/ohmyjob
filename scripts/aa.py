@@ -22,6 +22,10 @@ Run it as `ohmyjob apply <command>` (bin/ohmyjob finds the workspace and the plu
   questions              the questions about the candidate that workers could not answer from Profile.md (waiting for the
                          answers; the ones still waiting are dropped by `ohmyjob reconcile --apply`, which closes the round)
   answer --json '[...]'  save the candidate's answers in the "Follow Up Questions" section of Profile.md
+  gaps [--selected|--top-k-match]
+                         the countries of the jobs that `start` would queue for which Profile.md has no Work Authorization
+                         line (changes nothing)
+  authorize --json '[...]'  add one line per country to the Work Authorization section of Profile.md
   end                    delete the run folder (last step of the run)
 
 Every command prints JSON or one line. An error prints a line that starts with FATAL.
@@ -48,6 +52,7 @@ import aa_lib as L
 import judge as J
 import ledger
 import liveness
+import work_auth as WA
 import workspace as W
 from job_key import is_pasted_url
 from tracker import Tracker, TrackerError
@@ -136,7 +141,9 @@ still shows the page where the candidate left it. Do not navigate first: call re
 application from that page (Flow step 2). If the page says that the application was sent or submitted, stop at
 once with status "blocked" and blocker "already submitted": never start this job again. If the tab shows a sign-in or
 account page (not an application form), navigate the tab to its current address once and call read_page before you
-report `ACCOUNT_WALL`. Navigate to the Apply
+report `ACCOUNT_WALL`. If the last run stopped on questions for the candidate: the fields that it filled are still on
+the page; fill the questions that the candidate answered since (they are in "Follow Up Questions" or `# Work Authorization`
+now), then go on. Navigate to the Apply
 URL (else the Job URL) of the brief only when the tab shows no application for this job (an empty or error page, or a page about something else).
 The last run stopped as follows. It is history: a step the hook refused then is not refused for ever, so take it
 again and let the hook answer.
@@ -222,7 +229,8 @@ def write_brief(run_dir: Path, job: dict) -> Path:
         resume_text = "```yaml\n" + yamls[0].read_text(encoding="utf-8").strip() + "\n```"
     else:
         resume_title = "Tailored resume for this job"
-        resume_text = f"(expected 1 resume yaml in the job folder, found {len(yamls)})"
+        resume_text = ('(no tailored title and introduction for this job: for a headline, summary or "about you" field '
+                       'use the Resume section of Profile.md)')
     apply_line = (f"\n- Apply URL (the employer's own application address: navigate to it first, instead of the Job URL): "
                   f"{job['apply_url']}" if job.get("apply_url") else "")
     text = f"""# Brief: {job['company']} | {job['title']}
@@ -397,7 +405,9 @@ FEED_MARKER_URL = "https://www.linkedin.com/feed/#aa-popups-as-tabs"
 ROBOTS_MARKER_URL = "https://www.linkedin.com/robots.txt#aa-popups-as-tabs"
 
 
-def cmd_start(args: argparse.Namespace) -> None:
+def select_jobs(args: argparse.Namespace) -> tuple:
+    """The jobs that `start` would queue, before its liveness check and --top-k-match cut: (tracker, by_key, queue, skipped,
+    scores). It changes no state; `start` and `gaps` both call it."""
     if W.has_template_marker(W.PROFILE):
         fatal("Profile.md still has the template marker (the mock data of the template): fill in your own details, then "
               "delete the marker line, and run this again.")
@@ -409,11 +419,6 @@ def cmd_start(args: argparse.Namespace) -> None:
         if not args.top_k.strip().isdecimal() or int(args.top_k) < 1:
             fatal(f"--top-k-match takes a whole number of 1 or more, got {args.top_k!r}")
         args.top_k = int(args.top_k)
-    W.load_config()  # reads ohmyjob.json now: a bad config stops the run here (main prints FATAL), not in the middle of it
-    # A run that stopped early leaves its folder. Its jobs are still at "Resume Built", so they are queued again.
-    delete_run_folders()
-    L.RUN_BASE.mkdir(parents=True, exist_ok=True)
-    warnings: list[str] = []
     try:
         tracker = Tracker(L.TRACKER)
     except TrackerError as exc:
@@ -472,6 +477,21 @@ def cmd_start(args: argparse.Namespace) -> None:
                 "location": str(location),
             }
         )
+    return tracker, by_key, queue, skipped, scores
+
+
+def keep_best(queue: list[dict], scores: dict, top_k: Optional[int]) -> list[dict]:
+    """--top-k-match: the best K of the queued jobs; the rest stay at "Resume Built"."""
+    return queue if top_k is None else sorted(queue, key=lambda q: scores[q["folder"]], reverse=True)[:top_k]  # stable on ties
+
+
+def cmd_start(args: argparse.Namespace) -> None:
+    tracker, by_key, queue, skipped, scores = select_jobs(args)
+    W.load_config()  # reads ohmyjob.json now: a bad config stops the run here (main prints FATAL), not in the middle of it
+    # A run that stopped early leaves its folder. Its jobs are still at "Resume Built", so they are queued again.
+    delete_run_folders()
+    L.RUN_BASE.mkdir(parents=True, exist_ok=True)
+    warnings: list[str] = []
     closed_jobs: list[str] = []
     if not args.cont and queue:  # early liveness check: a positively closed posting is dropped before a tab is opened
         verdicts = liveness.find_closed([(q["folder"], q["apply_url"] or q["url"]) for q in queue])
@@ -486,8 +506,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         done = {folder.name for _i, folder, _c in gone}
         closed_jobs = [f"{q['company']} | {q['title']}: {liveness.CLOSED_TEXT[verdicts[q['folder']]]}" for q in queue if q["folder"] in done]
         queue = [q for q in queue if q["folder"] not in done]
-    if args.top_k is not None:  # the best K of the jobs that can be queued; the rest stay at "Resume Built"
-        queue = sorted(queue, key=lambda q: scores[q["folder"]], reverse=True)[: args.top_k]  # stable on ties
+    queue = keep_best(queue, scores, args.top_k)
     # The LinkedIn sign-in is checked only when a queued job starts on linkedin.com (its Apply URL when it has one).
     needs_linkedin = (not args.cont) and any(L.is_linkedin_url(q.get("apply_url") or q["url"]) for q in queue)
     home_url = FEED_MARKER_URL if needs_linkedin else ROBOTS_MARKER_URL
@@ -1260,7 +1279,9 @@ def grouped_note(run_dir: Path, state: dict) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------- follow-up questions
-# A worker never guesses a fact about the candidate: it stops and lists the question (report key "questions"). The
+# A worker answers an ordinary form question itself (and lists it in "drafted"). It never guesses a legal status or a
+# qualification (work authorization, citizenship, clearance, years of a skill, a credential, a salary): it stops and
+# lists the question (report key "questions"), after it filled the rest of its page. The
 # questions wait in questions.json. At the end of /apply-jobs and /continue-applying, the main session asks
 # the candidate ('questions') and saves the answers in Profile.md ('answer'), where every worker reads them next time.
 # A question nobody answered stays in the file only until the round is closed: `ohmyjob reconcile --apply` deletes
@@ -1375,6 +1396,69 @@ def cmd_answer(args: argparse.Namespace) -> None:
         L.write_json(QUESTIONS_FILE, list(by_key.values()))
     still = {j for q in by_key.values() for j in q["jobs"]}  # a job with another waiting question cannot go on yet
     emit({"saved": len(pairs), "still_waiting": len(by_key), "jobs_that_can_continue": [j for j in jobs if j not in still]})
+
+
+COUNTRY_NAME = {"GB": "United Kingdom", "US": "United States"}  # the name that people write, for the codes with many names
+COUNTRY_NAME.update({code: n.title() for n, code in reversed(WA.COUNTRY_CODES.items()) if code not in COUNTRY_NAME})
+AUTH_STATUSES = ("citizen", "permanent resident", "authorized", "needs sponsorship")
+
+
+def cmd_gaps(args: argparse.Namespace) -> None:
+    """The countries of the jobs that `start` would queue that Profile.md's Work Authorization section does not cover."""
+    _tracker, _by_key, queue, _skipped, scores = select_jobs(args)
+    rows = WA.profile_rows(L.PROFILE.read_text(encoding="utf-8"))
+    gaps: dict[str, list[str]] = {}
+    for q in keep_best(queue, scores, args.top_k):
+        code = WA.job_country(q["location"])
+        if code and code not in rows and WA.candidate_level(rows, code) is None:  # a line that cannot be read is not a gap: the form question stops the worker
+            gaps.setdefault(COUNTRY_NAME.get(code, code), []).append(f"{q['company']} | {q['title']}")
+    emit({"gaps": [{"country": country, "jobs": jobs} for country, jobs in gaps.items()]})
+
+
+def cmd_authorize(args: argparse.Namespace) -> None:
+    """Add `- <Country>: <status>. <words>` lines to the Work Authorization section of Profile.md:
+    [{"country": "<name>", "status": "<one of AUTH_STATUSES>", "words": "<own words, may be empty>"}]. Nothing is saved on a RETRY."""
+    try:
+        data = json.loads(args.json or "")
+    except json.JSONDecodeError as exc:
+        print(f"RETRY: the text is not valid JSON ({exc})")
+        return
+    if not isinstance(data, list) or not data or not all(isinstance(x, dict) for x in data):
+        print('RETRY: give a JSON list like [{"country": "Ireland", "status": "citizen", "words": ""}]')
+        return
+    text = L.PROFILE.read_text(encoding="utf-8")
+    rows = WA.profile_rows(text)
+    new: dict[str, str] = {}
+    for x in data:
+        country = " ".join(str(x.get("country") or "").split())
+        code = WA.COUNTRY_CODES.get(country.casefold())
+        status = str(x.get("status") or "")
+        if code is None:
+            print(f"RETRY: not a country name that Work Authorization reads: {country!r}")
+            return
+        if status not in AUTH_STATUSES:
+            print("RETRY: status must be exactly one of: " + ", ".join(AUTH_STATUSES))
+            return
+        if code in new or code in rows:
+            print(f"RETRY: {country} has a line already")
+            return
+        new[code] = f"- {country}: {status}. {' '.join(str(x.get('words') or '').split())}".rstrip()
+    lines, added = text.split("\n"), list(new.values())
+    for level, title, start, end in L.md_sections(text):
+        if level == 1 and title.strip().casefold() == WA.SECTION.casefold():
+            at = next((i for i in range(start + 1, end) if re.match(r"^\s*[-*]\s+.*clearance", lines[i].replace("**", ""), re.I)), None)
+            if at is None:  # after the last line of the section that holds text
+                at = next(i for i in range(end, start, -1) if lines[i - 1].strip())
+                if not re.match(r"\s*[-*]\s", lines[at - 1]):
+                    added = ["", *added]  # a list needs a blank line after the heading or a paragraph
+            lines[at:at] = added
+            break
+    else:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines += ["", f"# {WA.SECTION}", "", *added, ""]
+    L.write_text(L.PROFILE, "\n".join(lines))
+    emit({"saved": len(new)})
 
 
 def cmd_end(args: argparse.Namespace) -> None:
@@ -1517,6 +1601,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     sub.add_parser("adopt-plan")
     sub.add_parser("adopted")
     sub.add_parser("questions")
+    p = sub.add_parser("gaps")
+    p.add_argument("--selected", default=None)
+    p.add_argument("--top-k-match", dest="top_k", default=None)
+    p.set_defaults(cont=False)
+    p = sub.add_parser("authorize")
+    p.add_argument("--json", required=True)
     p = sub.add_parser("answer")
     p.add_argument("--json", required=True)
     sub.add_parser("next")
@@ -1545,6 +1635,8 @@ def dispatch(args: argparse.Namespace) -> None:
         "adopted": cmd_adopted,
         "questions": cmd_questions,
         "answer": cmd_answer,
+        "gaps": cmd_gaps,
+        "authorize": cmd_authorize,
         "cleanup-plan": cmd_cleanup_plan,
         "end": cmd_end,
     }[args.cmd](args)

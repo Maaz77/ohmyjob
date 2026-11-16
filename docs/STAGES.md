@@ -93,7 +93,9 @@ One worker per job at `Resume Built`, each in its own Chrome tab. It opens the p
 - **`Pending Review`** — the form is filled and parked, waiting for you.
 - **`Needs Attention`** — something blocked it: a sign-in wall, a CAPTCHA, an account it is not allowed to create, a pop-up, a question it could not answer. The tab stays open, in the Chrome tab group "Needs Attention".
 
-Any question the workers could not answer from `Profile.md` is collected and **asked once, at the end of the run**, with the jobs that asked it. You answer in your own words — or skip any of them — and your answers are saved into `# Follow Up Questions` so the next round answers them itself. A question you skip waits only until the round is closed: `/ohmyjob:reconcile` drops every question still unanswered, so nothing carries over into the next round. Answer what you want answered before you reconcile; a job that runs again asks its question again.
+A worker answers an ordinary form question itself (the answer is listed under "Drafted answers" in the job note: check it before you submit) and fills the rest of the page before it stops. It stops only on a legal status (work authorization for a country your `# Work Authorization` does not cover, citizenship, clearance, criminal record) or a number or credential (years of a skill, a degree, a salary figure) that `Profile.md` does not answer. Before the run, `/ohmyjob:apply-jobs` asks you for the `# Work Authorization` line of each job country that has none (`ohmyjob apply gaps` / `authorize`).
+
+Every stop question is collected and **asked once, at the end of the run**, with the jobs that asked it. You answer in your own words — or skip any of them — and your answers are saved into `# Follow Up Questions` so the next round answers them itself. A question you skip waits only until the round is closed: `/ohmyjob:reconcile` drops every question still unanswered, so nothing carries over into the next round. Answer what you want answered before you reconcile; a job that runs again asks its question again.
 
 **Arguments.** This is the one command where limiting the run is useful, since it is the slow and expensive stage:
 

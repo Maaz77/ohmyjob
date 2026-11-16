@@ -31,7 +31,8 @@ class TestMasterBash(T.Base):
                         "ohmyjob apply end", "ohmyjob apply adopt-plan", "ohmyjob apply adopted", "  ohmyjob apply next\n"):
             self.assertExplicitAllow(self.bash(command))
         for command in ("ohmyjob apply next; rm -rf /", "ohmyjob apply next\nls", "ohmyjob apply next && ls",
-                        "ohmyjob apply questions", "ohmyjob apply answer --json '[]'", "ohmyjob prep start",
+                        "ohmyjob apply questions", "ohmyjob apply answer --json '[]'", "ohmyjob apply gaps",
+                        "ohmyjob apply authorize --json '[]'", "ohmyjob prep start",
                         "ohmyjob apply assign --tabs 1,x", "bash -c 'ohmyjob apply next'", "ls", "$(ohmyjob apply next)",
                         "ohmyjob apply next | cat", ""):
             self.assertDenied(self.bash(command), "ohmyjob apply")
