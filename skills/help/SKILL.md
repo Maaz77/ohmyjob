@@ -11,7 +11,7 @@ allowed-tools: Read
      arguments exactly as the README gives them (`/ohmyjob:apply-jobs` takes `--selected "<name, name>"` or
      `--top-k-match <N>` and not both; `/ohmyjob:build-resumes` takes an optional `file.yaml`;
      `/ohmyjob:build-job-resumes` requires a comma-separated list of job folder names; `/ohmyjob:add-job` takes one or more
-     web addresses, or the posting text pasted in the message; `/ohmyjob:edit-template` requires a request in words, such as
+     web addresses; `/ohmyjob:edit-template` requires a request in words, such as
      "add a section Selected Projects to the resume" or "make the accent colour of the CV blue"; every other command takes none).
      Keep the closing note about `build-resumes` working in `Default_Resume_Files/` while
      `build-job-resumes` works in the job folders, and the note that `edit-template` changes the LaTeX template itself (the user's copy in

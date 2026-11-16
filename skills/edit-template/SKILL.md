@@ -2,6 +2,7 @@
 name: edit-template
 description: Change the LaTeX resume or CV template from a request in plain words, for example "add a section Selected Projects to the resume" or "make the accent colour of the CV blue". Works out whether the request is for the resume, the CV or both, edits the workspace copy of the template, and builds the two sample templates to prove it still compiles. Use only when the user types /ohmyjob:edit-template <request>.
 disable-model-invocation: true
+argument-hint: "<request in plain words>"
 allowed-tools: Bash(ohmyjob *), Read, Edit, Write, AskUserQuestion
 ---
 

@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""Put postings the candidate found by hand into the pipeline (/ohmyjob:add-job): `ohmyjob add-job <url>... [--paste]`.
+"""Put postings the candidate found by hand into the pipeline (/ohmyjob:add-job): `ohmyjob add-job <url> [<url> ...]`.
 
 Each posting becomes what the scraper makes: Applications/<key>_<Company>_<Title>/job.md and a tracker row at "Found".
 No search filter applies (the candidate chose the job); a company in exclude_companies only gets a WARNING line.
-A posting is given as a web address (this script fetches the page: standard library only, no Chrome), as pasted text
-(`--paste`: the postings are read from the inbox file that `--inbox` names, a JSON list of objects with the keys url,
-text, company, title, location, apply_url; the file is deleted after reading), or both (the text is used and the page
-is not fetched). A text without an address gets one from job_key.pasted_url, so its id is stable and reconcile pairs
-it with its row like any other.
+A posting is given as a web address; this script fetches the page (standard library only, no Chrome).
 
 Nothing is created for a posting that is already known (id, or the same company, title and city as a row), whose page
-cannot be read, whose description is empty or only boilerplate, or whose company or title is not known. Output: one
+cannot be read, whose description is empty or only boilerplate, or whose company or title the page does not tell. Output: one
 line per posting (`added`, `already known`, `unreadable`, `needs input`), `WARNING ...` lines, a `total:` line, and
 `FATAL: ...` (exit 1). Exit 2: the run finished but some posting was unreadable or needs input.
 """
@@ -33,12 +29,11 @@ from urllib.parse import urlsplit
 
 import scrape_core as C
 import workspace as W
-from job_key import job_key, pasted_url, strip_tracking
+from job_key import job_key, strip_tracking
 from scrape import Stop, known_keys, open_tracker, say
 from tracker import TrackerError
 
 EXIT_OK, EXIT_FATAL, EXIT_SOME_LEFT = 0, 1, 2
-INBOX = "add-job.json"  # in .ohmyjob/: the postings of a --paste run, written by the skill
 FETCH_TIMEOUT = 20
 MAX_PAGE_BYTES = 3_000_000
 USER_AGENT = "Mozilla/5.0 (compatible; ohmyjob add-job)"
@@ -235,79 +230,35 @@ def twin_line(rows: list[dict], company: str, title: str, location: str) -> Opti
     return None
 
 
-def label_of(item: dict) -> str:
-    return item["url"] or "pasted text: " + C.one_line(item["text"])[:50]
+def normalize(url: str) -> str:
+    return C.canonical_linkedin(strip_tracking(url.strip()))
 
 
-def normalize(raw: Any) -> dict:
-    """One posting of the input as {url, text, company, title, location, apply_url}, all strings."""
-    if not isinstance(raw, dict) or not all(isinstance(v, str) for v in raw.values()):
-        raise Stop("a posting must be an object whose values are all strings (url, text, company, title, location, apply_url)")
-    item = {k: C.one_line(raw.get(k)) for k in ("url", "company", "title", "location", "apply_url")}
-    item["text"] = str(raw.get("text") or "").strip()
-    if item["url"]:
-        item["url"] = C.canonical_linkedin(strip_tracking(item["url"]))
-    if item["apply_url"]:
-        item["apply_url"] = strip_tracking(item["apply_url"])
-    if not item["url"] and not item["text"]:
-        raise Stop("a posting needs a url or a text")
-    return item
-
-
-def resolve(item: dict, rows: list[dict], folders: set[str]) -> tuple[str, str, Optional[dict]]:
+def resolve(url: str, rows: list[dict], folders: set[str]) -> tuple[str, str, Optional[dict]]:
     """(kind, message, job): kind is "known", "unreadable" or "needs input" with a message, or "ready" with the job."""
-    url = item["url"]
-    if url and not url.lower().startswith(("http://", "https://")):
+    if not url.lower().startswith(("http://", "https://")):
         return "unreadable", "not a web address (http or https)", None
-    key = job_key(url or pasted_url(item["text"]))
+    key = job_key(url)
     if (line := known_line(rows, folders, key)) is not None:
         return "already known", line, None
-    page = {"company": "", "title": "", "location": "", "description": "", "posted": "", "employment": "", "page_title": ""}
-    if item["text"]:
-        page["description"] = item["text"]
-    else:
-        try:
-            page = parse_page(fetch(url))
-        except Unreadable as exc:
-            return "unreadable", str(exc), None
-    if (why := thin_reason(page["description"], fetched=not item["text"] and not page.get("from_posting"))) is not None:
+    try:
+        page = parse_page(fetch(url))
+    except Unreadable as exc:
+        return "unreadable", str(exc), None
+    if (why := thin_reason(page["description"], fetched=not page["from_posting"])) is not None:
         return "unreadable", why, None
-    company, title = item["company"] or page["company"], item["title"] or page["title"]
-    if not company or not title:
-        missing = " and ".join(n for n, v in (("company", company), ("title", title)) if not v)
+    if not page["company"] or not page["title"]:
+        missing = " and ".join(n for n, v in (("company", page["company"]), ("title", page["title"])) if not v)
         hint = f' (the page is titled "{page["page_title"]}")' if page["page_title"] else ""
         return "needs input", f"the {missing} could not be told with confidence{hint}; ask the candidate", None
-    apply_url = item["apply_url"] if item["apply_url"].lower().startswith(("http://", "https://")) else ""
-    job_url = url or pasted_url(item["text"])
     return "ready", "", {
-        "key": key, "url": job_url, "apply_url": "" if apply_url == job_url else apply_url, "title": title, "company": company,
-        "location": item["location"] or page["location"], "posted": page["posted"], "employment": page["employment"],
-        "description": page["description"],
-        "source": f"Added by hand ({host_of(url) if url else 'pasted text'})",
+        "key": key, "url": url, "apply_url": "", "title": page["title"], "company": page["company"],
+        "location": page["location"], "posted": page["posted"], "employment": page["employment"],
+        "description": page["description"], "source": f"Added by hand ({host_of(url)})",
     }
 
 
-def load_postings(root: Path, urls: list[str], paste: bool) -> list[dict]:
-    raws: list[Any] = [{"url": u} for u in urls]
-    if paste:
-        inbox = root / ".ohmyjob" / INBOX
-        try:
-            data = json.loads(inbox.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            raise Stop(f"{inbox} not found: write the postings there first (ohmyjob add-job --inbox names it)") from None
-        except (OSError, ValueError) as exc:
-            raise Stop(f"{inbox} is not a JSON list of postings ({exc})") from None
-        finally:
-            inbox.unlink(missing_ok=True)  # pasted page text is not kept
-        if not isinstance(data, list):
-            raise Stop(f"{inbox} must hold a JSON list of postings")
-        raws += data
-    if not raws:
-        raise Stop("give at least one web address, or --paste for postings written to the inbox file (--inbox names it)")
-    return [normalize(raw) for raw in raws]
-
-
-def run(root: Path, postings: list[dict], search: dict) -> int:
+def run(root: Path, postings: list[str], search: dict) -> int:
     rows = open_tracker(root).rows()  # read-only: the pages are fetched before the tracker is loaded for the change
     folders = known_keys(root)
     results: list[tuple[str, str, Optional[dict]]] = []
@@ -322,7 +273,6 @@ def run(root: Path, postings: list[dict], search: dict) -> int:
     warnings: list[str] = []
     counts = {"added": 0, "already known": 0, "unreadable": 0, "needs input": 0}
     for item, (kind, message, job) in zip(postings, results):
-        label = label_of(item)
         if job is not None:
             message = known_line(rows, folders, job["key"]) or twin_line(rows, job["company"], job["title"], job["location"])
             kind = "already known" if message else "ready"
@@ -349,7 +299,7 @@ def run(root: Path, postings: list[dict], search: dict) -> int:
             lines.append(f"added: {job['company']} - {job['title']} ({folder.name})")
             counts["added"] += 1
             continue
-        lines.append(f"{kind}: {label}: {message}" + ("; paste the posting text instead" if kind == "unreadable" else ""))
+        lines.append(f"{kind}: {item}: {message}")
         counts[kind] += 1
     try:
         if counts["added"]:
@@ -365,22 +315,15 @@ def run(root: Path, postings: list[dict], search: dict) -> int:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="ohmyjob add-job", description=__doc__.split("\n")[0])
-    parser.add_argument("urls", nargs="*", help="web addresses of postings")
-    parser.add_argument("--paste", action="store_true", help="also take the postings in the inbox file (deleted after reading)")
-    parser.add_argument("--inbox", action="store_true", help="print the path of the inbox file and stop")
+    parser.add_argument("urls", nargs="+", help="web addresses of postings")
     args = parser.parse_args(argv)
     try:
         root = W.find_root()
-        if args.inbox:
-            (root / ".ohmyjob").mkdir(exist_ok=True)
-            (root / ".ohmyjob" / INBOX).unlink(missing_ok=True)  # a left-over file would make the Write tool refuse
-            say(str(root / ".ohmyjob" / INBOX))
-            return EXIT_OK
         template = W.template_files(root)
         if template:  # mock values must not become tracked jobs
             raise Stop(f"{template[0].name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with "
                        "yours and delete the marker line (the `_template` line in ohmyjob.json), then run again")
-        return run(root, load_postings(root, args.urls, args.paste), W.load_config(root)["search"])
+        return run(root, [normalize(u) for u in args.urls], W.load_config(root)["search"])
     except (W.WorkspaceError, Stop) as exc:
         say(f"FATAL: {exc}")
         return EXIT_FATAL

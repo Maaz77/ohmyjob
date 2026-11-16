@@ -5,7 +5,6 @@ and reconcile scripts (subprocesses) on what add_job wrote.
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +17,7 @@ import add_job
 import aa_lib as L
 import scrape
 import workspace as W
-from job_key import job_key, pasted_url
+from job_key import job_key
 from tracker import Tracker
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -66,9 +65,8 @@ def env(workspace, monkeypatch):
     return workspace, pages, fetched
 
 
-def add(root, *items, search=None):
-    postings = [add_job.normalize(i if isinstance(i, dict) else {"url": i}) for i in items]
-    return add_job.run(root, postings, search or W.load_config(root)["search"])
+def add(root, *urls, search=None):
+    return add_job.run(root, [add_job.normalize(u) for u in urls], search or W.load_config(root)["search"])
 
 
 def rows(root):
@@ -124,67 +122,13 @@ def test_linkedin_url_keeps_its_id_and_its_site_in_the_source(env):
     assert folders(root)[0].startswith("4399000077_")
 
 
-def test_page_without_a_job_posting_asks_for_company_and_title_then_uses_the_visible_text(env, capsys):
+def test_page_without_a_job_posting_needs_input_for_company_and_title(env, capsys):
     root, pages, fetched = env
     pages[URL] = page(title="Operations Analyst | Careers", body=FILLER)
     assert add(root, URL) == 2
     out = capsys.readouterr().out
     assert f'needs input: {URL}: the company and title could not be told with confidence (the page is titled "Operations Analyst | Careers")' in out
     assert rows(root) == [] and folders(root) == []
-    assert add(root, {"url": URL, "company": "Harborline Freight", "title": "Operations Analyst"}) == 0
-    text = (root / "Applications" / folders(root)[0] / "job.md").read_text(encoding="utf-8")
-    assert "weekly operations data" in text and "Imprint" not in text and "Home Jobs About us" not in text
-
-
-def test_the_candidate_can_correct_company_title_and_location_of_a_readable_page(env):
-    root, pages, fetched = env
-    pages[URL] = page(ld=ldjson(city=""))
-    assert add(root, {"url": URL, "company": "Harborline Freight Ltd", "location": "Remote, Germany"}) == 0
-    (row,) = rows(root)
-    assert (row["Company"], row["Location"]) == ("Harborline Freight Ltd", "Remote, Germany")
-
-
-# --------------------------------------------------------------------------- add by text
-
-
-TEXT = "  " + FILLER + "\n\n## About us\nWe move freight. " + FILLER
-
-
-def test_text_only_add_gets_a_stable_pasted_address_that_job_key_turns_into_the_folder_id(env, capsys):
-    root, pages, fetched = env
-    item = {"text": TEXT, "company": "Harborline Freight", "title": "Operations Analyst", "location": "Hamburg",
-            "apply_url": "https://apply.harborline.example/ops?utm_medium=mail"}
-    assert add(root, item) == 0 and fetched == []
-    address = pasted_url(TEXT)
-    key = job_key(address)
-    assert re.fullmatch(r"8\d{14}", key) and address.startswith("paste:")
-    (row,) = rows(root)
-    assert (row["Job URL"], row["_key"], row["Status"]) == (address, key, "Found")
-    assert row["Source"] == "Added by hand (pasted text)"
-    (name,) = folders(root)
-    assert name == f"{key}_Harborline-Freight_Operations-Analyst"
-    ov = overview(root, name)
-    assert ov["Job URL"] == address and ov["Apply URL"] == "https://apply.harborline.example/ops"
-    assert "### About us" in (root / "Applications" / name / "job.md").read_text(encoding="utf-8")
-    # the same text again, with other spacing and case: the same id, nothing created
-    capsys.readouterr()
-    assert add(root, {**item, "text": TEXT.upper().replace("\n\n", " ")}) == 0
-    assert ": Harborline Freight - Operations Analyst, sheet row 2, status Found" in capsys.readouterr().out
-    assert len(rows(root)) == 1 and len(folders(root)) == 1
-
-
-def test_pasted_text_with_a_url_uses_the_text_and_the_urls_id_without_fetching(env):
-    root, pages, fetched = env
-    assert add(root, {"url": URL, "text": TEXT, "company": "Harborline Freight", "title": "Operations Analyst"}) == 0
-    assert fetched == []
-    (row,) = rows(root)
-    assert row["Job URL"] == URL and row["_key"] == job_key(URL) and row["Source"] == "Added by hand (careers.harborline.example)"
-
-
-def test_pasted_text_without_company_or_title_needs_input(env, capsys):
-    root, pages, fetched = env
-    assert add(root, {"text": TEXT, "company": "Harborline Freight"}) == 2
-    assert "needs input: pasted text: " in capsys.readouterr().out and rows(root) == []
 
 
 # --------------------------------------------------------------------------- already known
@@ -275,21 +219,11 @@ def test_an_unreadable_page_creates_no_row_and_no_folder(env, capsys, html, why)
     root, pages, fetched = env
     if html is not None:
         pages[URL] = html
-    assert add(root, {"url": URL, "company": "Harborline Freight", "title": "Operations Analyst"}) == 2
+    assert add(root, URL) == 2
     out = capsys.readouterr().out
-    assert f"unreadable: {URL}: " in out and why in out and "paste the posting text instead" in out
+    assert f"unreadable: {URL}: " in out and why in out
     assert "total: 0 added, 0 already known, 1 unreadable" in out
     assert rows(root) == [] and folders(root) == []
-
-
-@pytest.mark.parametrize("text", ["", "   ", "Great job at a great company. Apply today!", "Sign in to apply. Cookies. Imprint."])
-def test_pasted_text_that_is_empty_or_boilerplate_creates_nothing(env, capsys, text):
-    root, pages, fetched = env
-    item = {"text": text, "company": "Harborline Freight", "title": "Operations Analyst", "url": URL if text else ""}
-    if not text.strip():
-        item["url"] = URL  # normalize needs a url or a text; the empty text then means "fetch", which fails
-    assert add(root, item) == 2
-    assert "unreadable:" in capsys.readouterr().out and rows(root) == [] and folders(root) == []
 
 
 def test_an_error_status_a_sign_in_redirect_and_a_pdf_are_unreadable(monkeypatch):
@@ -390,42 +324,9 @@ def test_mock_guard_refuses_with_one_fatal_line_naming_the_file(env, name, text)
     assert rows(root) == [] and folders(root) == []
 
 
-def test_mock_guard_comes_before_the_inbox_is_read(env):
+def test_no_address_is_a_usage_error(env):
     root, pages, fetched = env
-    (root / "Profile.md").write_text("OHMYJOB-TEMPLATE\n", encoding="utf-8")
-    proc = run_main(root, "--paste")
-    assert proc.stdout.startswith("FATAL: Profile.md still has the template marker")
-
-
-def test_inbox_paste_adds_the_postings_and_deletes_the_file(env, capsys):
-    root, pages, fetched = env
-    (root / ".ohmyjob").mkdir(exist_ok=True)
-    (root / ".ohmyjob" / "add-job.json").write_text("left over", encoding="utf-8")  # --inbox clears it
-    inbox = Path(run_main(root, "--inbox").stdout.strip())
-    assert inbox == root / ".ohmyjob" / "add-job.json"
-    inbox.write_text(json.dumps([{"text": TEXT, "company": "Harborline Freight", "title": "Operations Analyst"}]), encoding="utf-8")
-    proc = run_main(root, "--paste")
-    assert proc.returncode == 0 and "added: Harborline Freight - Operations Analyst" in proc.stdout
-    assert not inbox.exists() and len(rows(root)) == 1
-
-
-@pytest.mark.parametrize("content, message", [
-    ("not json", "is not a JSON list"), ('{"a": 1}', "must hold a JSON list"), ("[1]", "must be an object"),
-    ('[{"company": "x"}]', "needs a url or a text"), ('[{"url": 5}]', "values are all strings"),
-])
-def test_a_bad_inbox_is_one_fatal_line_and_is_still_deleted(env, content, message):
-    root, pages, fetched = env
-    inbox = root / ".ohmyjob" / "add-job.json"
-    inbox.parent.mkdir(exist_ok=True)
-    inbox.write_text(content, encoding="utf-8")
-    proc = run_main(root, "--paste")
-    assert proc.returncode == 1 and proc.stdout.startswith("FATAL: ") and message in proc.stdout and not inbox.exists()
-
-
-def test_no_input_and_a_missing_inbox_are_fatal(env):
-    root, pages, fetched = env
-    assert run_main(root).stdout.startswith("FATAL: give at least one web address")
-    assert "not found: write the postings there first" in run_main(root, "--paste").stdout
+    assert run_main(root).returncode == 2
 
 
 def test_a_value_that_is_no_web_address_is_unreadable(env, capsys):
@@ -454,19 +355,15 @@ def sub(root, script, *args, code=None):
     return proc.stdout
 
 
-def added_job(env, text_only):
+def added_job(env):
     root, pages, fetched = env
-    if text_only:
-        add(root, {"text": TEXT, "company": "Harborline Freight", "title": "Operations Analyst", "location": "Hamburg"})
-    else:
-        pages[URL] = page(ld=ldjson())
-        add(root, URL)
+    pages[URL] = page(ld=ldjson())
+    add(root, URL)
     return root, folders(root)[0], rows(root)[0]
 
 
-@pytest.mark.parametrize("text_only", [False, True])
-def test_prep_start_pairs_the_folder_with_its_row_and_queues_it_for_screening(env, text_only):
-    root, name, row = added_job(env, text_only)
+def test_prep_start_pairs_the_folder_with_its_row_and_queues_it_for_screening(env):
+    root, name, row = added_job(env)
     start = json.loads(sub(root, "pj.py", "start", code="import sys, pj; pj.main(sys.argv[1:])"))
     assert (start["screen"], start["build"]) == (1, 0)
     (after,) = rows(root)
@@ -474,31 +371,18 @@ def test_prep_start_pairs_the_folder_with_its_row_and_queues_it_for_screening(en
     assert folders(root) == [name]
 
 
-@pytest.mark.parametrize("text_only, apply_url, queued", [(False, "", True), (True, "https://apply.harborline.example/ops", True), (True, "", False)])
-def test_apply_start_queues_an_added_job_like_a_scraped_one(env, text_only, apply_url, queued):
-    root, pages, fetched = env
-    if text_only:
-        add(root, {"text": TEXT, "company": "Harborline Freight", "title": "Operations Analyst", "apply_url": apply_url})
-    else:
-        pages[URL] = page(ld=ldjson())
-        add(root, URL)
-    name = folders(root)[0]
+def test_apply_start_queues_an_added_job_like_a_scraped_one(env):
+    root, name, row = added_job(env)
     (root / "Applications" / name / "Alex_Harborline.pdf").write_bytes(b"%PDF-1.4\n")
     t = Tracker(root / "Job_Tracker.xlsx")
     t.set_status(1, "Resume Built", None)
     t.save()
     started = json.loads(sub(root, "aa.py", "start"))
-    if queued:
-        assert started["count"] == 1 and started["jobs"][0]["folder"] == name and started["skipped"] == []
-    else:
-        assert started["count"] == 0
-        assert started["skipped"] == [{"job": "Harborline Freight | Operations Analyst", "folder": name,
-                                       "reason": "pasted posting without a web address: apply by hand"}]
+    assert started["count"] == 1 and started["jobs"][0]["folder"] == name and started["skipped"] == []
 
 
-@pytest.mark.parametrize("text_only", [False, True])
-def test_reconcile_pairs_the_added_folder_with_its_row(env, text_only):
-    root, name, row = added_job(env, text_only)
+def test_reconcile_pairs_the_added_folder_with_its_row(env):
+    root, name, row = added_job(env)
     t = Tracker(root / "Job_Tracker.xlsx")
     t.set_status(1, "Pending Review", None)
     t.save()

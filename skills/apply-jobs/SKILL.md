@@ -2,6 +2,7 @@
 name: apply-jobs
 description: Fill the job applications for every tracker row at "Resume Built" (one worker per job, each parked before the final submit), then ask the candidate the questions that the workers could not answer from Profile.md and save the answers there. Use only when the user types /ohmyjob:apply-jobs.
 disable-model-invocation: true
+argument-hint: "[--selected \"<name, name>\" | --top-k-match <N>]"
 allowed-tools: Bash(ohmyjob *)
 ---
 

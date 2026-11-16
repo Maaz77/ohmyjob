@@ -2,6 +2,7 @@
 name: build-resumes
 description: Build a PDF for every resume yaml in Default_Resume_Files (or only the yaml file named as the argument) and report each file (OK or failed). Use only when the user types /ohmyjob:build-resumes [file.yaml].
 disable-model-invocation: true
+argument-hint: "[file.yaml]"
 allowed-tools: Bash(ohmyjob *)
 ---
 

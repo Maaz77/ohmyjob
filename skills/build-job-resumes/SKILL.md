@@ -2,6 +2,7 @@
 name: build-job-resumes
 description: Build the tailored resume PDF of the named job folders and set each row to "Resume Built". Use after correcting a tailored yaml by hand, and only when the user types /ohmyjob:build-job-resumes <name, name, ...>.
 disable-model-invocation: true
+argument-hint: "<name, name, ...>"
 allowed-tools: Bash(ohmyjob *)
 ---
 

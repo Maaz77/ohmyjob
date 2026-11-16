@@ -121,7 +121,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 |---|---|
 | `/ohmyjob:setup` | Prepare the environment and the workspace. Run once. |
 | `/ohmyjob:find-jobs` | Stage 1. Search the boards and add new jobs to the tracker. |
-| `/ohmyjob:add-job` | Stage 1, by hand. Put a posting you found yourself into the tracker, from its address or its pasted text. |
+| `/ohmyjob:add-job` | Stage 1, by hand. Put a posting you found yourself into the tracker, from its address. |
 | `/ohmyjob:edit-template` | Restyle the resume or CV template, or add a section, from a request in plain words. |
 | `/ohmyjob:prep-jobs` | Stage 2. Screen every new job, then tailor a resume for each match. |
 | `/ohmyjob:apply-jobs` | Stage 3. Fill each application and park it before Submit. |
@@ -138,7 +138,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:edit-template` | `<your request in words>` (required) | Change how the LaTeX resume or CV looks, or what sections it has: "add a section Selected Projects to the resume", "make the accent colour of the CV blue". It works out whether you mean the resume, the CV or both (and asks when you do not say), edits your own copy of the template in `ohmyjob/Resume_Template/`, and builds both sample templates to prove they still compile. A plugin update keeps your copy; `ohmyjob resume template --reset` goes back to the default. |
 | `/ohmyjob:master-resume` | none | Draft the `# Resume` section of `Profile.md` from your resume files, then revise it by hand. |
 | `/ohmyjob:find-jobs` | none (ask in words for a dry run or a git snapshot); `verbose` streams live progress from the search | **Stage 1.** Search the boards, filter, add the new jobs to the tracker at `Found`. |
-| `/ohmyjob:add-job` | `<address> [<address> ...]` or the posting text pasted in the message | **Stage 1, by hand.** Add the postings you found yourself (a career page, a referral link, a newsletter) at `Found`, as if the scraper had found them. The search filters never apply; a job already in the tracker is named, not added twice; a page it cannot read asks you to paste the text. |
+| `/ohmyjob:add-job` | `<address> [<address> ...]` | **Stage 1, by hand.** Add the postings you found yourself (a career page, a referral link, a newsletter) at `Found`, as if the scraper had found them. The search filters never apply; a job already in the tracker is named, not added twice; a page it cannot read is reported and nothing is added. |
 | `/ohmyjob:prep-jobs` | `[job-id ...]` (none = every `Found`/`Matched` job) | **Stage 2.** Screen every `Found` job, then tailor and build a resume for every match. |
 | `/ohmyjob:apply-jobs` | `[--selected "<name, name>"]` or `[--top-k-match <N>]`, not both | **Stage 3.** Fill each application in its own Chrome tab and park it before Submit. |
 | `/ohmyjob:continue-applying` | none | **Stage 3.** Continue the tabs in the "Needs Attention" group after you unblocked them. |
