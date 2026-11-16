@@ -1509,8 +1509,11 @@ def cmd_cleanup_plan(args: argparse.Namespace) -> None:
     if state.get("group_planned_at") and snap.stat().st_mtime < state["group_planned_at"]:
         print("RETRY call tabs_context_mcp (after the group page loaded), then run cleanup-plan again")
         return
-    home_title = next((t.get("title") or "" for t in seen if str(t.get("id")) == str(state.get("home_tab"))), "")
-    if state.get("groups_planned") and not home_title.startswith("[AA grouped ") \
+    home_id = str(state.get("home_tab"))
+    home_tab = next((t for t in seen if str(t.get("id")) == home_id), None)
+    home_title = (home_tab.get("title") or "") if home_tab else ""
+    # No tag to wait for once the home tab is closed: without this the run can never finish cleanup.
+    if state.get("groups_planned") and home_tab is not None and not home_title.startswith("[AA grouped ") \
             and retry_for_title(run_dir, "cleanup_retries", "cleanup-plan"):
         return
     initial = {str(t) for t in (state.get("initial_tabs") or [])}
@@ -1528,6 +1531,9 @@ def cmd_cleanup_plan(args: argparse.Namespace) -> None:
             keep.append(int(tid))  # open before the run started: not ours to close (the home tab of a stopped run is)
         else:
             close.append(int(tid))
+    # The home tab goes last: it anchors the run's tab group, and closing it first loses the other tabs of the run.
+    if home_tab is not None and int(home_id) in close:
+        close = [t for t in close if t != int(home_id)] + [int(home_id)]
     emit({"close": close, "keep": keep})
 
 

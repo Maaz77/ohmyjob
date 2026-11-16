@@ -254,6 +254,15 @@ class TestFlow(Base):
                                            "careers%2Eexample%2Ecom%2Fjob%2F%3Fgh_jid%3D123%26src%3Dli&urlhash=x"}, W, "A2")
         self.assertEqual(json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"]["url"],
                          "https://boards.greenhouse.io/embed/job_app?token=123")
+        # the same form behind Greenhouse's own ?gh_src=... marker: the posting id is the last part of the path
+        proc = self.guard(C + "navigate", {"tabId": 102, "url": "https://careers.example.com/careers/apply/"
+                                           "software-engineer-payments-and-risk/6717520?gh_src=73vnei"}, W, "A2")
+        self.assertEqual(json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"]["url"],
+                         "https://boards.greenhouse.io/embed/job_app?token=6717520")
+        # ?gh_src=... with no number at the end of the path: the page is left alone
+        proc = self.guard(C + "navigate", {"tabId": 102, "url": "https://careers.example.com/jobs/some-role?gh_src=73vnei"}, W, "A2")
+        self.assertAllowed(proc)
+        self.assertNotIn("updatedInput", proc.stdout)
         # LinkedIn's "Apply on company website" redirect is skipped: the tab goes straight to the company address
         proc = self.guard(C + "navigate", {"tabId": 102, "url": "https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fjobs%2Eexample%2Eorg"
                                            "%2Fjobs%2F6ad%3Futm_source%3Dlinkedin&urlhash=LCFO&isSdui=true"}, W, "A2")
@@ -455,8 +464,27 @@ class TestCleanupWaitsForTheGroups(Base):
         state_path.write_text(json.dumps(state))
         self.post("tabs_context_mcp", {}, '{"availableTabs":[' + old_home + ',{"tabId":49,"title":"robots.txt","url":"https://www.linkedin.com/robots.txt"}]}\n', M, "M1")
         self.assertTrue(self.aa("cleanup-plan").startswith("RETRY"))
-        self.post("tabs_context_mcp", {}, '{"availableTabs":[' + old_home + ',{"tabId":49,"title":"[AA grouped 2] robots.txt","url":"https://www.linkedin.com/robots.txt"}]}\n', M, "M1")
-        self.assertEqual(sorted(self.aa_json("cleanup-plan")["close"]), [40, 49])
+        # the home tab (49) comes first in the tab list, so the order below shows the plan moved it to the end
+        self.post("tabs_context_mcp", {}, '{"availableTabs":[{"tabId":49,"title":"[AA grouped 2] robots.txt","url":"https://www.linkedin.com/robots.txt"},' + old_home + ']}\n', M, "M1")
+        # the home tab (49) is closed last: the other tabs of the run go with its tab group
+        self.assertEqual(self.aa_json("cleanup-plan")["close"], [40, 49])
+
+
+class TestCleanupWithoutTheHomeTab(Base):
+    def test_cleanup_stops_waiting_for_the_tag_once_the_home_tab_is_closed(self):
+        self.aa_json("start")
+        self.master_setup()
+        (f1, t1, _b1), (f2, t2, _b2) = self.assign(301, 302)
+        for agent, tab, fold in (("G1", t1, f1), ("G2", t2, f2)):
+            self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://www.linkedin.com/jobs/view/1"}, W, agent))
+            self.assertAllowed(self.handback(json.dumps({"folder": fold, "tab": tab, "status": "blocked", "where": "x", "final_button": "",
+                               "url": "https://www.linkedin.com/jobs/view/1", "filled": [], "uploaded": None, "drafted": [], "open": [],
+                               "declarations": [], "blocker": "CLOSED: the posting is closed"}), agent_id=agent))
+        self.aa("finish")
+        self.aa_json("group-plan")
+        # the home tab is gone: it can never get the "[AA grouped N]" tag, so cleanup must go on instead of retrying
+        self.post("tabs_context_mcp", {}, '{"availableTabs":[{"tabId":77,"title":"stray","url":"https://example.com/x"}]}\n', M, "M1")
+        self.assertEqual(self.aa_json("cleanup-plan")["close"], [77])
 
 
 class TestRetry(Base):

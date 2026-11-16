@@ -34,7 +34,7 @@ In the steps below, `AA` means the command `ohmyjob apply`: write it out in full
    - "workers" is empty: do step 7 again.
 8. Run `AA finish`. Do not read, judge or repeat the worker reports or their completion notices: the scripts check them.
    Then run `AA group-plan`. If its "url" is not null, navigate tab H (its "tab") to that "url". The helper extension then puts the job tabs in the groups "Pending Review", "Needs Attention" and "Deleted" (red: jobs that are closed; `finish` removes their folders).
-9. Call tabs_context_mcp. Run `AA cleanup-plan`. If it prints RETRY, do what it says and run it again. (Always call tabs_context_mcp after the group page loaded: `end` reads its result to check the groups.) Close the tabs in its "close" list one at a time: one tabs_close_mcp call per message.
+9. Call tabs_context_mcp. Run `AA cleanup-plan`. If it prints RETRY, do what it says and run it again. (Always call tabs_context_mcp after the group page loaded: `end` reads its result to check the groups.) Close the tabs in its "close" list in the printed order, one at a time: one tabs_close_mcp call per message. The order matters: the home tab is last, because closing it first lost the run's other tabs in a run.
 10. Run `AA end`. It prints the cost report of the run, then deletes the run folder.
 11. Show the output of `AA finish` and the cost report of `AA end`. If `AA end` printed a line about new traces
     ("... new traces since the last dream"), show that line too. Then stop.

@@ -465,14 +465,21 @@ def linkedin_target(url: str) -> str:
 
 
 def greenhouse_form_url(url: str) -> Optional[str]:
-    """A careers page that embeds a Greenhouse form (?gh_jid=N) shows it in a frame that read_page cannot see
-    into. The form itself, with the job description, opens at boards.greenhouse.io/embed/job_app?token=N."""
+    """A careers page that embeds a Greenhouse form shows it in a frame that read_page cannot see into. The form
+    itself, with the job description, opens at boards.greenhouse.io/embed/job_app?token=N.
+
+    The posting id is in ?gh_jid=N, or, on a page that carries Greenhouse's own ?gh_src=... marker, it is the last
+    part of the path: https://stripe.com/careers/apply/software-engineer-payments-and-risk/6717520?gh_src=73vnei."""
     from urllib.parse import urlsplit
 
     target = linkedin_target(url)
+    parts = urlsplit(target)
+    if (parts.hostname or "").endswith("greenhouse.io"):
+        return None
     match = re.search(r"[?&]gh_jid=(\d+)", target)
-    host = urlsplit(target).hostname or ""
-    if not match or host.endswith("greenhouse.io"):
+    if not match and re.search(r"[?&]gh_src=", target):
+        match = re.search(r"/(\d+)/*$", parts.path)
+    if not match:
         return None
     return f"https://boards.greenhouse.io/embed/job_app?token={match.group(1)}"
 
