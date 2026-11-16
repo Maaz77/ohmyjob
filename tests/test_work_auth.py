@@ -157,11 +157,10 @@ def test_form_questions_and_other_sponsorship_talk_do_not_cancel_a_real_block():
     assert verdict and verdict.blocked and "not eligible for visa sponsorship" in verdict.text
 
 
-def test_a_silent_posting_in_a_country_the_profile_does_not_mention_carries_the_uncertainty():
-    verdict = block("We build weekly reports in SQL.", location="London, England, UK")
-    assert verdict and not verdict.blocked and "may work in GB" in verdict.text and "states no requirement" in verdict.text
-    assert block("We build weekly reports in SQL.", location="Remote") is None  # no country: nothing to say
-    assert block("We build weekly reports in SQL.", location="Berlin, Germany") is None  # covered by the profile
+def test_a_silent_posting_never_carries_a_gap_line():
+    assert block("We build weekly reports in SQL.", location="London, England, UK") is None  # country the profile does not mention
+    assert block("We build weekly reports in SQL.", location="Remote") is None
+    assert block("We build weekly reports in SQL.", location="Berlin, Germany") is None
 
 
 def test_eligible_to_work_blocks_nobody_who_is_eligible():
@@ -273,7 +272,8 @@ def test_blocked_posting_ends_at_skipped_lowfit_with_both_quotes_and_no_worker(p
     assert "United States: needs sponsorship. I would need an employer visa there." in row["Notes"]  # the candidate's own answer
     assert not list((pe.root / "Applications").iterdir())  # like any skip: the folder is deleted
     end = pe.pj("end")
-    assert "Work authorization: 1 blocked, 0 matched but not checked" in end
+    wa_line = next(l for l in end.splitlines() if l.startswith("Work authorization:"))
+    assert "Work authorization: 1 blocked" in wa_line and "matched but not checked" not in wa_line
     assert "Deletion check OK" in end and "Folder check OK" in end
 
 
@@ -309,17 +309,19 @@ def test_a_country_the_profile_does_not_mention_is_scored_and_the_uncertainty_st
     assert "- Work authorization not checked:" in gaps and "We are unable to sponsor visas for this role" in gaps
     assert "does not say whether you meet it for GB" in gaps
     assert pe.rows()["1001"]["Status"] == "Matched"
-    assert "Work authorization: 0 blocked, 1 matched but not checked" in pe.pj("end")
+    wa_line = next(l for l in pe.pj("end").splitlines() if l.startswith("Work authorization:"))
+    assert "Work authorization: 1 matched but not checked" in wa_line and "blocked" not in wa_line
 
 
-def test_a_silent_posting_in_an_unmentioned_country_is_scored_and_carries_the_gap(pe):
+def test_a_silent_posting_in_an_unmentioned_country_is_scored_and_carries_no_gap(pe):
     workers = screen(pe, ["uk_silent"])
     assert list(workers) == ["1001"]
     pe.bind("ohmyjob:screen-worker", "s1", workers["1001"])
     assert pe.report("ohmyjob:screen-worker", "s1", {"job": "1001", "score": 8, **MATCH}).returncode == 0
     assert pe.pj("record").startswith("OK recorded: 1 Matched")
     md = (next((pe.root / "Applications").glob("1001_*")) / "job.md").read_text(encoding="utf-8")
-    assert "- Work authorization not checked: Profile.md does not say whether you may work in GB" in md.split("### Gaps?", 1)[1]
+    assert "Work authorization not checked" not in md.split("### Gaps?", 1)[1]
+    assert "Work authorization:" not in pe.pj("end")
 
 
 def test_a_posting_in_a_country_where_the_candidate_is_authorized_is_scored_normally(pe):

@@ -19,9 +19,10 @@ Choices, and why:
   in any other language is never blocked. A sentence that is hedged ("unless", "case by case", "preferred", a question)
   counts for nothing, and any other sentence that talks of sponsorship in positive words cancels the sponsorship and
   right-to-work phrases of the posting: a posting that contradicts itself is not explicit.
-- A job in a country that the profile does not mention (known country, no line, no EU line) carries a "not checked" gap
-  line whatever the posting says, so the candidate sees the uncertainty with the job. A remote or country-less job
-  carries one only when the posting states a requirement.
+- A "not checked" gap line is written only when the posting states a requirement that cannot be decided (the profile
+  does not cover the job's country, the location is unclear, or the clearance line is missing). A posting that says
+  nothing about work authorization never carries a gap line, because an uncertainty with no requirement behind it is
+  noise.
 - Clearance: blocked only when the candidate says `none`; a held clearance is not compared (levels differ by country).
   Only security, secret and named clearances count: "customs clearance" is not one.
 """
@@ -195,14 +196,11 @@ def requirements(description: str) -> list[tuple]:
 
 def check(location: str, description: str, profile: str) -> Optional[Verdict]:
     """Verdict(True, note): blocked. Verdict(False, gap): not blocked, and the gap line tells the candidate what was not
-    checked: the posting states a requirement that the profile (or the job's location) cannot decide, or the job's
-    country is known and the profile says nothing about it. None: nothing to say."""
+    checked: the posting states a requirement that the profile (or the job's location) cannot decide. None: the posting
+    states nothing, or the requirement is met."""
     needs = requirements(description)
     code, rows = job_country(location), profile_rows(profile)
     if not needs:
-        if code and candidate_level(rows, code) is None:
-            return Verdict(False, f"Work authorization not checked: Profile.md does not say whether you may work in {code} "
-                                  "(its Work Authorization section); the posting states no requirement.")
         return None
     unknown = None
     for level, quote in needs:

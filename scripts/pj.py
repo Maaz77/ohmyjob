@@ -1237,8 +1237,12 @@ def summary(state: dict) -> str:
              f"{len([j for j in by('Deleted') if j.get('ground')])}"]
     blocked = len([j for j in by("Skipped-LowFit") if j.get("work_auth")])
     unchecked = len([j for j in jobs.values() if j.get("work_auth_gap") and "score" in j])
-    if blocked or unchecked:
-        lines.append(f"Work authorization: {blocked} blocked, {unchecked} matched but not checked (see Gaps in their job.md)")
+    # Only the nonzero halves print, each with its own pointer: "0 blocked" next to "0 matched but not checked" got read as
+    # one count, and the "see Gaps" pointer belongs to the unchecked half alone.
+    parts = ([f"{blocked} blocked (Skipped-LowFit, folder deleted, reason in the tracker Notes)"] if blocked else []) + \
+            ([f"{unchecked} matched but not checked (see Gaps in their job.md)"] if unchecked else [])
+    if parts:
+        lines.append("Work authorization: " + ", ".join(parts))
     language = len([j for j in by("Skipped-LowFit") if j.get("language")])
     if language:
         lines.append(f"Language: {language} blocked")
