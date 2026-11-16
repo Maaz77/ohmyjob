@@ -17,6 +17,8 @@ allowed-tools: Read
      `build-job-resumes` works in the job folders, and the note that `edit-template` changes the LaTeX template itself (the user's copy in
      `ohmyjob/Resume_Template/`; `ohmyjob resume template --reset` undoes it).
    - `/ohmyjob:retro` takes no arguments: it asks its questions in the conversation. `ohmyjob retro reject` undoes the last pass.
+   - `/ohmyjob:usage` takes no arguments: it prints the saved cost of every prep, apply and continue run, with the
+     cost per unit of work (job screened, resume, application) of each.
    - The three workspace files the application runs use (docs/SETTINGS.md, "What the workers learn"): `ats/`, `Dream_Report.md` and
      `Worker_Limits.json` with its table.
    - The settings table (docs/SETTINGS.md, "Settings: `ohmyjob.json`"): every field with its type, default and choices, all choices in

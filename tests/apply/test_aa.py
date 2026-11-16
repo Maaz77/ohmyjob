@@ -1528,6 +1528,13 @@ class TestEndTokens(Base):
         self.assertRegex(out, r"overhead\s+master\s+\$0\.000\n")
         self.assertRegex(out, r"Ledger: \d+ lines in .*ledger\.jsonl\nRUN FOLDER DELETED$")
 
+        # the same numbers go to the cost log that /ohmyjob:usage prints
+        (logged,) = [json.loads(x) for x in (self.root / ".ohmyjob" / "usage.jsonl").read_text().splitlines()]
+        self.assertEqual(logged["command"], "/ohmyjob:apply-jobs")
+        import aa_lib
+
+        self.assertIn(f"Run cost ≈ {aa_lib.money(logged['total'])} ", out)
+
         # the Stop hook of the main session always prints the saved report once, then the file is gone
         report = self.root / ".ohmyjob" / "last_report.txt"
         table = report.read_text()

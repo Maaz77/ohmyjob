@@ -102,7 +102,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 | **It learns each site** | `/ohmyjob:dream` turns the traces of your runs into notes about each application system. Traces hold no filled values, drafted answers or email addresses. |
 | **You tune the screen** | `/ohmyjob:retro` turns your verdict on the jobs it skipped, and what you type, into proposed edits of your Fit Preferences. You accept or refuse each one, and the whole pass can be undone. |
 | **No runs on sample data** | The commands refuse to run while the made-up "Alex Example" data is still in your files. |
-| **A cost report** | Every run ends with its cost in API-equivalent dollars per unit of work (per job screened, per resume, per application). |
+| **A cost report** | Every run ends with its cost in API-equivalent dollars per unit of work (per job screened, per resume, per application). The cost of every prep, apply and continue run is kept, per unit of work too, and `/ohmyjob:usage` shows it. |
 
 ## The four stages
 
@@ -127,6 +127,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:apply-jobs` | Stage 3. Fill each application and park it before Submit. |
 | `/ohmyjob:continue-applying` | Stage 3. Continue the tabs you unblocked by hand. |
 | `/ohmyjob:reconcile` | Stage 4. Bring the tracker in line with your folders and close the round (unanswered follow-up questions are dropped). |
+| `/ohmyjob:usage` | Show what each prep, apply and continue run cost, per run and per unit of work. |
 
 <details>
 <summary>All the commands</summary>
@@ -146,6 +147,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:build-job-resumes` | `<name, name, ...>` (required) | Build the tailored resume of the named job folders again, after you fixed a yaml by hand, and set each row back to `Resume Built`. |
 | `/ohmyjob:dream` | none | Turn the traces of your runs into ATS notes in `ohmyjob/ats/`, with a `Dream_Report.md`. |
 | `/ohmyjob:retro` | none (it asks in the conversation) | Review the jobs stage 2 skipped and type what you want, then accept or refuse proposed edits of the three Fit Preferences fields in `Profile.md`, one by one. `ohmyjob retro reject` undoes the pass. |
+| `/ohmyjob:usage` | none | Show the saved cost log (`.ohmyjob/usage.jsonl`) of every `/ohmyjob:prep-jobs`, `/ohmyjob:apply-jobs` and `/ohmyjob:continue-applying` run, in API-equivalent dollars: one row per run with its cost per unit of work (per job screened, per resume, per application), and the total over all runs. |
 | `/ohmyjob:help` | none | Print the commands, the settings table and the job status life cycle. |
 
 Two commands are easy to mix up: **`/ohmyjob:build-resumes` works in `Default_Resume_Files/`** and builds your own role resumes there; **`/ohmyjob:build-job-resumes` works in the job folders** and rebuilds one tailored resume for a job that already went through stage 2. Neither of them ever edits a yaml — only you change your resumes. **`/ohmyjob:edit-template` changes the LaTeX template** that every build uses (and only adds sample lines to `Template*.yaml`); run `/ohmyjob:build-resumes` afterwards to rebuild your PDFs with it.

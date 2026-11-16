@@ -52,6 +52,7 @@ import aa_lib as L
 import judge as J
 import ledger
 import liveness
+import usage_log
 import work_auth as WA
 import workspace as W
 from tracker import Tracker, TrackerError
@@ -1475,7 +1476,8 @@ def cmd_end(args: argparse.Namespace) -> None:
             row.update(counts)
         state = L.load_state(run_dir)
         counts = {"ohmyjob:application-worker": len([j for j in state["jobs"].values() if j.get("tab") is not None])}
-        table = L.run_report(master.get("transcript"), master.get("agent_id"), counts, judge)
+        costs = L.run_costs(master.get("transcript"), master.get("agent_id"), counts, judge)
+        table = L.format_report(costs)
         print(table)
         L.save_report(table)
         note = grouped_note(run_dir, state)
@@ -1490,6 +1492,11 @@ def cmd_end(args: argparse.Namespace) -> None:
                 print(hint)
         except Exception as exc:  # noqa: BLE001  (nothing about the ledger may stop 'end')
             print(f"WARN the ledger was not written ({exc})")
+        try:  # the per-run cost log (/ohmyjob:usage)
+            usage_log.append("/ohmyjob:continue-applying" if state.get("mode") == "continue" else "/ohmyjob:apply-jobs",
+                             costs, run_dir.name)
+        except Exception as exc:  # noqa: BLE001  (nothing about the usage log may stop 'end')
+            print(f"WARN the usage log was not written ({exc})")
     delete_run_folders()
     print("RUN FOLDER DELETED")
 

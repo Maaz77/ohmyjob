@@ -39,6 +39,7 @@ import workspace as W  # noqa: E402  (paths, agent names, config)
 import yaml  # noqa: E402
 from job_key import job_key  # noqa: E402
 from tracker import Tracker, TrackerError  # noqa: E402
+import usage_log  # noqa: E402  (the per-run cost log)
 import languages as LANG  # noqa: E402  (its PREFIX marks a language block of the screener)
 import work_auth as WA  # noqa: E402  (the work authorization blocker, run before a screen worker is started)
 
@@ -1278,9 +1279,14 @@ def cmd_end(args: argparse.Namespace) -> None:
     jobs = state["jobs"].values()
     counts = {"ohmyjob:screen-worker": len([j for j in jobs if "score" in j or j.get("outcome") == "Skipped-LowFit"]),
               "ohmyjob:resume-worker": len([j for j in jobs if j["phase"] == "build" and j["assigned"]])}
-    table = L.run_report(master.get("transcript"), master.get("agent_id"), counts)
+    costs = L.run_costs(master.get("transcript"), master.get("agent_id"), counts)
+    table = L.format_report(costs)
     print(table)
     L.save_report(table)
+    try:  # the per-run cost log (/ohmyjob:usage); never a block
+        usage_log.append("/ohmyjob:prep-jobs", costs, state["run_id"])
+    except Exception as exc:  # noqa: BLE001  (nothing about the usage log may stop 'end')
+        print(f"WARN the usage log was not written ({exc})")
     try:  # one line when enough skips wait for /ohmyjob:retro; never an error, never a block
         import retro
 

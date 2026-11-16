@@ -606,11 +606,13 @@ def money(x: float) -> str:
     return f"${x:.3f}" if x < 0.01 else f"${x:.2f}"
 
 
-def run_report(transcript: Optional[str], master_id: Optional[str], counts: Optional[dict] = None,
-               extra: Optional[dict] = None) -> str:
-    """Cost of one run in API-equivalent dollars, per kind of work, read from the transcripts Claude Code writes
+def run_costs(transcript: Optional[str], master_id: Optional[str], counts: Optional[dict] = None,
+              extra: Optional[dict] = None) -> dict:
+    """Cost of one run in API-equivalent dollars, read from the transcripts Claude Code writes
     (<session>/subagents/agent-<id>.jsonl). counts: {agent type: units of work}, else the number of agents of that type.
-    extra: {(label, model): Counter} for calls outside the session (the Haiku judge's 'claude -p')."""
+    extra: {(label, model): Counter} for calls outside the session (the Haiku judge's 'claude -p').
+    Returns {by_kind: {agent type or 'overhead': dollars}, units, unknown: [models], total, error, who}; format_report
+    prints it and the usage log stores it, so the two cannot differ."""
     rows: dict = {}
     agents: collections.Counter = collections.Counter()
     folder = None
@@ -625,7 +627,8 @@ def run_report(transcript: Optional[str], master_id: Optional[str], counts: Opti
         rows.setdefault((kind, model), collections.Counter()).update(counter)
     if not rows:
         where = f"no transcripts found in {folder}" if folder else "no transcript path was seen by the hook"
-        return f"Token usage: unknown ({where})"
+        return {"by_kind": {}, "units": {}, "unknown": [], "total": 0.0, "who": "master",
+                "error": f"Token usage: unknown ({where})"}
 
     cost: collections.Counter = collections.Counter()
     unknown: set = set()
@@ -634,19 +637,47 @@ def run_report(transcript: Optional[str], master_id: Optional[str], counts: Opti
         if value is None:
             unknown.add(model)
         cost[kind if kind in WORK else "overhead"] += value or 0
-    lines = []
-    for kind, (label, noun, per) in WORK.items():
+    units = {}
+    for kind in WORK:
         n = (counts or {}).get(kind)
         n = agents[kind] if n is None else n
         if n > 0 and (agents[kind] or kind in cost):
-            plural = noun + ("" if n == 1 else "s")
-            lines.append(f"{label:13} {n:>3} {plural:10} {money(cost[kind]):>7}   {money(cost[kind] / n)} per {per}")
+            units[kind] = n
+    who = "master" if all(k.endswith("-master") for k, _m in rows if k not in WORK) else "master and other agents"
+    return {"by_kind": dict(cost), "units": units, "unknown": sorted(unknown), "total": sum(cost.values()),
+            "error": None, "who": who}
+
+
+def kind_lines(costs: dict) -> list[str]:
+    """The per-kind lines of the cost report, and the overhead line, from run_costs."""
+    cost = costs["by_kind"]
+    lines = []
+    for kind, n in costs["units"].items():
+        if kind not in WORK:  # a line of an older log can name a kind that no longer exists
+            continue
+        label, noun, per = WORK[kind]
+        plural = noun + ("" if n == 1 else "s")
+        value = cost.get(kind, 0)
+        lines.append(f"{label:13} {n:>3} {plural:10} {money(value):>7}   {money(value / n)} per {per}")
     if "overhead" in cost:
-        who = "master" if all(k.endswith("-master") for k, _m in rows if k not in WORK) else "master and other agents"
-        lines.append(f"{'overhead':13} {who:14} {money(cost['overhead']):>7}")
-    head = (f"Run cost ≈ {money(sum(cost.values()))} (API-equivalent, not billed on a subscription; "
+        lines.append(f"{'overhead':13} {costs.get('who', ''):14} {money(cost['overhead']):>7}")
+    return lines
+
+
+def format_report(costs: dict) -> str:
+    """The text of the cost report, from run_costs."""
+    if costs["error"]:
+        return costs["error"]
+    head = (f"Run cost ≈ {money(costs['total'])} (API-equivalent, not billed on a subscription; "
             "the master's last turn and the main session not included)")
-    return "\n".join([head, *lines] + ([f"cost unknown for model {', '.join(sorted(unknown))}"] if unknown else []))
+    return "\n".join([head, *kind_lines(costs)]
+                     + ([f"cost unknown for model {', '.join(costs['unknown'])}"] if costs["unknown"] else []))
+
+
+def run_report(transcript: Optional[str], master_id: Optional[str], counts: Optional[dict] = None,
+               extra: Optional[dict] = None) -> str:
+    """The cost report of one run as text (see run_costs)."""
+    return format_report(run_costs(transcript, master_id, counts, extra))
 
 
 # The master's text passes through 2 models, and either can drop the report. 'end' saves it here; the Stop hook always
