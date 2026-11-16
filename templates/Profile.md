@@ -74,7 +74,7 @@ Answers the application workers reuse on forms. One numbered line per item: `1. 
 11. Are you willing to relocate? Yes, within the EU.
 12. What is your preferred location or office? The location of the job. When the form lists several offices, the one nearest to Berlin; when it offers only one, that one.
 13. Are you willing to travel for work? Yes, up to 20 percent of the time.
-14. Which languages do you speak, and how well? German native, English fluent (C1).
+14. Which languages do you speak, and how well? German native, English fluent (C1), Spanish basic (B1).
 15. What is your highest level of education? Bachelor's degree.
 16. How many years of professional experience do you have in total? 6.
 17. How many years of professional experience do you have with <skill>? 6 for SQL and Excel, 3 for Python, 0 for anything not listed in Resume.
@@ -110,3 +110,11 @@ Screening drops a posting when it says outright that it offers no visa sponsorsh
 - United Kingdom: needs sponsorship. I would need an employer visa there.
 - United States: needs sponsorship. I would need an employer visa there.
 - Security clearance: none.
+
+# Languages
+
+Screening drops a posting that requires a language you did not list here, and a freehire posting written in a language you did not list is dropped while the jobs are collected. This list is read as complete: a language that is not here is one you do not have, so list every language you speak, including the ones you only half speak. There is no level test: a language named here counts as met, whatever level the posting asks for and whatever level your line claims, so the words after the colon are for you and for the forms. Write one line per language, `- <Language>: your own words`. A profile without this section is never filtered on language. Keep Follow Up Questions item 14 in agreement with this list. Replace the mock answers.
+
+- German: native. Mother tongue.
+- English: fluent, C1. I have worked in English for six years.
+- Spanish: basic, B1. I follow a conversation but cannot run a meeting.

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
 import freehire_source
+import languages as LANG
 import scrape_core as C
 import workspace as W
 from job_key import job_key, strip_tracking
@@ -97,6 +98,7 @@ def normalize(record: dict, board: str) -> dict:
         "url": url, "apply_url": apply_url, "source": board, "location": cell(record.get("location")),
         "posted": cell(record.get("date_posted")), "job_type": cell(record.get("job_type")),
         "job_level": cell(record.get("job_level")), "description": cell(record.get("description")), "note": "",
+        "posting_language": "",  # JobSpy has no language label: always unknown
     }
 
 
@@ -232,6 +234,15 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
                    "yours and delete the marker line (the `_template` line in ohmyjob.json), then run again")
     if not search["search_query"]:
         raise Stop('search.search_query is empty in ohmyjob.json. Add search terms, for example ["Data Analyst"].')
+    profile = root / "Profile.md"
+    try:
+        spoken, unresolved = LANG.profile_languages(profile.read_text(encoding="utf-8")) if profile.is_file() else (set(), [])
+    except (OSError, UnicodeDecodeError):  # an unreadable profile turns the language filter off, never the run
+        spoken, unresolved = set(), []
+    if unresolved:  # a named language must always survive: with one we cannot match, filter on nothing
+        say(f'WARNING Profile.md: the # Languages line "{unresolved[0]}" names no language this filter knows; '
+            "the language filter is off for this run")
+        spoken = set()
     boards = list(search["sources"])
     if verbose:
         start_logging()
@@ -266,7 +277,7 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
             say(f"WARNING {board}: {text}")
         if error:
             failed += 1
-        count = {"bad": unusable, "known": 0, "dup id": repeated, "failed": 0, "type": 0, "level": 0, "term": 0, "title": 0,
+        count = {"bad": unusable, "known": 0, "dup id": repeated, "failed": 0, "type": 0, "lang": 0, "level": 0, "term": 0, "title": 0,
                  "junk": 0, "duplicate": 0, "twin": 0}
         kept: list[dict] = []
         known: list[dict] = []
@@ -290,6 +301,9 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
             elif not C.employment_ok(job["job_type"], search["employment_types"]):
                 count["type"] += 1
                 drop = "type"
+            elif not LANG.ok(job["posting_language"], spoken):
+                count["lang"] += 1
+                drop = "lang"
             elif (why := filters.reason(job)) is not None:
                 count[why] += 1
                 drop = why

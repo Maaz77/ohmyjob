@@ -716,3 +716,47 @@ def test_detail_fetch_wrapper_is_installed_once(setup, monkeypatch):
     scrape.run(root, configure(sources=["linkedin", "indeed"]))
     assert LinkedIn._fetch_details is first and first.spaced
     assert first(LinkedIn(), "7") == {"id": "7"}  # one layer: the original is called, not another wrapper
+
+
+# --------------------------------------------------------------------------- language filter
+
+
+def test_freehire_rows_in_an_unlisted_language_are_dropped_and_counted(setup, freehire, capsys):
+    root, boards, calls, configure = setup
+    with open(root / "Profile.md", "a", encoding="utf-8") as f:
+        f.write("\n# Languages\n\n- English: fluent.\n- Deutsch: basic, A2.\n")
+    lang = lambda code: {"employment_type": "full_time", "posting_language": code}  # noqa: E731
+    freehire.items = [fh_item(1, company="A", enrichment=lang("fr")), fh_item(2, company="B", enrichment=lang("de")),
+                      fh_item(3, company="C", enrichment=lang("")), fh_item(4, company="D", enrichment=lang("en-GB"))]
+    scrape.run(root, configure(sources=["freehire"]))
+    assert sorted(r["Company"] for r in rows(root)) == ["B", "C", "D"]
+    assert "(1 lang dropped)" in capsys.readouterr().out
+
+
+def test_no_languages_section_drops_nothing(setup, freehire):
+    root, boards, calls, configure = setup
+    freehire.items = [fh_item(1, enrichment={"employment_type": "full_time", "posting_language": "fr"})]
+    scrape.run(root, configure(sources=["freehire"]))
+    assert len(rows(root)) == 1
+
+
+def test_an_unknown_language_name_turns_the_filter_off_with_a_warning(setup, freehire, capsys):
+    root, boards, calls, configure = setup
+    with open(root / "Profile.md", "a", encoding="utf-8") as f:
+        f.write("\n# Languages\n\n- Klingon: native.\n- English: C1.\n")
+    lang = lambda code: {"employment_type": "full_time", "posting_language": code}  # noqa: E731
+    freehire.items = [fh_item(1, company="A", enrichment=lang("fa")), fh_item(2, company="B", enrichment=lang("fr"))]
+    scrape.run(root, configure(sources=["freehire"]))
+    assert len(rows(root)) == 2
+    out = capsys.readouterr().out
+    assert out.count("WARNING Profile.md:") == 1 and '"Klingon"' in out
+
+
+def test_a_norwegian_profile_keeps_nb_rows(setup, freehire):
+    root, boards, calls, configure = setup
+    with open(root / "Profile.md", "a", encoding="utf-8") as f:
+        f.write("\n# Languages\n\n- Norwegian: native.\n")
+    lang = lambda code: {"employment_type": "full_time", "posting_language": code}  # noqa: E731
+    freehire.items = [fh_item(1, company="A", enrichment=lang("nb")), fh_item(2, company="B", enrichment=lang("fr"))]
+    scrape.run(root, configure(sources=["freehire"]))
+    assert [r["Company"] for r in rows(root)] == ["A"]

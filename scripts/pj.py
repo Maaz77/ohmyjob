@@ -39,6 +39,7 @@ import workspace as W  # noqa: E402  (paths, agent names, config)
 import yaml  # noqa: E402
 from job_key import job_key  # noqa: E402
 from tracker import Tracker, TrackerError  # noqa: E402
+import languages as LANG  # noqa: E402  (its PREFIX marks a language block of the screener)
 import work_auth as WA  # noqa: E402  (the work authorization blocker, run before a screen worker is started)
 
 RUN_BASE = W.RUN_PREP
@@ -1089,6 +1090,8 @@ def record_screen(state: dict, tracker: Tracker, key: str, result: Optional[dict
         note = ("Junk posting: " if result["junk"] else "") + " ".join(result["note"].split())
         if note.startswith(WA.PREFIX):  # the screener found a work authorization dealbreaker the script pre-pass missed
             job["work_auth"] = "blocked"
+        if note.startswith(LANG.PREFIX):  # the screener found a language dealbreaker (there is no script pre-pass for it)
+            job["language"] = "blocked"
         discards.append((key, "Skipped-LowFit", note, False, score))
         return
     md_path = W.APPLICATIONS / job["folder"] / "job.md"
@@ -1236,6 +1239,9 @@ def summary(state: dict) -> str:
     unchecked = len([j for j in jobs.values() if j.get("work_auth_gap") and "score" in j])
     if blocked or unchecked:
         lines.append(f"Work authorization: {blocked} blocked, {unchecked} matched but not checked (see Gaps in their job.md)")
+    language = len([j for j in by("Skipped-LowFit") if j.get("language")])
+    if language:
+        lines.append(f"Language: {language} blocked")
     for j in by("Resume Failed"):
         lines.append(f"- FAILED {j['folder']}: {j.get('note')}")
     for j in by("Deleted"):

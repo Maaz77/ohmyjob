@@ -106,7 +106,7 @@ def test_maps_a_result_to_a_row():
     assert row == {
         "title": "Operations Analyst", "company": "Acme", "url": "https://job-boards.greenhouse.io/acme/jobs/123",
         "apply_url": "", "source": "freehire", "location": "Leeds, UK", "posted": "2026-10-27",
-        "job_type": "fulltime", "job_level": "", "description": "#### About\nKeep the network running.",
+        "job_type": "fulltime", "job_level": "", "posting_language": "", "description": "#### About\nKeep the network running.",
         "listed_via": "greenhouse", "note": "Source: freehire/greenhouse",
     }
     assert job_key(row["url"]).isdigit() and len(job_key(row["url"])) == 15
@@ -117,6 +117,13 @@ def test_the_seniority_label_becomes_the_job_level():
     assert mod._row(item(enrichment={"employment_type": "full_time", "seniority": " Principal "}))["job_level"] == "principal"
     for odd in (None, "", 5, ["senior"], {"level": "senior"}):
         assert mod._row(item(enrichment={"seniority": odd}))["job_level"] == ""
+
+
+def test_the_posting_language_label_is_carried_into_the_row():
+    assert mod._row(item(enrichment={"posting_language": " DE "}))["posting_language"] == "de"
+    for odd in (None, "", 5, ["de"]):
+        assert mod._row(item(enrichment={"posting_language": odd}))["posting_language"] == ""
+    assert mod._row(item(enrichment=None))["posting_language"] == ""
 
 
 def test_html_entities_are_decoded():

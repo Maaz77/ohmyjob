@@ -276,6 +276,7 @@ def _row(item: dict, country: str = "") -> dict | None:
         return None
     sponsor = country == "GB" and UK_SPONSOR_COLLECTION in (item.get("collections") or [])
     seniority = enrichment.get("seniority")
+    language = enrichment.get("posting_language")
     return {
         "title": title,
         "company": company,
@@ -286,6 +287,7 @@ def _row(item: dict, country: str = "") -> dict | None:
         "posted": (item.get("posted_at") or "")[:10],
         "job_type": _JOB_TYPES.get(employment) or "",
         "job_level": seniority.strip().lower() if isinstance(seniority, str) else "",
+        "posting_language": language.strip().lower() if isinstance(language, str) else "",
         "description": demote_headings(item.get("description") or ""),
         "listed_via": source,
         "note": f"Source: freehire/{source}" + ("; UK licensed sponsor" if sponsor else ""),
