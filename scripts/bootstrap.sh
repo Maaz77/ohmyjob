@@ -103,8 +103,13 @@ if [ -x "$PY" ] && [ "$(cat "$VENV/uv.lock.sha256" 2>/dev/null || true)" = "$wan
   say "venv is current"
 else
   say "uv sync into $VENV"
-  UV_PROJECT_ENVIRONMENT="$VENV" UV_PYTHON_INSTALL_DIR="$DATA/python" UV_CACHE_DIR="$DATA/uv-cache" "$UV" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 \
-    || fatal "uv sync failed"
+  sync_rc=0
+  case "$UV" in
+    "$DATA/bin/uv") UV_PROJECT_ENVIRONMENT="$VENV" UV_PYTHON_INSTALL_DIR="$DATA/python" UV_CACHE_DIR="$DATA/uv-cache" "$DATA/bin/uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 || sync_rc=$? ;;
+    "$HOME/.local/bin/uv") UV_PROJECT_ENVIRONMENT="$VENV" UV_PYTHON_INSTALL_DIR="$DATA/python" UV_CACHE_DIR="$DATA/uv-cache" "$HOME/.local/bin/uv" sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 || sync_rc=$? ;;
+    *) UV_PROJECT_ENVIRONMENT="$VENV" UV_PYTHON_INSTALL_DIR="$DATA/python" UV_CACHE_DIR="$DATA/uv-cache" uv sync --frozen --no-dev --quiet --project "$PLUGIN_ROOT" >&2 || sync_rc=$? ;;
+  esac
+  [ "$sync_rc" = 0 ] || fatal "uv sync failed"
   [ -x "$PY" ] || fatal "uv sync did not create $PY"
   echo "$want" > "$VENV/uv.lock.sha256"
 fi
@@ -231,8 +236,7 @@ say "wrote $ENV_FILE"
 
 # --- 7. workspace .claude/settings.json (merge) -----------------------------------------------------------------------
 mkdir -p "$PROJECT/.claude"
-"$PY" -I - "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json" <<'PYEOF' \
-  || fatal "could not merge .claude/settings.json (the file is left as it was)"
+if ! "$PY" -I - "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json" <<'PYEOF'
 import json, sys
 from pathlib import Path
 
@@ -275,6 +279,9 @@ if merged != existing or not target.exists():
 else:
     print("bootstrap: .claude/settings.json is current")
 PYEOF
+then
+  fatal "could not merge .claude/settings.json (the file is left as it was)"
+fi
 
 # --- 8. scaffold (never overwrite) ------------------------------------------------------------------------------------
 for d in Default_Resume_Files Applications Pending-Review Needs-Attention Submitted ats; do

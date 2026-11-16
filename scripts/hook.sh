@@ -101,4 +101,5 @@ if [ -z "$py" ] || [ ! -x "$py" ]; then
 fi
 
 export OHMYJOB_WORKSPACE="$root"  # a candidate: Python re-derives the workspace from the parsed top-level cwd
-exec "$py" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$script" "$event" <<<"$input"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "${CLAUDE_PLUGIN_DATA}/venv/bin/python" "$here/$script" "$event" <<<"$input"
