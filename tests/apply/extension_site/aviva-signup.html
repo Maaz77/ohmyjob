@@ -1,0 +1,25 @@
+<!doctype html><title>Sign up Page</title>
+<style>.v-btn, .v-btn * { cursor: pointer }</style>
+<!-- The sign-up page of aviva.talent-community.com, as its DOM really is: Vuetify buttons that hold their text in a
+     span, so read_page shows them without a name. Only the email submit carries an aria-label of its own. -->
+<form>
+  <button id="button-start-signup-with-linkedin" class="v-btn" type="submit">
+    <span class="v-btn__overlay"></span>
+    <span class="v-btn__content">
+      <div aria-hidden="true"><img alt="talent.signup.button.alt.linkedin" src="li.png" aria-hidden="true"></div>
+      <span>Sign up with Linkedin</span>
+    </span>
+  </button>
+  <button id="button-start-signup-with-google" class="v-btn" type="submit">
+    <span class="v-btn__overlay"></span>
+    <span class="v-btn__underlay"></span>
+    <span class="v-btn__content">
+      <div aria-hidden="true"><img alt="talent.signup.button.alt.google" src="g.png" aria-hidden="true"></div>
+      <span>Sign up with Google</span>
+    </span>
+  </button>
+  <input type="password" placeholder="Password">
+  <button id="button-submit-signup-with-email" class="v-btn" role="button" aria-label="Register now" type="submit">
+    <span class="v-btn__content"><span>Register now</span></span>
+  </button>
+</form>

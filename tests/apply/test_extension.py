@@ -350,6 +350,25 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_the_real_aviva_sign_up_page(self):
+        """aviva.talent-community.com holds the text of its social buttons in a span, so they reach read_page with no
+        name. Only the Google one is named here: the LinkedIn button is not a Google control."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                job.goto("http://127.0.0.1:8001/aviva-signup.html")
+                time.sleep(1.0)
+                names = job.evaluate("Object.fromEntries([...document.querySelectorAll('button')].map("
+                                     "b => [b.id, b.getAttribute('aria-label')]))")
+                self.assertEqual(names, {"button-start-signup-with-linkedin": None,
+                                         "button-start-signup-with-google": "Continue with Google",
+                                         "button-submit-signup-with-email": "Register now"})
+                # the button and the icon holder inside it, both named by the helper, as on the page itself
+                self.assertRegex(job.title(), r"\[AA g=2 named=2\]$")
+            finally:
+                ctx.close()
+
     def test_a_sign_in_tab_gets_no_google_count(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")

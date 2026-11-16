@@ -346,8 +346,10 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if word:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. Stop here with status 'parked'.")
     if role == "button" and not name.strip() and attrs.get("type") == "submit":
-        raise Deny("This is a submit button without a name. Do not click it. If this is the step with the final button, "
-                   "stop with status 'parked'; else stop with status 'blocked'.")
+        raise Deny("This is a submit button without a name, and nothing inside it is named either. If you have not "
+                   "read this page with filter 'all' yet, call read_page alone with filter 'all' and the ref_id of its "
+                   "form or dialog, then click it again. If you already did, do not click it: stop with status "
+                   "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
     if filled and apply_word:
         raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. If the "
@@ -559,9 +561,12 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if L.CONTROL_CHAR_RE.search(text):
                 raise Deny("No line breaks, tabs or other control characters in a type action (they go out as key presses). "
                            "Use form_input for text with line breaks.")
-            if ctx.focus(tab) not in L.TYPE_ROLES:
-                raise Deny("Type only right after you click a text field by its ref. Better: use form_input with the field's ref.")
             focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+            # an autocomplete (Vuetify and friends) is a text input that read_page calls a listbox, so the role alone
+            # would refuse the only way to fill it: typing and then clicking the option
+            typable = ctx.focus(tab) in L.TYPE_ROLES or (focused.get("attrs") or {}).get("type") == "text"
+            if not typable:
+                raise Deny("Type only right after you click a text field by its ref. Better: use form_input with the field's ref.")
             if not L.is_search_field(focused):
                 ctx.mark_filled(tab)
                 log_fill(ctx, tab, ctx.focus_ref(tab), focused, text)

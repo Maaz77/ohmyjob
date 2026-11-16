@@ -1,0 +1,24 @@
+button [ref_334] type="button"
+link [ref_335] href="/"
+link "Login" [ref_336] href="/app/login"
+button [ref_337] type="submit"
+button [ref_338] type="submit"
+textbox "First name" [ref_339] type="text"
+textbox "Last name" [ref_340] type="text"
+textbox "Email" [ref_341] type="text"
+textbox "Password" [ref_342] type="password"
+button "Password appended action" [ref_343]
+link "Terms & Conditions" [ref_344] href="/terms"
+generic [ref_411]
+ button [ref_412] type="button"
+ link "Read our terms and conditions in a new tab" [ref_413] href="/terms"
+ link "Read our privacy policy in a new tab" [ref_414] href="/privacy"
+ button [ref_415] type="submit"
+button "customise" [ref_12] type="button"
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Sign up Page [AA g=4 named=4]" ("https://aviva.talent-community.com/app/signup")

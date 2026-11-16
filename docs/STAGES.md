@@ -88,7 +88,7 @@ What that worker may and may not do is worth knowing, because it decides how muc
 /ohmyjob:apply-jobs
 ```
 
-One worker per job at `Resume Built`, each in its own Chrome tab. It opens the posting, finds the application, fills the form from your `Profile.md`, uploads that job's resume, and **stops before the final button**. Then:
+One worker per job at `Resume Built`, each in its own Chrome tab. It opens the posting, finds the application, fills the form from your `Profile.md` (without the Fit Preferences: fit was decided in stage 2, so a worker never stops over fit or over a posting that is silent about sponsorship), uploads that job's resume, and **stops before the final button**. Then:
 
 - **`Pending Review`** — the form is filled and parked, waiting for you.
 - **`Needs Attention`** — something blocked it: a sign-in wall, a CAPTCHA, an account it is not allowed to create, a pop-up, a question it could not answer. The tab stays open, in the Chrome tab group "Needs Attention".

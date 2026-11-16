@@ -1178,16 +1178,21 @@ def subtree_names(text: str, ref: str) -> list[str]:
          generic "alex@example.com" [ref_18]
     Only read_page with filter "all" shows the lines inside; the interactive view shows "link [ref_1]" alone."""
     lines = text.splitlines()
-    index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
-    if index is None:
-        return []
-    indent = len(lines[index]) - len(lines[index].lstrip())
-    names = [line_name(lines[index])]
-    for line in lines[index + 1:]:
-        if not line.strip() or len(line) - len(line.lstrip()) <= indent:
-            break
-        names.append(line_name(line))
-    return [n for n in names if n.strip()]
+    best: list[str] = []
+    # A read with a ref_id is appended to the page already saved, so the same ref can stand in the file twice: once
+    # from the interactive view, with nothing inside it, and once from the "all" read that shows its lines. Take the
+    # richest of them, never only the first.
+    for index in (i for i, line in enumerate(lines) if f"[{ref}]" in line):
+        indent = len(lines[index]) - len(lines[index].lstrip())
+        names = [line_name(lines[index])]
+        for line in lines[index + 1:]:
+            if not line.strip() or len(line) - len(line.lstrip()) <= indent:
+                break
+            names.append(line_name(line))
+        names = [n for n in names if n.strip()]
+        if len(names) > len(best):
+            best = names
+    return best
 
 
 def tab_context(text: str) -> tuple[Optional[int], dict[int, dict]]:

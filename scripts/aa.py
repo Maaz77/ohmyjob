@@ -138,7 +138,8 @@ once with status "blocked" and blocker "already submitted": never start this job
 account page (not an application form), navigate the tab to its current address once and call read_page before you
 report `ACCOUNT_WALL`. Navigate to the Apply
 URL (else the Job URL) of the brief only when the tab shows no application for this job (an empty or error page, or a page about something else).
-The last run stopped as follows:
+The last run stopped as follows. It is history: a step the hook refused then is not refused for ever, so take it
+again and let the hook answer.
 
 {note or "(no note of the last run in job.md)"}
 """
@@ -197,7 +198,7 @@ def ats_note_lines() -> str:
 
 
 def write_brief(run_dir: Path, job: dict) -> Path:
-    """The worker's only source: the full Profile.md (with its Follow Up Questions), the title and introduction of
+    """The worker's only source: Profile.md without its `# Fit Preferences` section (with its Follow Up Questions), the title and introduction of
     the tailored resume YAML, and the Overview and the Job Description of job.md (its match notes and resume-prep
     notes stay out). The rest of the YAML (roles, dates, projects, skills) repeats Profile.md, which the resume-worker
     never changes."""
@@ -205,6 +206,9 @@ def write_brief(run_dir: Path, job: dict) -> Path:
     profile_text = L.PROFILE.read_text(encoding="utf-8").strip()
     if not profile_text:
         fatal("Profile.md is empty")
+    # Fit Preferences belong to screening (stage 2). An application worker fills a form and never judges fit again:
+    # with them in the brief it stopped jobs and asked the candidate whether to go on.
+    profile_text = L.strip_subsections(profile_text, r"^Fit Preferences$").strip()
     job_md = (folder_path / "job.md").read_text(encoding="utf-8")
     overview = L.md_section_body(job_md, r"(1\.\s*)?Overview", 2) or "(no Overview section in job.md)"
     jd = L.job_description(job_md) or "(no Job Description section in job.md)"
@@ -237,7 +241,7 @@ def write_brief(run_dir: Path, job: dict) -> Path:
 ## Job: Job Description (from job.md)
 {jd.strip()}
 
-## Profile.md (full text)
+## Profile.md (without `# Fit Preferences`, which belongs to screening)
 {profile_text}
 
 ## {resume_title}

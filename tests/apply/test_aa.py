@@ -221,7 +221,7 @@ class TestFlow(Base):
         (folder, tab1, brief1), (folder2, tab2, _brief2) = self.assign(101, 102)
         self.assertEqual((tab1, tab2), (101, 102))
         brief = Path(brief1).read_text()
-        for heading in ("## Job: Overview", "## Job: Job Description", "## Profile.md (full text)",
+        for heading in ("## Job: Overview", "## Job: Job Description", "## Profile.md (without `# Fit Preferences`, which belongs to screening)",
                         "## Tailored resume for this job"):
             self.assertIn(heading, brief)
         # 4.3: the brief carries only the title and introduction of the tailored yaml, and no "how to use" section
@@ -232,7 +232,10 @@ class TestFlow(Base):
         # 4.4: the ATS notes come from ats_notes(), one line each with its hosts
         self.assertIn("(hosts: *.myworkdayjobs.com)", brief)
         self.assertIn(str(ATS / "workday.md"), brief)
-        self.assertIn((self.root / "Profile.md").read_text(encoding="utf-8").strip()[:200], brief)
+        self.assertIn("- Name: Alex Example", brief)
+        self.assertIn("# Work Authorization", brief)
+        self.assertNotIn("\n# Fit Preferences\n", brief)  # the heading names it in backticks: match the section line
+        self.assertNotIn("Night shifts, on-call rotas", brief)
         self.assertIn("Follow Up Questions", brief)
         self.assertIn("```yaml", brief)
         self.assertNotIn("Match Reasoning", brief)
@@ -1321,6 +1324,57 @@ class TestIconButton(Base):
         self.assertDenied(self.click(tab, "ref_14", "A1", "Starts sign-up with LinkedIn"), "creates an account")
         # the blind spot the nameless button left: a final control is now seen even when its text is in a child
         self.assertDenied(self.click(tab, "ref_16", "A1", "Goes to the next step"), "final control")
+
+    def test_a_ref_id_read_shows_what_the_interactive_view_hid(self):
+        """The sign-up dialog of aviva.talent-community.com: a read with a ref_id is appended to the page already
+        saved, so the nameless line of the interactive view stands in the file before the "all" read that shows the
+        lines inside the button. The boxes of the dialog are filled first, as the worker fills them."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://aviva.talent-community.com/app/signup"}, W, "A1"))
+        self.post("read_page", {"tabId": tab},
+                  'dialog [ref_20]\n combobox "Country of residence" [ref_21]\n'
+                  ' checkbox "Terms & Conditions" [ref_22] type="checkbox"\n button [ref_23] type="submit"\n', W, "A1")
+        self.assertDenied(self.click(tab, "ref_23", "A1", "Signs up with Google"), "without a name")
+        self.assertAllowed(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_21", "value": "Germany"}, W, "A1"))
+        self.assertAllowed(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_22", "value": True}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_20"},
+                  'dialog [ref_20]\n combobox "Country of residence" [ref_21]\n'
+                  ' checkbox "Terms & Conditions" [ref_22] type="checkbox"\n button [ref_23] type="submit"\n'
+                  '  generic "talent.signup.button.alt.google" [ref_24]\n  generic "Sign up with Google" [ref_25]\n', W, "A1")
+        # the fills make this a Google name after a fill, so the Haiku check decides (the fake judge allows this name)
+        self.assertAllowed(self.click(tab, "ref_23", "A1", "Signs up with Google"))
+
+    def test_the_real_aviva_sign_up_dialog(self):
+        """The pages of aviva.talent-community.com, as read_page returned them in a run: the interactive view shows
+        `button [ref_415] type="submit"` with nothing inside, and the read of the dialog with a ref_id, which is
+        appended to that page, shows `generic "Sign up with Google"` inside the same button."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://aviva.talent-community.com/app/signup"}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, sample("aviva_signup_dialog_interactive.txt"), W, "A1")
+        # nothing named inside it yet: the worker is told to read the dialog with filter "all" first
+        denied = self.click(tab, "ref_415", "A1", "Signs up with Google")
+        self.assertDenied(denied, "without a name")
+        self.assertIn("filter 'all'", denied.stderr + denied.stdout)
+        self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_411"}, sample("aviva_signup_dialog_all.txt"), W, "A1")
+        for ref, value in (("ref_430", "Italy"), ("ref_439", True), ("ref_443", True)):
+            self.assertAllowed(self.guard(C + "form_input", {"tabId": tab, "ref": ref, "value": value}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_411"}, sample("aviva_signup_dialog_all.txt"), W, "A1")
+        self.assertAllowed(self.click(tab, "ref_415", "A1", "Signs up with Google"))
+        # the read with a ref_id covered the dialog only: the page's own buttons keep the interactive line, with
+        # nothing named inside them, so they stay refused
+        self.assertDenied(self.click(tab, "ref_337", "A1", "Signs up with LinkedIn"), "without a name")
+        # the country field of the dialog is an autocomplete: read_page calls it a listbox, but it is a text input,
+        # so a click on it and then typing is allowed (form_input alone leaves such a field empty)
+        self.assertAllowed(self.click(tab, "ref_430", "A1", "Opens the country of residence field"))
+        self.assertAllowed(self.guard(C + "computer", {"tabId": tab, "action": "type", "text": "Italy"}, W, "A1"))
+        # a listbox that is not a text input still refuses typing
+        self.post("read_page", {"tabId": tab, "filter": "all"},
+                  sample("aviva_signup_dialog_all.txt").replace('[ref_430] type="text"', "[ref_430]"), W, "A1")
+        self.assertAllowed(self.click(tab, "ref_430", "A1", "Opens the country of residence field"))
+        self.assertDenied(self.guard(C + "computer", {"tabId": tab, "action": "type", "text": "Italy"}, W, "A1"),
+                          "right after you click a text field")
 
 
 class TestPreflight(Base):

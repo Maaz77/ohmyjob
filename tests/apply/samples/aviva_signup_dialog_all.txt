@@ -1,0 +1,45 @@
+generic [ref_411]
+ progressbar [ref_416]
+ banner [ref_417]
+  generic "Social Sign up" [ref_418]
+  button [ref_412] type="button"
+   img [ref_419]
+ separator [ref_420]
+ alertdialog "Sign up with Google" [ref_421]
+  form [ref_422]
+   alert [ref_423]
+    img [ref_424]
+    generic "Before you continue, please make sure you select your country of residence and confirm our global Te" [ref_425]
+   listbox [ref_426]
+    progressbar [ref_427]
+    img [ref_428]
+    label "Country of residence" [ref_429]
+    listbox "Country of residence" [ref_430] type="text"
+    button [ref_431]
+     img [ref_432]
+    label "Country of residence" [ref_433]
+   alert [ref_434]
+   img [ref_435]
+   checkbox "Newsletter" [ref_436] type="checkbox"
+   label "Subscribe to Aviva employer related news and updates" [ref_437]
+   img [ref_438]
+   checkbox "Terms & Conditions" [ref_439] type="checkbox"
+   label [ref_440]
+    generic "I agree to the and confirm to act in my own name and not on behalf of an intermediary or third part." [ref_441]
+     link "Read our terms and conditions in a new tab" [ref_413] href="/terms"
+   img [ref_442]
+   checkbox "Privacy policy" [ref_443] type="checkbox"
+   label [ref_444]
+    generic "I have read the" [ref_445]
+     link "Read our privacy policy in a new tab" [ref_414] href="/privacy"
+   button [ref_415] type="submit"
+    generic "talent.signup.button.alt.google" [ref_446]
+     img [ref_447]
+    generic "Sign up with Google" [ref_448]
+
+Viewport: 1920x825
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Sign up Page [AA g=4 named=4]" ("https://aviva.talent-community.com/app/signup")
