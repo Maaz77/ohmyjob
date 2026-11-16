@@ -588,6 +588,7 @@ def test_questions_blocker_text():
 @pytest.mark.parametrize("command", [
     "ohmyjob prep start", "ohmyjob prep next", "ohmyjob prep record", "ohmyjob prep end",
     "ohmyjob prep assign-screen", "ohmyjob prep assign-build --max 5",
+    "ohmyjob prep start --ids 123 456", "ohmyjob prep start --ids 1,2",
 ])
 def test_prep_master_may_run(command):
     assert W.PREP_MASTER_CMD_RE.match(command)
@@ -597,6 +598,7 @@ def test_prep_master_may_run(command):
     "ohmyjob prep build 4399000001", "ohmyjob prep start now", "ohmyjob prep next; rm -rf x", "ohmyjob prep next && ls",
     "ohmyjob prep next | cat", "ohmyjob prep next\nls", "ohmyjob prep assign-build --max x", "ohmyjob apply start",
     "bash ohmyjob prep next", "ohmyjob  prep next", "ohmyjob prep", "ohmyjob prep next $(id)",
+    "ohmyjob prep start --ids 1;rm -rf x", "ohmyjob prep start --ids $(x)",
 ])
 def test_prep_master_may_not_run(command):
     assert not W.PREP_MASTER_CMD_RE.match(command)

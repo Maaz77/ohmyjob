@@ -151,7 +151,7 @@ MASTER_WORKERS = {
 }
 
 # The only Bash commands the guards let an agent run (matched against the stripped command).
-PREP_MASTER_CMD_RE = re.compile(r"^ohmyjob prep (start|next|record|end|assign-(screen|build)( --max \d+)?)$", re.ASCII)
+PREP_MASTER_CMD_RE = re.compile(r"^ohmyjob prep (start( --ids [A-Za-z0-9,]+( [A-Za-z0-9,]+)*)?|next|record|end|assign-(screen|build)( --max \d+)?)$", re.ASCII)
 RESUME_BUILD_CMD_RE = re.compile(r"^ohmyjob prep build (\d+)$", re.ASCII)  # group 1: the job key
 # --selected takes one double-quoted list of job names: letters, digits, spaces and , . _ & + ( ) - only. No quote, $,
 # backtick, backslash, ! or ; can reach the shell from it. --top-k-match is a small whole number.

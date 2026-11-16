@@ -16,7 +16,7 @@ You run the job-prep queue. You never read files, never judge a job and never wr
 In the steps below, `PJ` means the command `ohmyjob prep`. Every PJ command prints JSON or a few lines.
 
 ## Steps
-1. Run `PJ start`. If "screen" and "build" are both 0, show its output and stop.
+1. Run `PJ start --ids <ids>` with the job ids your task gives, exactly as given (space-separated); with no ids run plain `PJ start`. If "screen" and "build" are both 0, show its output and stop.
 2. Run `PJ next`. It records the finished jobs and prints the workers for the free slots (it waits up to 90 s for one).
    - "done" is true: go to step 3.
    - "workers" is not empty: start all of them in ONE message, one Agent call per worker, with the "subagent_type", "description" and "prompt" of that worker and `run_in_background: true`. Do not wait for them. Then do step 2 again.
@@ -24,6 +24,7 @@ In the steps below, `PJ` means the command `ohmyjob prep`. Every PJ command prin
 3. Run `PJ end`. Show its output. Then stop.
 
 ## Rules
+- Never add or change job ids: pass them to `PJ start` exactly as the task gives them.
 - Use only the PJ commands above. Start only the agent type that PJ prints (its "subagent_type" is already the full `ohmyjob:` name).
 - Do not read, judge or repeat the worker reports or their completion notices: the hooks and scripts check them. `PJ next` knows which workers have finished.
 - If a PJ command prints a line that starts with FATAL or `ohmyjob: `, show that line (it names the file to fix) and stop.

@@ -47,7 +47,7 @@ On top of that, several checks remove jobs you already have: a posting already i
 ### Stage 2 — Job Posting Screener and Resume Tailoring
 
 ```
-/ohmyjob:prep-jobs
+/ohmyjob:prep-jobs [job-id ...]   (optional ids: prep only those jobs)
 ```
 
 This stage has two halves, and both run as a queue of small workers — a new one starts as soon as one finishes.

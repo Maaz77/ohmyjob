@@ -2,6 +2,7 @@
 name: find-jobs
 description: Find new jobs on the job boards you configured (search.sources in ohmyjob.json), keep the ones that fit your search terms and filters, and add them to the tracker at "Found". Use only when the user types /ohmyjob:find-jobs or a scheduled task runs it.
 disable-model-invocation: true
+argument-hint: "[verbose]"
 allowed-tools: Bash(ohmyjob *), Monitor, TaskStop
 ---
 

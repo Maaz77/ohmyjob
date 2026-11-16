@@ -204,6 +204,22 @@ def test_job_from_another_board_pairs_and_gets_its_build_command(pe):
     assert build("1005").returncode == 2
 
 
+def test_start_ids_queue_only_the_chosen_jobs(pe):
+    for job_id in ("1001", "1002", "1003"):
+        pe.folder(job_id, f"Co{job_id}", "Analyst")
+        pe.row(job_id, f"Co{job_id}", "Analyst", "Found")
+    pe.row("1004", "Ghost", "Analyst", "Found")  # unselected, no folder: must not be Deleted
+    pe.row("1005", "Done", "Analyst", "Submitted")
+    pe.folder("1006", "Loose", "Analyst")  # unselected unpaired folder: no new row
+    start = json.loads(pe.pj("start", "--ids", "1001,1002", "9999", "1005"))
+    assert (start["screen"], start["build"]) == (2, 0)
+    rows = pe.rows()
+    assert rows["1003"]["Status"] == "Found" and rows["1004"]["Status"] == "Found" and "1006" not in rows
+    assert start["deleted"] == []
+    assert "9999: unknown id" in start["issues"]
+    assert "1005: at Submitted, not Found/Matched; skipped" in start["issues"]
+
+
 def test_bold_job_md_and_missing_row_are_handled(pe):
     pe.folder("1001", "Acme", "Operations Analyst", bold=True)  # no tracker row: created at Found, with its Source
     start = json.loads(pe.pj("start"))
@@ -279,6 +295,10 @@ def test_master_commands_are_anchored(pe):
     assert guard("ohmyjob prep record && cat Profile.md").returncode == 2
     assert guard("ohmyjob prep start\nrm -rf Applications").returncode == 2
     assert guard("ohmyjob prep build 5").returncode == 2
+    for cmd in ("ohmyjob prep start --ids 123 456", "ohmyjob prep start --ids 1,2"):
+        assert guard(cmd).returncode == 0
+    for cmd in ("ohmyjob prep start --ids 1;rm -rf x", "ohmyjob prep start --ids $(x)"):
+        assert guard(cmd).returncode == 2
 
 
 def test_worker_time_limit_counts_from_the_first_guarded_call(pe):

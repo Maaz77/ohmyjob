@@ -3,8 +3,9 @@
 
 Run as `ohmyjob prep <command>`.
 
-  start                    queue the Found rows (screen) and the Matched rows (build); rows without a folder,
-                           folders without a row, duplicate postings and closed postings (liveness.py) are settled here
+  start [--ids ID ...]     queue the Found rows (screen) and the Matched rows (build); rows without a folder,
+                           folders without a row, duplicate postings and closed postings (liveness.py) are settled here.
+                           With --ids only those job ids (space or comma separated) are queued; other rows are not touched
   next                     record the finished jobs, then print workers for the free slots (a ready build
                            takes a slot first, then screens, so a resume starts as soon as its screener finishes);
                            waits up to NEXT_SECONDS for a free slot; prints "done": true when no job is left
@@ -745,6 +746,7 @@ def cmd_start(args: argparse.Namespace) -> None:
                    "jobs": {}, "screen": [], "build": [], "agents": {}, "issues": skipped, "start_deleted": [],
                    "counts": {"rows_discarded": 0, "folders_deleted": 0}}
     changed = False
+    wanted = {i for a in args.ids for i in a.split(",") if i} if args.ids else None
 
     def add_job(key: str, folder: Path, phase: str, row: dict) -> None:
         ov = L.job_overview((folder / "job.md").read_text(encoding="utf-8"))
@@ -760,6 +762,8 @@ def cmd_start(args: argparse.Namespace) -> None:
         if status not in ("Found", "Matched"):
             continue
         key, label = row["_key"], f"{row['Company']} | {row['Job Title']}"
+        if wanted is not None and key not in wanted:
+            continue
         if len(by_key[key]) > 1:
             state["issues"].append(f"{label}: more than one tracker row has job id {key}; left as is")
             continue
@@ -779,9 +783,10 @@ def cmd_start(args: argparse.Namespace) -> None:
 
     for key, paths in folders.items():
         if key is None:
-            state["issues"] += [f"{p.name}: job.md has no Job URL line; left as is" for p in paths]
+            if wanted is None:
+                state["issues"] += [f"{p.name}: job.md has no Job URL line; left as is" for p in paths]
             continue
-        if key in by_key:
+        if key in by_key or (wanted is not None and key not in wanted):
             continue
         if len(paths) > 1 or has_resume_files(paths[0]):
             state["issues"].append(f"{paths[0].name}: no tracker row, and the folder is not a fresh scrape; left as is")
@@ -794,6 +799,13 @@ def cmd_start(args: argparse.Namespace) -> None:
         changed = True
         add_job(key, paths[0], "screen", {})
 
+    for key in sorted(wanted or ()):
+        if key in state["jobs"]:
+            continue
+        if key not in by_key and key not in folders:
+            state["issues"].append(f"{key}: unknown id")
+        elif key in by_key and len(by_key[key]) == 1 and (by_key[key][0]["Status"] or "").strip() not in ("Found", "Matched"):
+            state["issues"].append(f"{key}: at {(by_key[key][0]['Status'] or '').strip()}, not Found/Matched; skipped")
     if changed:
         try:
             tracker.save()
@@ -1406,7 +1418,7 @@ def hook_capture(inp: dict) -> None:
 def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(prog="ohmyjob prep")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("start")
+    sub.add_parser("start").add_argument("--ids", nargs="+")
     sub.add_parser("next")
     for name in ("assign-screen", "assign-build"):
         sub.add_parser(name).add_argument("--max", type=int, default=WAVE)

@@ -97,7 +97,7 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `help` | Reads the plugin README and `docs/SETTINGS.md` and prints the commands with their use-cases, the `ohmyjob.json` field table and the job status life cycle. The model may invoke it. |
 | `find-jobs` | Runs `ohmyjob scrape` in the background and summarizes (also usable from a scheduled `claude -p`). |
 | `add-job` | Puts postings the candidate found by hand into the tracker at `Found`: web addresses go straight to `ohmyjob add-job`; pasted text is read by the main session for company and title (it asks when unsure), written to an inbox file and handed over with `--paste`. Never writes the tracker or a folder itself; never starts stage 2. |
-| `prep-jobs` | Forks the `prep-master` agent. |
+| `prep-jobs` | Forks the `prep-master` agent; optional job ids limit it to those jobs (`prep start --ids`). |
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers. |
 | `apply-jobs-run`, `continue-applying-run` | Internal; fork the `application-master` agent (the second in continue mode). |
 | `reconcile` | Caveat check, dry run, confirmation, then apply. |
@@ -223,7 +223,7 @@ Both masters are queue loops: a new worker starts as soon as one finishes, up to
 
 ```mermaid
 flowchart TD
-    A["/ohmyjob:prep-jobs forks prep-master"] --> B["prep start: mock guard, screening catalog, queue the Found and Matched rows"]
+    A["/ohmyjob:prep-jobs [ids] forks prep-master"] --> B["prep start: mock guard, screening catalog, queue the Found and Matched rows"]
     B --> C["prep next: one screen-worker per Found job, in the shared slots"]
     C --> D["screen-worker, Haiku: reads only its brief, reports one JSON object"]
     D --> E{"Match score"}
