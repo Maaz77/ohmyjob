@@ -1087,6 +1087,8 @@ def record_screen(state: dict, tracker: Tracker, key: str, result: Optional[dict
     score = result["score"]
     if result["junk"] or score is None or score < (8 if result["agency"] else 6):
         note = ("Junk posting: " if result["junk"] else "") + " ".join(result["note"].split())
+        if note.startswith(WA.PREFIX):  # the screener found a work authorization dealbreaker the script pre-pass missed
+            job["work_auth"] = "blocked"
         discards.append((key, "Skipped-LowFit", note, False, score))
         return
     md_path = W.APPLICATIONS / job["folder"] / "job.md"
