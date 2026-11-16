@@ -329,9 +329,15 @@ def check_signin_lease(ctx: Ctx, tab: Any) -> None:
 
 
 def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
+    snapshot = L.snapshot_text(ctx.run_dir, tab)
     name = item.get("name") or ""
     role = item.get("role") or ""
     attrs = item.get("attrs") or {}
+    if not name.strip():
+        # read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
+        # button whose text sits in a span (Vuetify and friends) arrives here without a name and no list below can
+        # see it. Take the names inside it, as check_google_click does.
+        name = " ".join(L.subtree_names(snapshot, ref))[:300]
     filled = ctx.filled(tab)
     # /continue-applying: the candidate may have filled part of the application by hand, so the Haiku check decides about Apply
     sticky = bool((ctx.entry(tab) or {}).get("sticky"))
@@ -346,7 +352,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if filled and apply_word:
         raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. If the "
                    "form is filled up to this button, stop here with status 'parked'; else fill the form first.")
-    context = L.context_names(L.snapshot_text(ctx.run_dir, tab), ref)
+    context = L.context_names(snapshot, ref)
     consent = X.CONSENT.find(name)
     if consent:
         if X.COOKIE.find(name) or X.COOKIE.find(context):

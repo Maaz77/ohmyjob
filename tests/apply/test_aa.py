@@ -1306,6 +1306,22 @@ class TestIconButton(Base):
         # a worker cannot load the master's pages
         self.assertDenied(self.guard(C + "navigate", {"tabId": tab, "url": "https://www.linkedin.com/feed/#aa-popups-as-tabs"}, W, "A1"), "master only")
 
+    def test_name_comes_from_the_lines_inside_a_nameless_button(self):
+        """read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
+        button that holds its text in a span (Vuetify, as on aviva.talent-community.com) arrives without a name."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://aviva.talent-community.com/app/signup"}, W, "A1"))
+        self.post("read_page", {"tabId": tab},
+                  'button [ref_10] type="submit"\n generic "Continue with Google" [ref_11]\n'
+                  '  image "talent.signup.button.alt.google" [ref_12]\n generic "Sign up with Google" [ref_13]\n'
+                  'button [ref_14] type="submit"\n generic "Sign up with Linkedin" [ref_15]\n'
+                  'button [ref_16] type="button"\n generic "Submit application" [ref_17]\n', W, "A1")
+        self.assertAllowed(self.click(tab, "ref_10", "A1", "Starts sign-in with the Google option"))
+        self.assertDenied(self.click(tab, "ref_14", "A1", "Starts sign-up with LinkedIn"), "creates an account")
+        # the blind spot the nameless button left: a final control is now seen even when its text is in a child
+        self.assertDenied(self.click(tab, "ref_16", "A1", "Goes to the next step"), "final control")
+
 
 class TestPreflight(Base):
     def test_preflight_warns_without_helper_and_haiku(self):

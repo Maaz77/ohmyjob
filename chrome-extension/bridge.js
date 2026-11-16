@@ -72,8 +72,16 @@
     return false;
   }
 
+  // read_page names a control from its own text, an aria-label or an alt, never from a child element, so a button
+  // that holds its text in a span (Vuetify and friends) is nameless there and needs a label like an icon-only one.
+  function ownText(el) {
+    let text = "";
+    for (const node of el.childNodes) if (node.nodeType === Node.TEXT_NODE) text += node.textContent;
+    return text.trim();
+  }
+
   function hasName(el) {
-    return !!(el.textContent.trim() || el.value || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby"));
+    return !!(ownText(el) || el.value || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby"));
   }
 
   function isClickable(el) {

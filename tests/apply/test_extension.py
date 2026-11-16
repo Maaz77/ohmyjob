@@ -285,11 +285,13 @@ class TestPopupsAsTabs(unittest.TestCase):
                 time.sleep(0.8)
                 self.assertTrue(page.title().startswith(ON), page.title())
 
-                # icon-only Google buttons get a name, also when they come late; other buttons do not
+                # Google buttons with no name of their own get one, also when they come late, and a button
+                # whose text sits in a span counts as nameless (read_page shows no name for it); others do not
                 page.goto("http://127.0.0.1:8001/icons.html")
                 time.sleep(1.0)
                 names = page.evaluate("Object.fromEntries([...document.querySelectorAll('button')].map(b => [b.id, b.getAttribute('aria-label')]))")
-                self.assertEqual(names, {"github": None, "google": "Continue with Google", "text": None, "late": "Continue with Google"})
+                self.assertEqual(names, {"github": None, "google": "Continue with Google", "text": None,
+                                         "wrapped": "Continue with Google", "late": "Continue with Google"})
                 self.assertEqual(page.evaluate("document.querySelector('#google').closest('label').getAttribute('aria-label')"),
                                  "Continue with Google")
 
