@@ -1,4 +1,5 @@
 """scripts/reconcile.py: the new rule per folder location, dry run, --apply, exit codes and the invariant."""
+import json
 import os
 import shutil
 import subprocess
@@ -387,3 +388,46 @@ def test_unexpected_error_is_fatal_not_exit_1(workspace, rc, monkeypatch, capsys
     with pytest.raises(SystemExit) as exc:
         rc.main([])
     assert exc.value.code == 3 and "FATAL: PermissionError" in capsys.readouterr().err
+
+
+def questions_file(workspace, items=('Which visa do you hold?',)):
+    path = workspace / ".ohmyjob" / "questions.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([{"q": q, "jobs": ["Acme | Analyst"], "asked": "2026-01-01"} for q in items]))
+    return path
+
+
+def test_dry_run_keeps_the_waiting_questions(workspace):
+    make(workspace, [(url(1040), "Pending Review")])
+    folder(workspace, "Pending-Review", 1040)
+    path = questions_file(workspace)
+    out = run(workspace).stdout
+    assert "Unanswered questions to clear: 1" in out
+    assert path.exists()
+
+
+def test_apply_clears_the_waiting_questions_even_with_no_row_change(workspace):
+    make(workspace, [(url(1041), "Deleted")])  # nothing to change in the tracker
+    path = questions_file(workspace, ("Q one?", "Q two?"))
+    r = run(workspace, "--apply")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Unanswered questions cleared: 2" in r.stdout
+    assert not path.exists()
+
+
+def test_invariant_failure_keeps_the_waiting_questions(workspace):
+    make(workspace, [(url(1042), "Submitted"), (url(1043), "Pending Review")])
+    folder(workspace, "Pending-Review", 1043)
+    path = questions_file(workspace)
+    r = run(workspace, "--apply")
+    assert r.returncode == 2
+    assert path.exists()
+
+
+def test_a_damaged_questions_file_is_not_fatal(workspace):
+    make(workspace, [(url(1044), "Pending Review")])
+    folder(workspace, "Pending-Review", 1044)
+    questions_file(workspace).write_text("{ not json")
+    r = run(workspace, "--apply")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Unanswered questions cleared: 0" in r.stdout

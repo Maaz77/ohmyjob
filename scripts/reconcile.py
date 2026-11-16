@@ -13,6 +13,9 @@ Rows that are already Deleted or Skipped-LowFit are never written. A Submitted r
 Pending-Review/ or Needs-Attention/ (an earlier run stopped after saving) only gets the folder moved. All terminal rows
 take part in matching and in the invariant. A row whose id is shared by several rows, or whose folder is claimed twice, is left untouched.
 
+The round is closed by an apply, so every question still waiting for the candidate in .ohmyjob/questions.json is
+dropped: an unanswered or skipped question never carries over into the next round. A job that runs again asks it again.
+
 Invariant: the number of Submitted rows equals the number of folders in Submitted/ (after the planned changes).
 Default is a dry run; --apply writes the tracker and moves the folders. The dry run prints a plan digest; with
 `--apply --expect <digest>` the run refuses (nothing written) when the plan has changed since.
@@ -24,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import shutil
 import sys
@@ -42,6 +46,15 @@ REVIEWED_ROOTS = (W.PENDING_REVIEW, W.NEEDS_ATTENTION)  # a folder here means th
 OPEN_STATUSES = set(STATUSES) - TERMINAL_STATUSES
 
 FOLDER_ID_RE = re.compile(r"^(\d+)_")
+
+
+def pending_questions() -> int:
+    """How many questions still wait for the candidate in questions.json (a damaged file counts as none)."""
+    try:
+        data = json.loads(W.QUESTIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    return len(data) if isinstance(data, list) else 0
 
 
 def fatal(message: str) -> None:
@@ -195,7 +208,7 @@ def plan_digest(changes: list[Change]) -> str:
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:12]
 
 
-def build_report(apply_mode, applied, changes, unresolved, invariant) -> str:
+def build_report(apply_mode, applied, changes, unresolved, invariant, questions) -> str:
     count_rows, count_folders, passed, rows_without_folder, folders_without_row = invariant
     lines: list[str] = []
     if not apply_mode:
@@ -221,6 +234,8 @@ def build_report(apply_mode, applied, changes, unresolved, invariant) -> str:
         lines.append(f"Rows -> Deleted:   {sum(1 for c in changes if c.new_status == 'Deleted')}")
         lines.append(f"Folders moved:     {sum(1 for c in changes if c.move_entry is not None)}")
         lines.append(f"Duplicate-row notes added: {sum(1 for c in changes if c.new_status is None and c.move_entry is None)}")
+        lines.append(f"Unanswered questions {'cleared' if applied else 'to clear'}: {questions}"
+                     + ("  (they are dropped with the round; a job that runs again asks again)" if questions else ""))
     lines.append(f"Invariant: {count_rows} Submitted rows == {count_folders} Submitted folders  {'PASS' if passed else 'FAIL'}")
     for r in rows_without_folder:
         lines.append(f"  Submitted row without a folder in {W.SUBMITTED.name}/: sheet row {r['_index'] + 1}, {r['Company'] or '?'} - {r['Job Title'] or '?'}")
@@ -277,15 +292,18 @@ def run(args) -> int:
     if args.apply and args.expect is not None and args.expect != plan_digest(changes):
         fatal(f"The plan changed since the dry run (expected digest {args.expect}, now {plan_digest(changes)}). "
               "Nothing was applied; run the dry run again.")
+    questions = pending_questions()
     applied = False
-    if invariant[2] and args.apply and changes:
+    if invariant[2] and args.apply and (changes or questions):
         try:
             apply_changes(tracker, changes)
         except (TrackerError, OSError) as exc:
             fatal(str(exc))
+        # the tracker is written: the round is closed, so the questions nobody answered do not reach the next round
+        W.QUESTIONS_FILE.unlink(missing_ok=True)
         applied = True
 
-    print(build_report(args.apply, applied, changes, unresolved, invariant))
+    print(build_report(args.apply, applied, changes, unresolved, invariant, questions))
     if not invariant[2]:
         return 2
     return 1 if unresolved else 0

@@ -111,7 +111,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 | 1 | **Job Posting Finder** | `/ohmyjob:find-jobs` | New postings from the boards, filtered, in the tracker and in one folder per job. |
 | 2 | **Job Posting Screener and Resume Tailoring** | `/ohmyjob:prep-jobs` | The weak matches dropped, and a tailored resume PDF for each of the rest. |
 | 3 | **Job Application Assistant Browser Agent** | `/ohmyjob:apply-jobs`, then `/ohmyjob:continue-applying` | Each application filled in its own Chrome tab, parked before Submit, waiting for you. |
-| 4 | **Reconcile the round** | `/ohmyjob:reconcile` | The tracker brought in line with what you actually sent, and the round closed. |
+| 4 | **Reconcile the round** | `/ohmyjob:reconcile` | The tracker brought in line with what you actually sent, the round closed, and the follow-up questions you left unanswered dropped. |
 
 What you do in each stage, what you can steer and what can go wrong: [docs/STAGES.md](docs/STAGES.md).
 
@@ -126,7 +126,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:prep-jobs` | Stage 2. Screen every new job, then tailor a resume for each match. |
 | `/ohmyjob:apply-jobs` | Stage 3. Fill each application and park it before Submit. |
 | `/ohmyjob:continue-applying` | Stage 3. Continue the tabs you unblocked by hand. |
-| `/ohmyjob:reconcile` | Stage 4. Bring the tracker in line with your folders. |
+| `/ohmyjob:reconcile` | Stage 4. Bring the tracker in line with your folders and close the round (unanswered follow-up questions are dropped). |
 
 <details>
 <summary>All the commands</summary>
@@ -142,7 +142,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:prep-jobs` | `[job-id ...]` (none = every `Found`/`Matched` job) | **Stage 2.** Screen every `Found` job, then tailor and build a resume for every match. |
 | `/ohmyjob:apply-jobs` | `[--selected "<name, name>"]` or `[--top-k-match <N>]`, not both | **Stage 3.** Fill each application in its own Chrome tab and park it before Submit. |
 | `/ohmyjob:continue-applying` | none | **Stage 3.** Continue the tabs in the "Needs Attention" group after you unblocked them. |
-| `/ohmyjob:reconcile` | none (caveat check, dry run and confirmation are built in) | **Stage 4.** Bring the tracker in line with your folders and close the round. |
+| `/ohmyjob:reconcile` | none (caveat check, dry run and confirmation are built in) | **Stage 4.** Bring the tracker in line with your folders and close the round. Every follow-up question you left unanswered is dropped with the round, so nothing carries over; a job that runs again asks it again. |
 | `/ohmyjob:build-job-resumes` | `<name, name, ...>` (required) | Build the tailored resume of the named job folders again, after you fixed a yaml by hand, and set each row back to `Resume Built`. |
 | `/ohmyjob:dream` | none | Turn the traces of your runs into ATS notes in `ohmyjob/ats/`, with a `Dream_Report.md`. |
 | `/ohmyjob:retro` | none (it asks in the conversation) | Review the jobs stage 2 skipped and type what you want, then accept or refuse proposed edits of the three Fit Preferences fields in `Profile.md`, one by one. `ohmyjob retro reject` undoes the pass. |

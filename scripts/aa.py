@@ -19,7 +19,8 @@ Run it as `ohmyjob apply <command>` (bin/ohmyjob finds the workspace and the plu
   finish                 check every worker result, write the job.md notes, move the folders, update the tracker
   group-plan             the page that puts the job tabs in the groups "Pending Review" and "Needs Attention"
   cleanup-plan           tabs to close at the end of the run
-  questions              the questions about the candidate that workers could not answer from Profile.md (waiting for the answers)
+  questions              the questions about the candidate that workers could not answer from Profile.md (waiting for the
+                         answers; the ones still waiting are dropped by `ohmyjob reconcile --apply`, which closes the round)
   answer --json '[...]'  save the candidate's answers in the "Follow Up Questions" section of Profile.md
   end                    delete the run folder (last step of the run)
 
@@ -1258,6 +1259,8 @@ def grouped_note(run_dir: Path, state: dict) -> Optional[str]:
 # A worker never guesses a fact about the candidate: it stops and lists the question (report key "questions"). The
 # questions wait in questions.json. At the end of /apply-jobs and /continue-applying, the main session asks
 # the candidate ('questions') and saves the answers in Profile.md ('answer'), where every worker reads them next time.
+# A question nobody answered stays in the file only until the round is closed: `ohmyjob reconcile --apply` deletes
+# questions.json, so nothing carries over, and a job that runs again asks the question again.
 
 QUESTIONS_FILE = W.QUESTIONS_FILE
 FOLLOW_UP = "Follow Up Questions"
@@ -1487,7 +1490,8 @@ def summary(state: dict) -> str:
     waiting = pending_questions()
     if waiting:
         lines.append(f"Questions for the candidate: {len(waiting)} waiting (ohmyjob apply questions); the jobs that asked them "
-                     "are in Needs Attention until they are answered")
+                     "are in Needs Attention until they are answered. Answer them before /ohmyjob:reconcile: it closes the "
+                     "round and drops the questions still waiting")
     open_tabs = [j.get("tab") for j in jobs if j.get("tab") is not None]
     lines.append(f"Job tabs left open for review: {len(open_tabs)}")
     return "\n".join(lines)

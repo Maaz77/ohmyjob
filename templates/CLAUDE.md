@@ -33,7 +33,8 @@ Claude starts in):
 3. `/ohmyjob:apply-jobs`
 4. Fix the tabs in the "Needs Attention" Chrome tab group by hand, then `/ohmyjob:continue-applying`
 5. Submit by hand, then `/ohmyjob:reconcile`. A job applied to entirely by hand from `Applications/`: move its folder to
-   `Submitted/` first.
+   `Submitted/` first. Reconcile closes the round and drops every follow-up question the candidate left unanswered, so
+   answer the ones that matter in stage 3 or 4 first.
 
 ## Errors
 A command line that starts with `ohmyjob: ` or `FATAL` is an error: show it to the candidate and stop. `ohmyjob:

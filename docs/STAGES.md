@@ -93,7 +93,7 @@ One worker per job at `Resume Built`, each in its own Chrome tab. It opens the p
 - **`Pending Review`** — the form is filled and parked, waiting for you.
 - **`Needs Attention`** — something blocked it: a sign-in wall, a CAPTCHA, an account it is not allowed to create, a pop-up, a question it could not answer. The tab stays open, in the Chrome tab group "Needs Attention".
 
-Any question the workers could not answer from `Profile.md` is collected and **asked once, at the end of the run**, with the jobs that asked it. You answer in your own words — or skip any of them — and your answers are saved into `# Follow Up Questions` so the next round answers them itself.
+Any question the workers could not answer from `Profile.md` is collected and **asked once, at the end of the run**, with the jobs that asked it. You answer in your own words — or skip any of them — and your answers are saved into `# Follow Up Questions` so the next round answers them itself. A question you skip waits only until the round is closed: `/ohmyjob:reconcile` drops every question still unanswered, so nothing carries over into the next round. Answer what you want answered before you reconcile; a job that runs again asks its question again.
 
 **Arguments.** This is the one command where limiting the run is useful, since it is the slow and expensive stage:
 
@@ -121,7 +121,7 @@ The workers pick those tabs up where they stopped, and each job ends at `Pending
 /ohmyjob:reconcile
 ```
 
-This closes the round: it brings the tracker in line with your folders and moves the folders of the jobs you sent into `Submitted/`.
+This closes the round: it brings the tracker in line with your folders, moves the folders of the jobs you sent into `Submitted/`, and drops the follow-up questions you left unanswered.
 
 **How it decides**, for every row that is still open:
 
@@ -131,6 +131,8 @@ This closes the round: it brings the tracker in line with your folders and moves
 - Its folder is still in `Applications/` → left alone. `Applications/` is never touched. If you applied to such a job entirely by hand, move its folder to `Submitted/` yourself before you reconcile.
 
 Rows already at `Deleted` or `Skipped-LowFit` are never changed.
+
+**The follow-up questions are dropped.** Closing the round clears `.ohmyjob/questions.json`: every question the workers asked that you did not answer (one you skipped, or one you never got to) is forgotten and is not asked again at the end of the next round. Answer the ones you care about with `/ohmyjob:apply-jobs` or `/ohmyjob:continue-applying` before you reconcile. Nothing in `Profile.md` is touched — the answers you did save stay there — and a job that runs again asks its question again. The dry run shows the count before you confirm; a reconcile that writes nothing (a dry run, or an invariant failure) drops nothing.
 
 > [!WARNING]
 > **Read this before you run it.** Reconciliation treats a folder in `Pending-Review/` or `Needs-Attention/` as **sent**. It does not and cannot check whether you actually submitted the form. So, before you reconcile:
