@@ -16,7 +16,7 @@
 set -u
 
 event="${1:-}"
-input="$(cat)"  # stdin can be read once; the Python script gets it again below
+input=$(cat)  # stdin can be read once; the Python script gets it again below
 
 # Every value of a plain `"key": "value"` in the JSON text. A copy inside a string value is escaped (\"key\"), so it
 # cannot match; a copy inside a nested object can, which is why all matches are kept.
@@ -101,5 +101,6 @@ if [ -z "$py" ] || [ ! -x "$py" ]; then
 fi
 
 export OHMYJOB_WORKSPACE="$root"  # a candidate: Python re-derives the workspace from the parsed top-level cwd
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+src=$(dirname "${BASH_SOURCE[0]}")
+here=$(cd "$src" && pwd)
 exec "${CLAUDE_PLUGIN_DATA}/venv/bin/python" "$here/$script" "$event" <<<"$input"

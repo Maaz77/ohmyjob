@@ -137,7 +137,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 | (internal) | `ledger.py` | Blocker codes, outcomes, the ledger lines and the redacted traces that `ohmyjob apply end` writes. |
 | (internal) | `liveness.py` | The early liveness check, called by `prep start` and `apply start`: GETs a queued job's page with the scraper's own session and says closed (positive evidence only), open or unknown. One request at a time per host with a pause, a stop for a host after 3 refusals in a row, a 40 second budget; nothing is kept between runs. `OHMYJOB_NO_LIVENESS=1` turns it off (the tests do). |
 | (internal) | `workspace.py`, `tracker.py`, `job_key.py` | Config and paths, the xlsx tracker, the one job-id rule. |
-| (internal) | `hook.sh`, `bootstrap.sh`, `pii_gate.sh` | Hook router, environment setup, release check. |
+| (internal) | `hook.sh`, `bootstrap.sh`, `merge_settings.py`, `pii_gate.sh` | Hook router, environment setup, the workspace settings merge, release check. |
 
 `bin/ohmyjob` finds the workspace, reads `.ohmyjob/env.sh` (parsed, never sourced) and runs the script with the plugin's own virtualenv. Errors are one `ohmyjob: ...` line (exit 3); the scripts print `FATAL ...` lines. Agent prompts stop on either.
 

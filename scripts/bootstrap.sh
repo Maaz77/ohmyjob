@@ -142,7 +142,7 @@ warmup() {
   for name in Template Template-CV; do
     cp "$TEMPLATES/$name.yaml" "$tmp/Default_Resume_Files/$name.yaml"
     rc=0
-    out="$(OHMYJOB_WORKSPACE="$tmp" OHMYJOB_DATA="$DATA" OHMYJOB_LUALATEX="$lua" "$PY" "$SCRIPTS/resume_build.py" build \
+    out="$(OHMYJOB_WORKSPACE="$tmp" OHMYJOB_DATA="$DATA" OHMYJOB_LUALATEX="$lua" "$DATA/venv/bin/python" "$SCRIPTS/resume_build.py" build \
            "$tmp/Default_Resume_Files/$name.yaml" --out "$tmp/$name.pdf" 2>&1)" || rc=$?
     case "$out" in
       "OK "*) ;;
@@ -193,12 +193,12 @@ else
     [ -x "$bin/tlmgr" ] || fatal "no tlmgr in $bin"
     # a fresh TinyTeX's tlmgr can be older than its repository, and install then stops with exit 255
     say "tlmgr update --self"
-    PATH="$bin:$PATH" "$bin/tlmgr" update --self >&2 || fatal "tlmgr update --self failed"
+    PATH="$bin:$PATH" tlmgr update --self >&2 || fatal "tlmgr update --self failed"
     pkgs="$(grep -v '^[[:space:]]*\(#\|$\)' "$TEX_PACKAGES_FILE" | tr -d '\r' | tr '\n' ' ')"
     [ -n "$pkgs" ] || fatal "$TEX_PACKAGES_FILE is empty"
     say "tlmgr install $pkgs"
     # shellcheck disable=SC2086
-    PATH="$bin:$PATH" "$bin/tlmgr" install $pkgs >&2 || fatal "tlmgr install failed"
+    PATH="$bin:$PATH" tlmgr install $pkgs >&2 || fatal "tlmgr install failed"
     warmup "$bin/lualatex" || fatal "the sample resume does not build with TinyTeX either; see the warm-up line above"
     LUALATEX="$bin/lualatex"
     say "LaTeX: TinyTeX ready ($LUALATEX)"
@@ -236,49 +236,7 @@ say "wrote $ENV_FILE"
 
 # --- 7. workspace .claude/settings.json (merge) -----------------------------------------------------------------------
 mkdir -p "$PROJECT/.claude"
-if ! "$PY" -I - "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json" <<'PYEOF'
-import json, sys
-from pathlib import Path
-
-template = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-target = Path(sys.argv[2])
-cap = "50"  # the subagent cap; W.slots() is this minus one
-
-if target.exists():
-    existing = json.loads(target.read_text(encoding="utf-8"))
-    if not isinstance(existing, dict):
-        raise SystemExit("settings.json is not a JSON object")
-else:
-    existing = {}
-
-
-def merge(mine, tmpl):
-    """The user's values win; lists gain the template's missing entries; dicts merge key by key."""
-    for key, value in tmpl.items():
-        if key not in mine:
-            mine[key] = value
-        elif isinstance(mine[key], dict) and isinstance(value, dict):
-            merge(mine[key], value)
-        elif isinstance(mine[key], list) and isinstance(value, list):
-            mine[key] += [item for item in value if item not in mine[key]]
-    return mine
-
-
-merged = merge(json.loads(json.dumps(existing)), template)
-env = merged.setdefault("env", {})
-# a number: raise it when too low, keep a higher one the user chose
-for name, floor in (("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", int(cap)), ("MAX_MCP_OUTPUT_TOKENS", 60000)):
-    try:
-        current = int(str(env.get(name, "")).strip())
-    except ValueError:
-        current = 0
-    env[name] = str(max(current, floor))
-if merged != existing or not target.exists():
-    target.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print("bootstrap: updated .claude/settings.json")
-else:
-    print("bootstrap: .claude/settings.json is current")
-PYEOF
+if ! "$DATA/venv/bin/python" -I "$SCRIPTS/merge_settings.py" "$TEMPLATES/workspace-settings.json" "$PROJECT/.claude/settings.json"
 then
   fatal "could not merge .claude/settings.json (the file is left as it was)"
 fi
@@ -288,7 +246,7 @@ for d in Default_Resume_Files Applications Pending-Review Needs-Attention Submit
   mkdir -p "$WORKSPACE/$d"
 done
 if [ ! -e "$WORKSPACE/Job_Tracker.xlsx" ]; then
-  OHMYJOB_WORKSPACE="$WORKSPACE" "$PY" -I -c '
+  OHMYJOB_WORKSPACE="$WORKSPACE" "$DATA/venv/bin/python" -I -c '
 import sys
 sys.path.insert(0, sys.argv[1])
 import tracker
