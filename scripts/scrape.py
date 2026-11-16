@@ -12,6 +12,7 @@ exit 2: the run finished but a board failed).
 from __future__ import annotations
 
 import argparse
+import logging
 import math
 import random
 import re
@@ -32,6 +33,33 @@ from tracker import Tracker, TrackerError
 
 FOLDER_ROOTS = ("Applications", "Pending-Review", "Needs-Attention", "Submitted")
 KEY_RE = re.compile(r"^(\d+)_")
+SOURCE_NAMES = {"linkedin": "LinkedIn", "freehire_source": "FreeHire"}  # anything else: .title()
+COLORS = {"FreeHire": "\033[36m", None: "\033[35m"}  # cyan; filter-stage lines (no source) magenta; the boards blue
+log = logging.getLogger(__name__)  # only INFO from here on: with no handler installed (no --verbose) nothing prints
+
+
+class LogFormat(logging.Formatter):
+    """`LEVEL | Source | message`; the Source comes from extra={"source": ...} or the logger name (jobspy.<site>)."""
+
+    def __init__(self, color: bool = False):
+        super().__init__()
+        self.color = color
+
+    def format(self, record: logging.LogRecord) -> str:
+        source = getattr(record, "source", None)
+        if source is None and record.name.startswith(("jobspy.", "freehire_source")):
+            site = record.name.rsplit(".", 1)[-1]
+            source = SOURCE_NAMES.get(site, site.title())
+        line = f"{record.levelname} | " + (f"{source} | " if source else "") + record.getMessage()
+        return COLORS.get(source, "\033[34m") + line + "\033[0m" if self.color else line
+
+
+def start_logging() -> None:
+    """--verbose: progress lines (and JobSpy's own) on stderr, which a background run's output file captures."""
+    stream = logging.StreamHandler(sys.stderr)
+    stream.setFormatter(LogFormat(color=stream.stream.isatty()))
+    logging.root.addHandler(stream)
+    logging.root.setLevel(logging.INFO)
 
 
 EXIT_OK, EXIT_FATAL, EXIT_BOARD_FAILED = 0, 1, 2  # FATAL line / the run finished but a board failed
@@ -111,13 +139,16 @@ class Scraped(NamedTuple):
     repeated: int = 0  # freehire jobs met again under another term
 
 
-def scrape_board(board: str, search: dict) -> Scraped:
+def scrape_board(board: str, search: dict, verbose: bool = False) -> Scraped:
     """All rows of one board for every search term, its error text and its warnings (JobSpy reports both in attrs)."""
+    shown = SOURCE_NAMES.get(board, board.title())
+    log.info("BOARD_START | board=%s | terms=%d", board, len(search["search_query"]), extra={"source": shown})
     if board == "freehire":
         found = freehire_source.search_freehire_jobs(
             search["search_query"], search["location"], search["country"],
             search["recency_days"], search["uk_sponsor_only"],
         )
+        log.info("BOARD_DONE | board=%s | rows=%d", board, len(found.rows), extra={"source": shown})
         return Scraped(found.rows, found.error, found.warnings, found.unusable, found.repeated)
     import jobspy  # looked up at call time: the tests replace jobspy.scrape_jobs
     if board == "linkedin":
@@ -127,16 +158,21 @@ def scrape_board(board: str, search: dict) -> Scraped:
         args: dict[str, Any] = dict(
             site_name=[board], search_term=term, location=search["location"] or None,
             results_wanted=search["results_per_term"], hours_old=C.hours_old(search["recency_days"]),
-            fetch_description=True, description_format="markdown", verbose=0,
+            fetch_description=True, description_format="markdown", verbose=2 if verbose else 0,
         )
         if search["country"]:
             args["country_indeed"] = search["country"]
         if board == "google":
             args["google_search_term"] = C.google_search_term(term, search["location"], search["recency_days"])
+        # each line names its board and term: the terms run in worker threads
+        log.info("TERM_START | board=%s | term=%r", board, term, extra={"source": shown})
         try:
-            return term, jobspy.scrape_jobs(**args), None
+            frame = jobspy.scrape_jobs(**args)
         except Exception as exc:  # noqa: BLE001  (JobSpy raises ValueError for bad arguments; a network library may raise anything)
+            log.info("TERM_DONE | board=%s | term=%r | error=%s", board, term, exc, extra={"source": shown})
             return term, None, str(exc)
+        log.info("TERM_DONE | board=%s | term=%r | results=%d", board, term, len(frame), extra={"source": shown})
+        return term, frame, None
 
     terms = search["search_query"]
     with ThreadPoolExecutor(max_workers=max(1, min(len(terms), workers_for(board)))) as pool:
@@ -153,6 +189,7 @@ def scrape_board(board: str, search: dict) -> Scraped:
         for text in attrs.get("warnings", {}).values():
             warnings += [w for w in (text if isinstance(text, list) else [text]) if w not in warnings]
         rows += [normalize(rec, board) for rec in frame.to_dict("records")]
+    log.info("BOARD_DONE | board=%s | rows=%d", board, len(rows), extra={"source": shown})
     return Scraped(rows, "; ".join(errors) or None, warnings)
 
 
@@ -188,7 +225,7 @@ def snapshot(root: Path) -> None:
             return
 
 
-def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = False) -> int:
+def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = False, verbose: bool = False) -> int:
     template = W.template_files(root)
     if template:  # the mock values would be searched for and tracked as if they were yours
         raise Stop(f"{template[0].name} still has the template marker ({W.TEMPLATE_MARKER}): replace the mock data with "
@@ -196,6 +233,8 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
     if not search["search_query"]:
         raise Stop('search.search_query is empty in ohmyjob.json. Add search terms, for example ["Data Analyst"].')
     boards = list(search["sources"])
+    if verbose:
+        start_logging()
 
     open_tracker(root)  # fail before the long scrape if there is no usable tracker
     lemmas = C.Lemmas(search["languages"])
@@ -204,7 +243,7 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
     if git_snapshot and not dry_run:
         snapshot(root)
 
-    scraped = {board: scrape_board(board, search) for board in boards}  # minutes; the tracker is not open meanwhile
+    scraped = {board: scrape_board(board, search, verbose) for board in boards}  # minutes; the tracker is not open meanwhile
 
     tracker = open_tracker(root)  # a short load, change, save
     rows = tracker.rows()
@@ -232,35 +271,50 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
         kept: list[dict] = []
         known: list[dict] = []
         for job in got:
+            drop = None  # the reason this job is dropped, logged once below
             key = job_key(job["url"]) if job["url"] else ""
             if not job["title"] or not key.isdigit():
                 count["bad"] += 1
+                drop = "bad"
             elif key in seen_keys:
                 count["known"] += 1
+                drop = "known"
                 known.append(job)
             elif key in run_ids:
                 count["dup id"] += 1
+                drop = "dup id"
             elif not job["description"] and board == "linkedin":
                 # fetch_description is always on, so no description means the job's own page did not load (throttling)
                 count["failed"] += 1
+                drop = "failed"
             elif not C.employment_ok(job["job_type"], search["employment_types"]):
                 count["type"] += 1
+                drop = "type"
             elif (why := filters.reason(job)) is not None:
                 count[why] += 1
+                drop = why
             elif not matcher.matches(job["title"]):
                 count["title"] += 1
+                drop = "title"
             elif C.junk_reason(job) is not None:
                 count["junk"] += 1
+                drop = "junk"
             elif (job["title"], job["company"], C.twin_city(job["location"])) in run_titles:
                 count["duplicate"] += 1  # the same title, company and city under another id: the first one stays
+                drop = "duplicate"
             elif twins.find(job["company"], job["title"], job["location"]):
                 count["twin"] += 1
+                drop = "twin"
             else:
                 run_ids.add(key)
                 run_titles.add((job["title"], job["company"], C.twin_city(job["location"])))
                 job.update(key=key, found=found, employment=C.employment_label(job["job_type"]),
                            excluded=filters.excluded_company(job["company"]))
                 kept.append(job)
+            if drop:
+                log.info("DROPPED | reason=%s | board=%s | title=%r | company=%r", drop, board, job["title"], job["company"])
+            elif job["excluded"] is not None:
+                log.info("EXCLUDED | board=%s | title=%r | company=%r | matches=%r", board, job["title"], job["company"], job["excluded"])
         for job in kept + known:  # a board's own postings are compared with the earlier boards only
             twins.add(job["company"], job["title"], job["location"])
         new_jobs += kept
@@ -321,10 +375,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="count what would be new; write nothing")
     parser.add_argument("--git-snapshot", action="store_true",
                         help="commit the tracker and Applications/ before the run (skipped outside a git repository)")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="log progress to stderr while searching")
     args = parser.parse_args(argv)
     try:
         root = W.find_root()
-        return run(root, W.load_config(root)["search"], args.dry_run, args.git_snapshot)
+        return run(root, W.load_config(root)["search"], args.dry_run, args.git_snapshot, args.verbose)
     except (W.WorkspaceError, Stop) as exc:
         say(f"FATAL: {exc}")
         return EXIT_FATAL

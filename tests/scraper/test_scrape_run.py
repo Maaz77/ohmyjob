@@ -390,7 +390,7 @@ def test_git_snapshot_commits_only_its_paths(setup, monkeypatch):
 
 
 def test_unexpected_errors_are_one_fatal_line(workspace, capsys, monkeypatch):
-    def broken(root, search, dry_run=False, git_snapshot=False):
+    def broken(root, search, dry_run=False, git_snapshot=False, verbose=False):
         raise PermissionError("denied: Applications")
 
     monkeypatch.setattr(scrape, "run", broken)

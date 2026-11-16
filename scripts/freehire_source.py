@@ -30,6 +30,7 @@ Choices, and why:
 import html
 import http.client
 import json
+import logging
 import time
 import urllib.error
 import urllib.parse
@@ -52,6 +53,7 @@ PAGE_DELAY_SECONDS = 0.2  # 600 requests a minute are allowed; stay far under
 MAX_FREEHIRE_WORKERS = 10
 RETRY_WAIT_SECONDS = 2
 MAX_RETRY_WAIT_SECONDS = 30
+log = logging.getLogger(__name__)  # INFO only: silent unless scrape --verbose installs a handler
 USER_AGENT = "ohmyjob"
 UK_SPONSOR_COLLECTION = "uk-skilled-worker-sponsor"
 SENIORITY_LABELS = ("intern", "junior", "middle", "senior", "lead", "staff", "principal", "c_level")  # freehire's closed list
@@ -311,6 +313,7 @@ def search_freehire_jobs(
 
     def warn(text: str) -> None:
         warnings.append(text)
+        log.info("FREEHIRE_WARNING | %s", text)  # live, not only in the final report
 
     country = freehire_country(location, country_name)
     if country is None:
@@ -319,6 +322,7 @@ def search_freehire_jobs(
     rows, seen, reported = [], set(), set()
 
     def fetch_term(term):
+        log.info("FREEHIRE_TERM_START | term=%r", term)
         fetched = item_errors = unusable = 0
         failed = None
         term_rows = []
@@ -341,6 +345,8 @@ def search_freehire_jobs(
                         term_rows.append(row)
         except Exception as error:  # noqa: BLE001 - whatever goes wrong here must leave the other sources intact
             failed = f"term={term!r}: freehire failed after {fetched} results: {type(error).__name__}: {error}"
+        log.info("FREEHIRE_TERM_DONE | term=%r | read=%d | usable=%d" + (" | error=%s" if failed else ""),
+                 term, fetched, len(term_rows), *([failed] if failed else []))
         return term, fetched, unusable, failed, term_rows, term_metas
 
     # Terms are independent; pagination for each term remains sequential so the

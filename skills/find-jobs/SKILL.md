@@ -2,7 +2,7 @@
 name: find-jobs
 description: Find new jobs on the job boards you configured (search.sources in ohmyjob.json), keep the ones that fit your search terms and filters, and add them to the tracker at "Found". Use only when the user types /ohmyjob:find-jobs or a scheduled task runs it.
 disable-model-invocation: true
-allowed-tools: Bash(ohmyjob *)
+allowed-tools: Bash(ohmyjob *), Monitor, TaskStop
 ---
 
 Find new jobs now.
@@ -11,6 +11,7 @@ A line of output that starts with `ohmyjob: ` or `FATAL` (`FATAL: ...`) is an er
 
 The scrape refuses (one `FATAL:` line naming the file) while `ohmyjob.json` or `Profile.md` still has the template marker: the user must replace the mock data and delete the marker first.
 
+0. Read `$ARGUMENTS`. When it contains `verbose`, `-v` or `--verbose`, the user wants live progress: run `ohmyjob scrape --verbose` in step 1 and, right after starting it, arm `Monitor({command: "tail -F -n +1 <the output file path from the Bash result> | grep --line-buffered -E 'TERM_|BOARD_|FREEHIRE_|WARNING|ERROR|FATAL'", description: "ohmyjob scrape progress", timeout_ms: 1800000})`, with the absolute path the Bash tool result gives after "Output is being written to" (that file holds stdout and stderr); if the monitor expires while the scrape still runs, arm it again on the same file. Relay each line that arrives to the user in short form (for example "linkedin: searching 'Data Analyst'", "linkedin: 25 results") and stop the monitor with `TaskStop` once the scrape command exits. A `LEVEL | Source | ...` line is live progress, not a report line: the report is still the scrape command's own stdout (step 2). Without the argument, use neither `--verbose` nor Monitor.
 1. Run `ohmyjob scrape` as a background Bash command (`run_in_background: true`). A search can take several minutes. While it runs, do not start anything else; when it ends, read its output. (`ohmyjob scrape --dry-run` counts what would be new and writes nothing. Add `--git-snapshot` ONLY when the user asked for a git snapshot: it commits the tracker and `Applications/` before the run, only what `.gitignore` does not ignore (the workspace template ignores both, so the user removes those lines to version them), and is skipped when the folder is not a git repository.)
 Exit codes of `ohmyjob scrape`: 0 all boards ran; 1 a `FATAL:` line (nothing more was done); 2 the run finished but at least one board reported an `ERROR`.
 2. Read the output. It holds one line per board (`<board>: <n> scraped, <n> new (<n> <reason> dropped)`), `WARNING` lines, and a `total:` line. Tell the user, in a few short lines:
