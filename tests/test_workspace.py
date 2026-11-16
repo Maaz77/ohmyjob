@@ -627,7 +627,7 @@ def test_application_master_may_run(command):
 
 
 @pytest.mark.parametrize("command", [
-    "ohmyjob apply questions", "ohmyjob apply answer --json '[]'", "ohmyjob apply preflight", "ohmyjob apply preflight --tab H",
+    "ohmyjob apply questions", "ohmyjob apply answer --json '[]'", "ohmyjob apply gaps", "ohmyjob apply authorize --json '[]'", "ohmyjob apply preflight", "ohmyjob apply preflight --tab H",
     "ohmyjob apply assign --tabs 11,", "ohmyjob apply assign --tabs a", "ohmyjob apply start --continue now",
     "ohmyjob apply next; ls", "ohmyjob apply next && ls", "ohmyjob apply end\nls", "ohmyjob prep next",
     "ohmyjob scrape", "ohmyjob apply", "ohmyjob apply finish `id`",
