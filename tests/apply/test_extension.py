@@ -369,6 +369,46 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_a_frame_of_another_site_carries_its_address(self):
+        """read_page cannot see into a frame of another site, so the extension puts a link to the frame's own address
+        beside it. A frame too small to hold a form, and a frame of the same site, are left alone."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                job.goto("http://127.0.0.1:8001/framed-form.html")
+                time.sleep(1.0)
+                marks = job.evaluate("Object.fromEntries(['board', 'pixel', 'same'].map(id => {"
+                                     "const before = document.getElementById(id).previousElementSibling;"
+                                     "return [id, before && before.dataset.aaFrame === '1' ? before.getAttribute('href') : null];"
+                                     "}))")
+                self.assertEqual(marks["board"], "http://localhost:8001/other.html")
+                self.assertIsNone(marks["pixel"])
+                self.assertIsNone(marks["same"])
+                # the link is read_page's only way to the address, and it must not be written twice
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 1)
+                self.assertEqual(job.evaluate("document.querySelector('a[data-aa-frame]').textContent"), "[AA frame]")
+            finally:
+                ctx.close()
+
+    def test_a_frame_that_moved_says_where_it_is(self):
+        """The src attribute is a frame's first address. A frame navigated by script, and a srcdoc frame, have no src
+        worth following, so each frame of a run tab tells the page above it where it is now."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                job.goto("http://127.0.0.1:8001/moved-frame.html")
+                time.sleep(2.0)
+                marks = job.evaluate("Object.fromEntries(['moved', 'written'].map(id => {"
+                                     "const before = document.getElementById(id).previousElementSibling;"
+                                     "return [id, before && before.dataset.aaFrame === '1' ? before.getAttribute('href') : null];"
+                                     "}))")
+                self.assertEqual(marks["moved"], "http://localhost:8001/no-google.html")
+                self.assertEqual(marks["written"], "http://localhost:8001/button.html")
+            finally:
+                ctx.close()
+
     def test_a_sign_in_tab_gets_no_google_count(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")

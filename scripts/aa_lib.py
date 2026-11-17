@@ -1211,6 +1211,33 @@ def line_name(line: str) -> str:
     return _unescape(quoted.group(1)) if quoted else ""
 
 
+def ancestor_names(text: str, ref: str) -> str:
+    """The names of the lines that enclose `ref`: every line above it with a smaller indent, outermost first.
+
+    A dialog gives its children their meaning ("Manage your data" over a "Confirm choices" button), while the lines
+    beside a ref belong to other controls, so a test about the dialog a control sits in uses this, not the lines
+    around it."""
+    lines = text.splitlines()
+    index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
+    if index is None:
+        return ""
+    indent = len(lines[index]) - len(lines[index].lstrip())
+    names = []
+    for j in range(index - 1, -1, -1):
+        line = lines[j]
+        if not line.strip():
+            continue
+        level = len(line) - len(line.lstrip())
+        if level < indent:
+            indent = level
+            name = line_name(line)
+            if name:
+                names.append(name)
+            if indent == 0:
+                break
+    return " ".join(reversed(names))
+
+
 def subtree_names(text: str, ref: str) -> list[str]:
     """The name of `ref` and the names of the lines inside it (the lines right below it with a deeper indent).
 

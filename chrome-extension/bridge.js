@@ -13,6 +13,8 @@
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
   const CONTROLS = 'button, [role="button"], input[type="submit"], input[type="button"], a, [role="link"]';
   const GOOGLE_TAG_RE = /\[AA g=\d+ named=\d+\]/;
+  const FRAME_MARK = "[AA frame]";
+  const FRAME_MIN = 200;  // an application form is never smaller; a tracker pixel or an ad slot often is
   let tries = 0;
   let naming = false;
 
@@ -104,6 +106,102 @@
     return out;
   }
 
+  // read_page cannot see into a cross-origin frame, so a form inside one is out of reach: the page shows only the
+  // frame, and read_page names it from its title ("Greenhouse Job Board") or not at all. The address of the frame is
+  // an attribute of the page itself, which this script may read, so it puts a link to it beside the frame. The
+  // worker navigates its tab to that address and works on the form as a page of its own.
+  //
+  // A link, not a name on the frame: read_page cuts a name at 100 characters, which breaks the token such an address
+  // usually carries, while it prints an href whole. The link is 1x1 and out of the flow, so the page looks the same.
+  function markFrame(frame, url) {
+    const before = frame.previousElementSibling;
+    if (before && before.dataset && before.dataset.aaFrame === "1") {
+      if (before.getAttribute("href") !== url.href) before.setAttribute("href", url.href);
+      return;
+    }
+    const link = document.createElement("a");
+    link.dataset.aaFrame = "1";
+    link.setAttribute("href", url.href);
+    link.setAttribute("aria-label", FRAME_MARK);
+    link.textContent = FRAME_MARK;
+    link.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden";
+    if (frame.parentNode) frame.parentNode.insertBefore(link, frame);
+  }
+
+  function usableFrameUrl(raw) {
+    let url;
+    try {
+      url = new URL(raw, location.href);
+    } catch (e) {
+      return null;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.origin === location.origin) return null;  // read_page sees a same-origin frame already
+    return url;
+  }
+
+  function bigEnough(frame) {
+    const box = frame.getBoundingClientRect();
+    return box.width >= FRAME_MIN && box.height >= FRAME_MIN;
+  }
+
+  function nameFrames() {
+    for (const frame of document.querySelectorAll("iframe[src], frame[src]")) {
+      const url = usableFrameUrl(frame.getAttribute("src"));
+      if (url && bigEnough(frame)) markFrame(frame, url);
+    }
+    askFramesWhereTheyAre();
+  }
+
+  // Both halves wait for the same answer from the service worker, so a frame can report before the page above it
+  // listens. The page asks again on every naming pass, and a frame that is listening answers.
+  function askFramesWhereTheyAre() {
+    if (!isTop) return;
+    for (const frame of document.querySelectorAll("iframe, frame")) {
+      try {
+        if (frame.contentWindow) frame.contentWindow.postMessage({ aaFrameAsk: 1 }, "*");
+      } catch (e) {
+        // a frame that cannot be reached
+      }
+    }
+  }
+
+  // The src attribute is the frame's FIRST address. A frame that its own script then navigates, and a srcdoc frame,
+  // have no src worth following, so each frame of a run tab tells the page above it where it is now. This is the
+  // frame's half: it runs in every frame of the group, the top one excepted.
+  function reportFrameUrl() {
+    const post = () => {
+      try {
+        parent.postMessage({ aaFrame: location.href }, "*");
+      } catch (e) {
+        // a parent that cannot be reached: the src attribute is all the page above gets
+      }
+    };
+    post();
+    window.addEventListener("load", post);
+    window.addEventListener("hashchange", post);
+    window.addEventListener("popstate", post);
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.aaFrameAsk) post();
+    });
+  }
+
+  // The page's half: a message counts only when it comes from a frame of this page, which the window identity of the
+  // sender proves. A page script cannot name a frame it is not inside.
+  function listenForFrameUrls() {
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (!data || typeof data.aaFrame !== "string") return;
+      const url = usableFrameUrl(data.aaFrame);
+      if (!url) return;
+      for (const frame of document.querySelectorAll("iframe, frame")) {
+        if (frame.contentWindow !== event.source) continue;
+        if (bigEnough(frame)) markFrame(frame, url);
+        return;
+      }
+    });
+  }
+
   function nameGoogleButtons() {
     for (const el of document.querySelectorAll(CONTROLS)) {
       if (hasName(el)) continue;
@@ -180,10 +278,12 @@
       clearTimeout(timer);
       timer = setTimeout(() => {
         nameGoogleButtons();
+        nameFrames();
         updateGoogleTag();
       }, 150);
     }).observe(root, { subtree: true, childList: true });
     nameGoogleButtons();
+    nameFrames();
     updateGoogleTag();
   }
 
@@ -194,6 +294,8 @@
         if (chrome.runtime.lastError || !resp) return;
         if (isTop && resp.tag) keepTitle(resp.tag);
         if (resp.enabled) {
+          if (isTop) listenForFrameUrls();
+          else reportFrameUrl();
           whenRoot((root) => {
             root.setAttribute(ATTR, "");
             keepNamingGoogleButtons(root);

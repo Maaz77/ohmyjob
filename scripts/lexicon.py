@@ -268,6 +268,29 @@ COOKIE = Terms(
      "小型文字檔"],
 )
 
+# Words that mark a consent dialog of a consent-management platform (Sourcepoint, Quantcast, OneTrust and the like),
+# on the dialog itself or on the lines near the button. They are deliberately narrow: a privacy agreement inside an
+# application form ("Data Privacy Agreement") is a declaration the worker ticks, not a consent dialog it must escape.
+CMP = Terms(
+    ["manage your data", "manage options", "manage preferences", "manage settings", "privacy preferences",
+     "consent preferences", "cookie preferences", "data preferences", "legitimate interest",
+     "your privacy choices", "privacy choices", "do not sell", "tracking technologies",
+     "confirm choices", "confirm my choices", "save preferences", "save choices", "save my choices",
+     "save and close", "only necessary", "strictly necessary", "necessary only", "reject all", "decline all"],
+    ["gestisci i tuoi dati", "gestisci le opzioni", "preferenze sulla privacy", "interesse legittimo",
+     "conferma le scelte", "salva le preferenze", "solo necessari", "rifiuta tutti",
+     "gérer vos données", "gérer les options", "préférences de confidentialité", "intérêt légitime",
+     "confirmer les choix", "enregistrer les préférences", "uniquement nécessaires", "tout refuser",
+     "daten verwalten", "optionen verwalten", "datenschutz-einstellungen", "berechtigtes interesse",
+     "auswahl bestätigen", "einstellungen speichern", "nur notwendige", "alle ablehnen",
+     "gestionar tus datos", "gestionar opciones", "preferencias de privacidad", "interés legítimo",
+     "confirmar selección", "guardar preferencias", "solo necesarias", "rechazar todo",
+     "gerir os seus dados", "preferências de privacidade", "interesse legítimo", "guardar preferências",
+     "beheer je gegevens", "opties beheren", "privacyvoorkeuren", "gerechtvaardigd belang",
+     "keuzes bevestigen", "voorkeuren opslaan", "alleen noodzakelijke", "alles weigeren",
+     "zarządzaj danymi", "ustawienia prywatności", "uzasadniony interes", "potwierdź wybory", "odrzuć wszystko"],
+)
+
 # Sign-up and account creation. Allowed only when the control is a Google option.
 SIGNUP = Terms(
     ["sign up", "signup", "create account", "create an account", "create your account", "register", "new account"],

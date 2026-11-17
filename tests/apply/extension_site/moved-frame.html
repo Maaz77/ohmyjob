@@ -1,0 +1,14 @@
+<!doctype html><title>Apply</title>
+<!-- Two frames whose src attribute does not say where they are: one starts on this site and is then navigated to
+     another, one is built with srcdoc and has no src at all. Each frame tells this page where it is. -->
+<h1>Apply</h1>
+<iframe id="moved" src="/other.html" width="600" height="400"></iframe>
+<iframe id="written" srcdoc="<p>placeholder</p>" width="600" height="400"></iframe>
+<script>
+  addEventListener("load", () => {
+    setTimeout(() => {
+      document.getElementById("moved").contentWindow.location.replace("http://localhost:8001/no-google.html");
+      document.getElementById("written").contentWindow.location.replace("http://localhost:8001/button.html");
+    }, 200);
+  });
+</script>

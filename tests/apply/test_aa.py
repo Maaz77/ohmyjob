@@ -1465,6 +1465,49 @@ class TestIconButton(Base):
                           "right after you click a text field")
 
 
+class TestConsentDialog(Base):
+    def test_the_real_himalayas_consent_dialog(self):
+        """himalayas.app covers the job page with a consent dialog that has no Reject all: the private way out is to
+        turn the options off and save with "Confirm choices", whose name carries a final word."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        url = "https://himalayas.app/companies/triptease/jobs/software-engineer-mid-level-3069075102"
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": url}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, sample("himalayas_consent_dialog.txt"), W, "A1")
+        # the save button of the dialog: a final word, but no application is behind it
+        self.assertAllowed(self.click(tab, "ref_32", "A1", "Saves the consent choices with the toggles off"))
+        # the least private choice of the same dialog stays refused
+        self.assertDenied(self.click(tab, "ref_31", "A1", "Accepts all consent options"), "most private choice")
+        # a button of the page itself, outside the dialog, is judged as before
+        self.assertAllowed(self.click(tab, "ref_19", "A1", "Opens the application"))
+        # the options of the dialog: `button ... type="checkbox"` toggles, which the Haiku check used to refuse
+        self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_25"},
+                  sample("himalayas_consent_options.txt"), W, "A1")
+        for ref in ("ref_41", "ref_46", "ref_49"):
+            self.assertAllowed(self.click(tab, ref, "A1", "Turns the consent option off"))
+        # a final word under a dialog that is no consent dialog keeps its refusal
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  'dialog "Apply for this job" [ref_200]\n button "Confirm" [ref_201] type="button"\n', W, "A1")
+        self.assertDenied(self.click(tab, "ref_201", "A1", "Goes on"), "final control")
+
+    def test_a_dialog_that_only_sounds_like_a_cookie_banner_unlocks_nothing(self):
+        """The allow is for a consent dialog, not for every dialog whose name holds one of its words: an employer
+        called "Crumbl Cookies" and a job called "Vendor Manager" must not open a way to the final button."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://jobs.example.com/apply"}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  'dialog "Apply to Crumbl Cookies" [ref_300]\n button "Submit application" [ref_301] type="submit"\n'
+                  ' button [ref_302] type="submit"\n button "Accept all cookies" [ref_303] type="button"\n'
+                  'dialog "Apply for Vendor Manager, cookie policy" [ref_310]\n'
+                  ' button "Submit" [ref_311] type="submit"\n', W, "A1")
+        self.assertDenied(self.click(tab, "ref_301", "A1", "Goes on with the application"), "final control")
+        self.assertDenied(self.click(tab, "ref_302", "A1", "Goes on with the application"), "without a name")
+        self.assertDenied(self.click(tab, "ref_311", "A1", "Goes on with the application"), "final control")
+        # the cookie button of the same page keeps its own refusal: its name says what it is
+        self.assertDenied(self.click(tab, "ref_303", "A1", "Accepts the cookies"), "most private choice")
+
+
 class TestPreflight(Base):
     def test_preflight_warns_without_helper_and_haiku(self):
         self.aa_json("start")

@@ -341,7 +341,32 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     filled = ctx.filled(tab)
     # /continue-applying: the candidate may have filled part of the application by hand, so the Haiku check decides about Apply
     sticky = bool((ctx.entry(tab) or {}).get("sticky"))
-    choice = role in L.CHOICE_ROLES  # a checkbox, a radio button or an option never sends a form
+    # a checkbox, a radio button or an option never sends a form. A consent dialog builds its toggles as
+    # `button ... type="checkbox"`, so the type counts as well as the role.
+    choice = role in L.CHOICE_ROLES or attrs.get("type") in ("checkbox", "radio")
+    context = L.context_names(snapshot, ref)
+    consent = X.CONSENT.find(name)
+    # A cookie or consent dialog is judged before the word lists below: its save button often carries a final word
+    # ("Confirm choices", "Save"), and refusing it leaves the dialog over the page with no way past it.
+    # The dialog a control sits in, not the lines beside it: a cookie button on the same page says nothing about its
+    # neighbours, while the name of the dialog around a button does. The evidence for the allow below is narrow on
+    # purpose: "cookie" has to be in the control's own name, because a dialog named "Apply to Crumbl Cookies" is an
+    # application, and only a phrase of a consent dialog counts from the dialog around it.
+    around = L.ancestor_names(snapshot, ref)
+    banner = X.COOKIE.find(name) or X.COOKIE.find(around) or X.CMP.find(name) or X.CMP.find(around)
+    if banner:
+        if X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or ""):
+            raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
+        if choice:
+            return  # a toggle of the dialog: the worker turns the options off, and no tick sends anything
+        if consent:
+            raise Deny("This is a cookie or consent dialog. Click its most private choice (Reject all, Decline, Only "
+                       "necessary). If it offers none, turn its options off and then save (Confirm choices, Save).")
+        if X.DELETE.find(name):
+            raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
+        if name.strip() and not filled and not sticky and (X.CMP.find(name) or X.CMP.find(around) or X.COOKIE.find(name)):
+            L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
+            return
     word = None if choice else X.FINAL.find(name)
     if word:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. Stop here with status 'parked'.")
@@ -354,13 +379,8 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if filled and apply_word:
         raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. If the "
                    "form is filled up to this button, stop here with status 'parked'; else fill the form first.")
-    context = L.context_names(snapshot, ref)
-    consent = X.CONSENT.find(name)
-    if consent:
-        if X.COOKIE.find(name) or X.COOKIE.find(context):
-            raise Deny("This is a cookie banner. Click its most private choice (Reject all, Decline, Only necessary).")
-        if X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or ""):
-            raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
+    if consent and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
+        raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
     if X.DELETE.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
     google = X.GOOGLE.find(name)

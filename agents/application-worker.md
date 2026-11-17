@@ -95,6 +95,15 @@ Go through these rules from top to bottom and use the FIRST rule that fits the q
    - "Applied": stop with status "blocked".
    - No form, Easy Apply, Apply or company-site control: wait 2 seconds and call read_page one more time. If there is still none, take ONE screenshot to see the page, then stop with status "blocked".
    If the next page has no form yet, do this step again on that page.
+   A form inside a frame: read_page cannot see into a frame of another site, so the page looks empty or shows only a
+   header. The helper extension puts a link `"[AA frame]"` beside each such frame, and its `href` is the frame's own
+   address. Use it only when the page itself has no form field, no Easy Apply and no Apply or company-site control: a
+   consent dialog, a CAPTCHA and a video are frames too, and the page in front of you is the one to work on while it
+   has a control of its own. Navigate YOUR tab to that `href` (never click the link) and do this step again on that
+   page. With more than one `[AA frame]` link, take the one whose address reads like an application (`job_app`,
+   `apply`, `boards`, the name of an application system), never one that reads like a consent, advertising or video
+   frame. If the interactive view shows no such link, call read_page alone with `filter: "all"` and look again.
+   Report `NOT_ACCESSIBLE` only when an "all" read shows no usable `[AA frame]` link.
 2. On each form page: read_page, then fill with one browser_batch, then read_page, then click Next, Continue, Review or Save and continue by ref. The read_page before the click is required: an answer can open new fields or turn Next into Submit, and the hook checks the button by the name of your last read_page.
    A page that does not load (read_page says "showing error page", or the page stays empty): wait 3 seconds, then navigate your tab to the same address again. Do this at most 2 times; then stop with status "blocked".
 3. Stop with status "parked" when the page shows the final button (Submit, Send or similar). Stop with status "blocked" on questions for the candidate (see "How to answer") or on a blocker (see "Blockers").
@@ -113,7 +122,7 @@ Stop with status "blocked" if Google asks for a password or a code, asks for mor
 The blocker field starts with a code, then `: `, then the reason. Use these codes:
 - `CAPTCHA: <reason>` — a CAPTCHA or bot check.
 - `ACCOUNT_WALL: <reason>` — an account wall without a Google option (also a job board that asks for an account), a password field, a sign-in permission (OAuth) screen. If the tab shows a sign-in or account page (not an application form), navigate the tab to its current address once and call read_page before you report this blocker. Before you report ACCOUNT_WALL, take one screenshot and look for a Google or other sign-in icon. If a Google option is visible but read_page gives it no ref, report `GOOGLE_NO_REF: <where it is on the page>` instead.
-- `NOT_ACCESSIBLE: <reason>` — the form or control is not in read_page (for example a cross-origin iframe).
+- `NOT_ACCESSIBLE: <reason>` — the form or control is not in read_page. For a frame of another site, use its `[AA frame]` address first (see Flow step 1); report this only when the "all" read shows no such name.
 - `LOAD_FAIL: <reason>` — the page does not load after the allowed reloads (see Flow step 2).
 - `NO_APPLY_CONTROL: <reason>` — no form, Easy Apply, Apply or company-site control.
 - `UPLOAD_HANG: <reason>` — see "Resume upload".

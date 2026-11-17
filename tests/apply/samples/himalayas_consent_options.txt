@@ -1,0 +1,154 @@
+dialog "Manage your data" [ref_25]
+ button "Back" [ref_26]
+ generic "Data preferences" [ref_33]
+ heading "Manage your data" [ref_34]
+ generic "You can choose how your personal data is used. Vendors want your permission to do the following:" [ref_35]
+ generic "Purposes" [ref_36]
+ heading "Store and/or access information on a device" [ref_37]
+ generic "Cookies, device or similar online identifiers (e.g. login-based identifiers, randomly assigned ident" [ref_38]
+ button "View details, Store and/or access information on a device" [ref_27] href="#"
+ label [ref_39]
+  generic "Consent (138 vendors)" [ref_40]
+  button "Consent (138 vendors), Store and/or access information on a device" [ref_41] type="checkbox"
+ heading "Use limited data to select advertising" [ref_42]
+ generic "Advertising presented to you on this service can be based on limited data, such as the website or ap" [ref_43]
+ button "View details, Use limited data to select advertising" [ref_28] href="#"
+ label [ref_44]
+  generic "Consent (78 vendors)" [ref_45]
+  button "Consent (78 vendors), Use limited data to select advertising" [ref_46] type="checkbox"
+ label [ref_47]
+  generic "Legitimate interest (46 vendors)" [ref_48]
+   tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_29]
+  button "Legitimate interest (46 vendors), Use limited data to select advertising" [ref_49] type="checkbox"
+ heading "Create profiles for personalised advertising" [ref_50]
+ generic "Information about your activity on this service (such as forms you submit, content you look at) can " [ref_51]
+ button "View details, Create profiles for personalised advertising" [ref_30] href="#"
+ label [ref_52]
+  generic "Consent (115 vendors)" [ref_53]
+  button "Consent (115 vendors), Create profiles for personalised advertising" [ref_54] type="checkbox"
+ heading "Use profiles to select personalised advertising" [ref_55]
+ generic "Advertising presented to you on this service can be based on your advertising profiles, which can re" [ref_56]
+ button "View details, Use profiles to select personalised advertising" [ref_57] href="#"
+ label [ref_58]
+  generic "Consent (114 vendors)" [ref_59]
+  button "Consent (114 vendors), Use profiles to select personalised advertising" [ref_60] type="checkbox"
+ heading "Create profiles to personalise content" [ref_61]
+ generic "Information about your activity on this service (for instance, forms you submit, non-advertising con" [ref_62]
+ button "View details, Create profiles to personalise content" [ref_63] href="#"
+ label [ref_64]
+  generic "Consent (35 vendors)" [ref_65]
+  button "Consent (35 vendors), Create profiles to personalise content" [ref_66] type="checkbox"
+ heading "Use profiles to select personalised content" [ref_67]
+ generic "Content presented to you on this service can be based on your content personalisation profiles, whic" [ref_68]
+ button "View details, Use profiles to select personalised content" [ref_69] href="#"
+ label [ref_70]
+  generic "Consent (33 vendors)" [ref_71]
+  button "Consent (33 vendors), Use profiles to select personalised content" [ref_72] type="checkbox"
+ heading "Measure advertising performance" [ref_73]
+ generic "Information regarding which advertising is presented to you and how you interact with it can be used" [ref_74]
+ button "View details, Measure advertising performance" [ref_75] href="#"
+ label [ref_76]
+  generic "Consent (84 vendors)" [ref_77]
+  button "Consent (84 vendors), Measure advertising performance" [ref_78] type="checkbox"
+ label [ref_79]
+  generic "Legitimate interest (61 vendors)" [ref_80]
+   tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_81]
+  button "Legitimate interest (61 vendors), Measure advertising performance" [ref_82] type="checkbox"
+ heading "Measure content performance" [ref_83]
+ generic "Information regarding which content is presented to you and how you interact with it can be used to " [ref_84]
+ button "View details, Measure content performance" [ref_85] href="#"
+ label [ref_86]
+  generic "Consent (36 vendors)" [ref_87]
+  button "Consent (36 vendors), Measure content performance" [ref_88] type="checkbox"
+ label [ref_89]
+  generic "Legitimate interest (19 vendors)" [ref_90]
+   tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_91]
+  button "Legitimate interest (19 vendors), Measure content performance" [ref_92] type="checkbox"
+ heading "Understand audiences through statistics or combinations of data from different sources" [ref_93]
+ generic "Reports can be generated based on the combination of data sets (like user profiles, statistics, mark" [ref_94]
+ button "View details, Understand audiences through statistics or combinations of data from different sources" [ref_95] href="#"
+ label [ref_96]
+  generic "Consent (62 vendors)" [ref_97]
+  button "Consent (62 vendors), Understand audiences through statistics or combinations of data from different" [ref_98] type="checkbox"
+ label [ref_99]
+  generic "Legitimate interest (34 vendors)" [ref_100]
+   tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_101]
+  button "Legitimate interest (34 vendors), Understand audiences through statistics or combinations of data fr" [ref_102] type="checkbox"
+ heading "Develop and improve services" [ref_103]
+ generic "Information about your activity on this service, such as your interaction with ads or content, can b" [ref_104]
+ button "View details, Develop and improve services" [ref_105] href="#"
+ label [ref_106]
+  generic "Consent (67 vendors)" [ref_107]
+  button "Consent (67 vendors), Develop and improve services" [ref_108] type="checkbox"
+ label [ref_109]
+  generic "Legitimate interest (55 vendors)" [ref_110]
+   tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_111]
+  button "Legitimate interest (55 vendors), Develop and improve services" [ref_112] type="checkbox"
+ heading "Use limited data to select content" [ref_113]
+ generic "Content presented to you on this service can be based on limited data, such as the website or app yo" [ref_114]
+ button "View details, Use limited data to select content" [ref_115] href="#"
+ label [ref_116]
+  generic "Consent (17 vendors)" [ref_117]
+  button "Consent (17 vendors), Use limited data to select content" [ref_118] type="checkbox"
+ label [ref_119]
+  generic "Legitimate interest (5 vendors)" [ref_120]
+   tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_121]
+  button "Legitimate interest (5 vendors), Use limited data to select content" [ref_122] type="checkbox"
+ generic "Special purposes" [ref_123]
+ heading "Ensure security, prevent and detect fraud, and fix errors" [ref_124]
+ tooltip "This is one reason that vendors use data. Data used for security or an essential function can't be t" [ref_125]
+ generic "Your data can be used to monitor for and prevent unusual and possibly fraudulent activity (for examp" [ref_126]
+ button "View details, Ensure security, prevent and detect fraud, and fix errors" [ref_127] href="#"
+ heading "Deliver and present advertising and content" [ref_128]
+ tooltip "This is one reason that vendors use data. Data used for security or an essential function can't be t" [ref_129]
+ generic "Certain information (like an IP address or device capabilities) is used to ensure the technical comp" [ref_130]
+ button "View details, Deliver and present advertising and content" [ref_131] href="#"
+ heading "Save and communicate privacy choices" [ref_132]
+ tooltip "This is one reason that vendors use data. Data used for security or an essential function can't be t" [ref_133]
+ generic "The choices you make regarding the purposes and entities listed in this notice are saved and made av" [ref_134]
+ button "View details, Save and communicate privacy choices" [ref_135] href="#"
+ generic "Features" [ref_136]
+ generic "These means of processing can be used solely in pursuit of one or several purposes for which you are" [ref_137]
+ heading "Match and combine data from other data sources" [ref_138]
+ tooltip "This is one method that vendors use to collect data. You can't change data collection methods direct" [ref_139]
+ generic "Information about your activity on this service may be matched and combined with other information r" [ref_140]
+ button "View details, Match and combine data from other data sources" [ref_141] href="#"
+ heading "Link different devices" [ref_142]
+ tooltip "This is one method that vendors use to collect data. You can't change data collection methods direct" [ref_143]
+ generic "In support of the purposes explained in this notice, your device might be considered as likely linke" [ref_144]
+ button "View details, Link different devices" [ref_145] href="#"
+ heading "Identify devices based on information transmitted automatically" [ref_146]
+ tooltip "This is one method that vendors use to collect data. You can't change data collection methods direct" [ref_147]
+ generic "Your device might be distinguished from other devices based on information it automatically sends wh" [ref_148]
+ button "View details, Identify devices based on information transmitted automatically" [ref_149] href="#"
+ generic "Special features" [ref_150]
+ heading "Use precise geolocation data" [ref_151]
+ generic "With your acceptance, your precise location (within a radius of less than 500 metres) may be used in" [ref_152]
+ button "View details, Use precise geolocation data" [ref_153] href="#"
+ label [ref_154]
+  generic "Consent" [ref_155]
+  button "Consent, Use precise geolocation data" [ref_156] type="checkbox"
+ heading "How this consent management platform (CMP) works:" [ref_157]
+ generic "CMP privacy choices" [ref_158]
+ heading "Storage, duration, and usage details" [ref_159]
+ generic "The choices you make with this CMP regarding the purposes and entities will affect how personalized " [ref_160]
+  list [ref_161]
+   listitem "For , your choices are saved in a cookie named “FCCDCF” for a maximum duration of 390 days." [ref_162]
+    generic "sites" [ref_163]
+   listitem "For , your choices are saved in device storage prefixed by “IABTCF_”. Your choices will be invalidat" [ref_164]
+    generic "apps" [ref_165]
+   listitem "For , your choices are saved in local storage prefixed by “amp-store”. Your choices will be invalida" [ref_166]
+    generic "accelerated mobile page (AMP) sites" [ref_167]
+ button "Vendor preferences" [ref_168]
+  generic "Vendor preferences" [ref_169]
+ button "Accept all" [ref_31]
+  generic "Accept all" [ref_170]
+ button "Confirm choices" [ref_32]
+  generic "Confirm choices" [ref_171]
+
+Viewport: 1978x1062
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Software Engineer (Mid-Level) at Triptease [AA g=0 named=0]" ("https://himalayas.app/companies/triptease/jobs/software-engineer-mid-level-3069075102")

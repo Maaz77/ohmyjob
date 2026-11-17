@@ -1,0 +1,38 @@
+link "Skip to main content" [ref_1] href="#main-content"
+link [ref_2] href="/"
+button [ref_3] type="button"
+ link "AI Tools" [ref_4] href="/plus"
+link "Jobs" [ref_5] href="/jobs"
+link "Companies" [ref_6] href="/companies"
+link "Talent" [ref_7] href="/talent"
+link "Salaries" [ref_8] href="/salaries"
+link "Advice" [ref_9] href="/advice"
+button [ref_10] type="button"
+button [ref_11] type="button"
+button [ref_12] type="button"
+button [ref_13] type="button"
+button "Save" [ref_14] type="submit"
+link "Triptease" [ref_15] href="/companies/triptease"
+link "Triptease" [ref_16] href="https://himalayas.app/companies/triptease"
+link "Triptease" [ref_17] href="https://himalayas.app/companies/triptease"
+button "Job expired?" [ref_18]
+button "Apply now" [ref_19]
+dialog "Manage your data" [ref_25]
+ button "Back" [ref_26]
+ button "View details, Measure advertising performance" [ref_75] href="#"
+ tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_81]
+ button "View details, Measure content performance" [ref_85] href="#"
+ tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_91]
+ button "View details, Understand audiences through statistics or combinations of data from different sources" [ref_95] href="#"
+ tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_101]
+ button "View details, Develop and improve services" [ref_105] href="#"
+ tooltip "Some vendors are not asking for your consent, but are using your personal data on the basis of their" [ref_111]
+ button "Accept all" [ref_31]
+ button "Confirm choices" [ref_32]
+
+Viewport: 1978x1062
+
+Tab Context:
+- Executed on tabId: 101
+- Available tabs:
+  • tabId 101: "Software Engineer (Mid-Level) at Triptease [AA g=0 named=0]" ("https://himalayas.app/companies/triptease/jobs/software-engineer-mid-level-3069075102")
