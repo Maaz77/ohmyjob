@@ -324,7 +324,7 @@ def search_freehire_jobs(
     rows, seen, reported = [], set(), set()
 
     def fetch_term(term):
-        log.info("FREEHIRE_TERM_START | term=%r", term)
+        log.info("FREEHIRE_SCRAPE_STARTED | term=%s", term)
         fetched = item_errors = unusable = 0
         failed = None
         term_rows = []
@@ -347,7 +347,7 @@ def search_freehire_jobs(
                         term_rows.append(row)
         except Exception as error:  # noqa: BLE001 - whatever goes wrong here must leave the other sources intact
             failed = f"term={term!r}: freehire failed after {fetched} results: {type(error).__name__}: {error}"
-        log.info("FREEHIRE_TERM_DONE | term=%r | read=%d | usable=%d" + (" | error=%s" if failed else ""),
+        log.info("FREEHIRE_FETCHED | term=%s | read=%d | usable=%d" + (" | error=%s" if failed else ""),
                  term, fetched, len(term_rows), *([failed] if failed else []))
         return term, fetched, unusable, failed, term_rows, term_metas
 

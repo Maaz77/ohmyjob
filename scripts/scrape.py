@@ -36,7 +36,31 @@ FOLDER_ROOTS = ("Applications", "Pending-Review", "Needs-Attention", "Submitted"
 KEY_RE = re.compile(r"^(\d+)_")
 SOURCE_NAMES = {"linkedin": "LinkedIn", "freehire_source": "FreeHire"}  # anything else: .title()
 COLORS = {"FreeHire": "\033[36m", None: "\033[35m"}  # cyan; filter-stage lines (no source) magenta; the boards blue
+_RESET = "\033[0m"
+_BOLD = "\033[1m"
+_CYAN = "\033[36m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_RED = "\033[31m"
+_BLUE = "\033[34m"
 log = logging.getLogger(__name__)  # only INFO from here on: with no handler installed (no --verbose) nothing prints
+
+
+def _color(text: str, color: str) -> str:
+    return f"{color}{text}{_RESET}" if sys.stdout.isatty() else text
+
+
+def _log_filter(drop: str, board: str, job: dict) -> None:
+    title, company = job["title"], job["company"]
+    if drop in ("level", "term", "title", "duplicate", "twin_tracker", "twin_board"):
+        reason = {"level": "title_contains_excluded_level", "term": "title_contains_excluded_term",
+                  "title": "title_does_not_match_search_term", "duplicate": "duplicate_title_and_company",
+                  "twin_tracker": "already_in_tracker", "twin_board": "twin_of_earlier_source"}[drop]
+        log.info("TITLE_FILTERED | title=%s | company=%s | reason=%s", title, company, reason)
+    elif drop == "type":
+        log.info("JOB_TYPE_FILTERED | title=%s | company=%s | reason=job_type=%s", title, company, job.get("job_type", ""))
+    else:
+        log.info("DROPPED | reason=%s | board=%s | title=%s | company=%s", drop, board, title, company)
 
 
 class LogFormat(logging.Formatter):
@@ -150,7 +174,8 @@ def scrape_board(board: str, search: dict, verbose: bool = False) -> Scraped:
             search["search_query"], search["location"], search["country"],
             search["recency_days"], search["uk_sponsor_only"],
         )
-        log.info("BOARD_DONE | board=%s | rows=%d", board, len(found.rows), extra={"source": shown})
+        log.info("%s_SCRAPE_SUMMARY | terms=%d | results=%d | before filtering",
+                 board.upper(), len(search["search_query"]), len(found.rows), extra={"source": shown})
         return Scraped(found.rows, found.error, found.warnings, found.unusable, found.repeated)
     import jobspy  # looked up at call time: the tests replace jobspy.scrape_jobs
     if board == "linkedin":
@@ -167,13 +192,13 @@ def scrape_board(board: str, search: dict, verbose: bool = False) -> Scraped:
         if board == "google":
             args["google_search_term"] = C.google_search_term(term, search["location"], search["recency_days"])
         # each line names its board and term: the terms run in worker threads
-        log.info("TERM_START | board=%s | term=%r", board, term, extra={"source": shown})
+        log.info("%s_SCRAPE_STARTED | term=%s", board.upper(), term, extra={"source": shown})
         try:
             frame = jobspy.scrape_jobs(**args)
         except Exception as exc:  # noqa: BLE001  (JobSpy raises ValueError for bad arguments; a network library may raise anything)
-            log.info("TERM_DONE | board=%s | term=%r | error=%s", board, term, exc, extra={"source": shown})
+            log.info("%s_SCRAPE_FINISHED | term=%s | status=failed | error=%s", board.upper(), term, exc, extra={"source": shown})
             return term, None, str(exc)
-        log.info("TERM_DONE | board=%s | term=%r | results=%d", board, term, len(frame), extra={"source": shown})
+        log.info("%s_SCRAPE_FINISHED | term=%s | status=success | results=%d", board.upper(), term, len(frame), extra={"source": shown})
         return term, frame, None
 
     terms = search["search_query"]
@@ -191,7 +216,8 @@ def scrape_board(board: str, search: dict, verbose: bool = False) -> Scraped:
         for text in attrs.get("warnings", {}).values():
             warnings += [w for w in (text if isinstance(text, list) else [text]) if w not in warnings]
         rows += [normalize(rec, board) for rec in frame.to_dict("records")]
-    log.info("BOARD_DONE | board=%s | rows=%d", board, len(rows), extra={"source": shown})
+    log.info("%s_SCRAPE_SUMMARY | terms=%d | results=%d | before filtering",
+             board.upper(), len(terms), len(rows), extra={"source": shown})
     return Scraped(rows, "; ".join(errors) or None, warnings)
 
 
@@ -227,6 +253,75 @@ def snapshot(root: Path) -> None:
             return
 
 
+def _print_search_results(jobs: list[dict], boards: list[str]) -> None:
+    listed = [j for j in jobs if j.get("excluded") is None]
+    if not listed:
+        return
+    say("Search Results:")
+    sources_in = [b for b in boards if any(j["source"] == b for j in listed)]
+    multi = len(sources_in) > 1
+    index = 1
+    for source in sources_in:
+        group = [j for j in listed if j["source"] == source]
+        if multi:
+            shown = SOURCE_NAMES.get(source, source.title())
+            say(f"{_color(shown + ':', _CYAN)}")
+        for j in group:
+            prefix = "  " if multi else ""
+            say(f"{prefix}{index}. {_color(j['company'], _BLUE)} : {_color(j['title'], _GREEN)}")
+            index += 1
+
+
+def _print_summary(totals: dict, boards_info: dict, boards: list[str],
+                   dry_run: bool = False, written: int = 0) -> None:
+    header = "Job Finder Summary" + (" (dry run, nothing written)" if dry_run else "")
+    say(f"\n{_color(header, _BOLD + _CYAN)}")
+    say(_color("------------------", _CYAN))
+    added = totals["new"] if dry_run else written
+    say(f"{_color('Added             :', _GREEN)} {added} new job(s)")
+    say(f"{_color('Skipped           :', _YELLOW)} {totals['skipped']} already tracked")
+    say(f"{_color('Auto-excluded     :', _RED)} {totals['excluded']} by company name")
+    say(f"{_color('Scraped pre-filter:', _CYAN)} {totals['scraped']} job(s)")
+
+    say(f"\n{_color('Filtered', _BOLD + _CYAN)}")
+    say(_color("--------", _CYAN))
+    say(f"{_color('Job title         :', _YELLOW)} {totals['job_title']}")
+    say(f"{_color('Job level         :', _YELLOW)} {totals['job_level']}")
+    if totals.get("filter_terms"):
+        say(f"{_color('Filter terms      :', _YELLOW)} {totals['filter_terms']}")
+    say(f"{_color('Job type          :', _YELLOW)} {totals['job_type']}")
+    say(f"{_color('Duplicate job id  :', _YELLOW)} {totals['dup_id']}")
+    say(f"{_color('Duplicate title   :', _YELLOW)} {totals['duplicate']}")
+    if totals.get("lang"):
+        say(f"{_color('Posting language  :', _YELLOW)} {totals['lang']}")
+    if totals.get("junk"):
+        say(f"{_color('Junk              :', _YELLOW)} {totals['junk']}")
+    say(f"{_color('Unusable          :', _YELLOW)} {totals['unusable']}")
+    if "freehire" in boards:
+        say(f"{_color('Freehire unusable :', _YELLOW)} {totals['freehire_unusable']}")
+        say(f"{_color('Freehire duplicate:', _YELLOW)} {totals['freehire_duplicate']}")
+    say(f"{_color('Twin of earlier   :', _YELLOW)} {totals['twin_board']}")
+    say(f"{_color('Twin of tracker   :', _YELLOW)} {totals['twin_tracker']}")
+    for name, n in totals["failed_boards"].items():
+        say(f"{_color(f'{name} failed   :', _YELLOW)} {n}")
+
+    say(f"\n{_color('Sources', _BOLD + _CYAN)}")
+    say(_color("-------", _CYAN))
+    for board in boards:
+        shown = SOURCE_NAMES.get(board, board.title())
+        info = boards_info.get(board, {})
+        label = f"{shown} passed"
+        say(f"{_color(f'{label:<19}:', _GREEN)} {info.get('passed', 0)}")
+    if "freehire" in boards:
+        info = boards_info.get("freehire", {})
+        n_failed = 1 if info.get("error") else 0
+        status_color = _RED if n_failed else _GREEN
+        say(f"{_color('Freehire status    :', status_color)} {n_failed} freehire search(es) failed.")
+
+    if not dry_run and written:
+        say("\nrun /ohmyjob:prep-jobs")
+
+
 def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = False, verbose: bool = False) -> int:
     template = W.template_files(root)
     if template:  # the mock values would be searched for and tracked as if they were yours
@@ -260,17 +355,23 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
     rows = tracker.rows()
     seen_keys = {r["_key"] for r in rows} | known_keys(root)
     window = C.twin_window(search["recency_days"])
-    twins = C.TwinIndex()
+    tracker_twins = C.TwinIndex()
+    board_twins = C.TwinIndex()
     for row in rows:
         if (row["Status"] or "").strip().casefold() in C.KEPT_STATUSES_FOLDED or C.recent_enough(row["Date Found"], window):
-            twins.add(row["Company"], row["Job Title"], row["Location"], exact=True)
+            tracker_twins.add(row["Company"], row["Job Title"], row["Location"], exact=True)
 
     found = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_jobs: list[dict] = []
     failed = 0
-    totals = {"scraped": 0, "new": 0, "excluded": 0}
-    run_ids: set[str] = set()  # keys met earlier in this run (another term or board)
-    run_titles: set[tuple[str, str, str]] = set()  # (title, company as written, city) of the jobs kept so far
+    totals: dict[str, Any] = {"scraped": 0, "new": 0, "excluded": 0, "skipped": 0,
+                               "job_title": 0, "job_level": 0, "job_type": 0, "dup_id": 0, "duplicate": 0,
+                               "twin_board": 0, "twin_tracker": 0, "unusable": 0,
+                               "freehire_unusable": 0, "freehire_duplicate": 0, "lang": 0, "junk": 0,
+                               "filter_terms": 0, "failed_boards": {}}
+    boards_info: dict[str, dict] = {}
+    run_ids: set[str] = set()
+    run_titles: set[tuple[str, str, str]] = set()
     for board in boards:
         got, error, warnings, unusable, repeated = scraped[board]
         for text in warnings:
@@ -278,7 +379,7 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
         if error:
             failed += 1
         count = {"bad": unusable, "known": 0, "dup id": repeated, "failed": 0, "type": 0, "lang": 0, "level": 0, "term": 0, "title": 0,
-                 "junk": 0, "duplicate": 0, "twin": 0}
+                 "junk": 0, "duplicate": 0, "twin_tracker": 0, "twin_board": 0}
         kept: list[dict] = []
         known: list[dict] = []
         for job in got:
@@ -316,9 +417,12 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
             elif (job["title"], job["company"], C.twin_city(job["location"])) in run_titles:
                 count["duplicate"] += 1  # the same title, company and city under another id: the first one stays
                 drop = "duplicate"
-            elif twins.find(job["company"], job["title"], job["location"]):
-                count["twin"] += 1
-                drop = "twin"
+            elif tracker_twins.find(job["company"], job["title"], job["location"]):
+                count["twin_tracker"] += 1
+                drop = "twin_tracker"
+            elif board_twins.find(job["company"], job["title"], job["location"]):
+                count["twin_board"] += 1
+                drop = "twin_board"
             else:
                 run_ids.add(key)
                 run_titles.add((job["title"], job["company"], C.twin_city(job["location"])))
@@ -326,30 +430,48 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
                            excluded=filters.excluded_company(job["company"]))
                 kept.append(job)
             if drop:
-                log.info("DROPPED | reason=%s | board=%s | title=%r | company=%r", drop, board, job["title"], job["company"])
-            elif job["excluded"] is not None:
-                log.info("EXCLUDED | board=%s | title=%r | company=%r | matches=%r", board, job["title"], job["company"], job["excluded"])
-        for job in kept + known:  # a board's own postings are compared with the earlier boards only
-            twins.add(job["company"], job["title"], job["location"])
+                _log_filter(drop, board, job)
+            elif job.get("excluded") is not None:
+                log.info("COMPANY_EXCLUDED | title=%s | company=%s | reason=company_matches_excluded_entry=%s",
+                         job["title"], job["company"], job["excluded"])
+        for job in kept + known:
+            board_twins.add(job["company"], job["title"], job["location"])
         new_jobs += kept
         excluded = sum(1 for job in kept if job["excluded"] is not None)
-        totals["scraped"] += len(got) + unusable + repeated
+        scraped_n = len(got) + unusable + repeated
+        totals["scraped"] += scraped_n
         totals["new"] += len(kept) - excluded
         totals["excluded"] += excluded
-        scraped_n = len(got) + unusable + repeated
+        totals["skipped"] += count["known"]
+        totals["job_title"] += count["title"]
+        totals["job_level"] += count["level"]
+        totals["filter_terms"] += count["term"]
+        totals["job_type"] += count["type"]
+        totals["dup_id"] += count["dup id"] - repeated
+        totals["duplicate"] += count["duplicate"]
+        totals["twin_tracker"] += count["twin_tracker"]
+        totals["twin_board"] += count["twin_board"]
+        totals["unusable"] += count["bad"] - unusable
+        totals["lang"] += count["lang"]
+        totals["junk"] += count["junk"]
+        if board == "freehire":
+            totals["freehire_unusable"] += unusable
+            totals["freehire_duplicate"] += repeated
+        shown_name = SOURCE_NAMES.get(board, board.title())
+        if count["failed"]:
+            totals["failed_boards"][shown_name] = count["failed"]
+        boards_info[board] = {"passed": len(kept) - excluded, "error": error}
         if count["failed"] >= 3 and count["failed"] * 2 > scraped_n:
             say(f"WARNING {board}: {count['failed']} of {scraped_n} detail pages did not load (rate limited); "
                 "lower search.results_per_term or search_query")
-        dropped = ", ".join(f"{n} {why}" for why, n in count.items() if n)
-        say(f"{board}: {len(got) + unusable + repeated} scraped, {len(kept) - excluded} new"
-            + (f", {excluded} auto-excluded" if excluded else "")
-            + (f" ({dropped} dropped)" if dropped else "") + (f" ERROR {error}" if error else ""))
+        if error:
+            say(f"WARNING {board}: ERROR {error}")
 
     if failed == len(boards) and not totals["scraped"]:
         raise Stop("every board failed; see the ERROR lines above")
     if dry_run:
-        say(f"total: {totals['scraped']} scraped, {totals['new']} would be new, {totals['excluded']} auto-excluded "
-            "(dry run, nothing written)")
+        _print_search_results(new_jobs, boards)
+        _print_summary(totals, boards_info, boards, dry_run=True)
         return EXIT_BOARD_FAILED if failed else EXIT_OK
 
     written = excluded_rows = 0
@@ -379,8 +501,8 @@ def run(root: Path, search: dict, dry_run: bool = False, git_snapshot: bool = Fa
             tracker.save()
         except TrackerError as exc:
             raise Stop(f"{exc} The {written} new folders are in Applications/; /ohmyjob:prep-jobs adds their rows at Found.") from exc
-    say(f"total: {totals['scraped']} scraped, {written} new jobs at Found, {excluded_rows} auto-excluded"
-        + ("; run /ohmyjob:prep-jobs" if written else ""))
+    _print_search_results(new_jobs, boards)
+    _print_summary(totals, boards_info, boards, written=written)
     return EXIT_BOARD_FAILED if failed else EXIT_OK
 
 
