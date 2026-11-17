@@ -6,13 +6,22 @@
 // Google buttons, because read_page shows them without a name and the guard refuses a nameless submit button.
 
 (() => {
+  // An extension reload leaves every open tab running the OLD copy of this file, and `chrome.scripting` then puts
+  // this one in beside it. A document must run one copy only: the first to arrive writes its version on <html>, and
+  // a later copy of the same version stops here. A NEWER copy takes over, because only it knows the newer rules.
+  const VERSION = chrome.runtime.getManifest().version;
+  const mark = document.documentElement;
+  if (mark) {
+    if (mark.dataset.aaBridge === VERSION) return;
+    mark.dataset.aaBridge = VERSION;
+  }
   const ATTR = "data-aa-popups-as-tabs";
   const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\](?: |$)/;
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
   const CONTROLS = 'button, [role="button"], input[type="submit"], input[type="button"], a, [role="link"]';
-  const GOOGLE_TAG_RE = /\[AA g=\d+ named=\d+\]/;
+  const GOOGLE_TAG_RE = /\[AA g=\d+ named=\d+( v=[0-9][\w.+-]*)?\]/;
   const FRAME_MARK = "[AA frame]";
   const FRAME_MIN = 200;  // an application form is never smaller; a tracker pixel or an ad slot often is
   let tries = 0;
@@ -289,7 +298,9 @@
     const title = document.title || "";
     if (TAG_RE.test(title)) return;  // the home tab and a sign-in tab keep their own tag
     const { count, named } = countGoogleControls();
-    const tag = `[AA g=${count} named=${named}]`;
+    // the version of THIS file, not the service worker's: `AA adopted` reads it to see that a tab still runs an old
+    // copy, which is what an extension reload leaves behind in every open tab
+    const tag = `[AA g=${count} named=${named} v=${VERSION}]`;
     const current = title.match(GOOGLE_TAG_RE);
     if (current && current[0] === tag) return;
     const cleaned = title.replace(GOOGLE_TAG_RE, "").trim();

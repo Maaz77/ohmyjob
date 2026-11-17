@@ -776,8 +776,13 @@ def cmd_adopted(args: argparse.Namespace) -> None:
         if not kept:
             state["status"] = "done"
         L.save_state(run_dir, state)
+    # a tab that still runs an older bridge.js than the plugin ships: the candidate reloaded the extension, which
+    # does not reach a tab that was already open. The master shows this, so a missing "[AA frame]" link has a name.
+    want = L.extension_version()
+    stale = sorted({v for t in back
+                    if (v := L.bridge_version(t.get("title"))) and want and v != want})
     emit({"count": len(kept), "jobs": [{"folder": f, "company": state["jobs"][f]["company"]} for f in kept],
-          "left_alone": len(left)})
+          "left_alone": len(left), "stale_helper": stale})
 
 
 def assign_continue(run_dir: Path) -> None:

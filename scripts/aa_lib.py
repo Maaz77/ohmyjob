@@ -966,7 +966,17 @@ HELPER_ON_RE = re.compile(r"^\[AA on(?: (?P<version>[0-9][\w.+-]*))?\](?: |$)")
 CHILD_TITLE_RE = re.compile(r"^\[AA from (\d+)\](?: |$)")
 # A job tab's title ends with "[AA g=N named=M]" (helper 1.7.0): the Google controls the page has, and how many of
 # them have a name. The ledger tells an ACCOUNT_WALL on a page with a Google button (GOOGLE_MISSED) from one without.
-GOOGLE_TAG_RE = re.compile(r"\[AA g=(\d+) named=(\d+)\]")
+GOOGLE_TAG_RE = re.compile(r"\[AA g=(\d+) named=(\d+)(?: v=([0-9][\w.+-]*))?\]")
+
+
+def bridge_version(title: Optional[str]) -> Optional[str]:
+    """The version of bridge.js that a job tab runs, from its "[AA g=N named=M v=X]" title tag.
+
+    An extension reload leaves every tab that is already open running the old content script, and the
+    "[AA on <version>]" tag of the home tab says nothing about it: that one is written by the service worker,
+    which does reload. None for a tag without a version (helper older than 1.9) or no tag."""
+    match = GOOGLE_TAG_RE.search(title or "")
+    return match.group(3) if match else None
 
 
 def host_of(url: Optional[str]) -> Optional[str]:

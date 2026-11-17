@@ -1497,6 +1497,29 @@ class TestConsentDialog(Base):
         path.write_text(json.dumps(state))
         self.post("read_page", {"tabId": tab, "filter": "interactive"}, sample("himalayas_consent_dialog.txt"), W, "A1")
         self.assertAllowed(self.click(tab, "ref_32", "A1", "Saves the consent choices with the toggles off"))
+
+    def test_apply_on_the_job_page_itself_does_not_go_to_the_haiku_check(self):
+        """`sticky` says that a form of the last run may stand filled on the page. On the job's own address nothing of
+        that run stands there, so an Apply click with nothing filled is allowed, as it is outside continue mode."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        url = "https://himalayas.app/companies/triptease/jobs/software-engineer-mid-level-3069075102"
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text())
+        state["tabs"][str(tab)]["sticky"] = True   # what `assign --continue` writes for every job it queues
+        state["jobs"][folder]["url"] = url
+        path.write_text(json.dumps(state))
+        judged = lambda: (self.run_dir() / "guard.log").read_text(encoding="utf-8").count('"event": "judge"')  # noqa: E731
+        # no navigate: a tab adopted in continue mode is the one the candidate left open, and the worker is told not
+        # to navigate it. `on_navigate` therefore never runs, and only the test in check_click_name clears sticky.
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, sample("himalayas_consent_dialog.txt"), W, "A1")
+        self.assertAllowed(self.click(tab, "ref_19", "A1", "Opens the application for this job"))
+        self.assertEqual(judged(), 0, "the Haiku check must not be asked on the job's own page")
+        # away from the job's address the tab keeps sticky, so an Apply name still goes to the Haiku check
+        away = sample("himalayas_consent_dialog.txt").replace(url, "https://himalayas.app/dashboard")
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, away, W, "A1")
+        self.assertAllowed(self.click(tab, "ref_19", "A1", "Opens the application for this job"))
+        self.assertEqual(judged(), 1)
         # a final word under a dialog that is no consent dialog keeps its refusal
         self.post("read_page", {"tabId": tab, "filter": "interactive"},
                   'dialog "Apply for this job" [ref_200]\n button "Confirm" [ref_201] type="button"\n', W, "A1")

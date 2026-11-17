@@ -339,8 +339,14 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         # see it. Take the names inside it, as check_google_click does.
         name = " ".join(L.subtree_names(snapshot, ref))[:300]
     filled = ctx.filled(tab)
-    # /continue-applying: the candidate may have filled part of the application by hand, so the Haiku check decides about Apply
+    # /continue-applying: the candidate may have filled part of the application by hand, so the Haiku check decides
+    # about Apply. Not on the job's own page: nothing of the earlier run stands there, and `on_navigate` clears
+    # sticky for exactly this address. A tab adopted in continue mode is never navigated, so the same test runs here.
     sticky = bool((ctx.entry(tab) or {}).get("sticky"))
+    if sticky:
+        job, here = ctx.job(tab) or {}, L.job_key(ctx.url(tab))
+        if here and here in {L.job_key(job.get("url")), L.job_key(job.get("apply_url"))}:
+            sticky = False  # an address with no job key of its own gives no answer, so it keeps sticky
     # a checkbox, a radio button or an option never sends a form. A consent dialog builds its toggles as
     # `button ... type="checkbox"`, so the type counts as well as the role.
     choice = role in L.CHOICE_ROLES or attrs.get("type") in ("checkbox", "radio")

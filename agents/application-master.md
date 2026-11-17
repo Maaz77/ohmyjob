@@ -48,7 +48,9 @@ If your task says "continue", the candidate fixed some jobs by hand in the tab g
   put there by hand. In both cases, call tabs_context_mcp, then run `AA adopted`. If it prints RETRY, do what it says
   (2 times at most). `AA adopted` matches the tabs that came back to the jobs by their pages, not by their tab ids
   (a Chrome restart gives new ids), and keeps only the jobs it matched; a tab that fits no job stays the candidate's
-  and goes back to "Needs Attention" at the end. If its "count" is 0, go to step 9. Else run `AA assign --continue`:
+  and goes back to "Needs Attention" at the end. If "stale_helper" is not empty, say so in your final message: those tabs still run an older
+  helper than the plugin (the candidate reloaded the extension while they were open), so a form inside a frame may
+  have no `[AA frame]` link until they are reloaded. If its "count" is 0, go to step 9. Else run `AA assign --continue`:
   it queues one worker for each kept job.
 - Steps 7 to 11 are the same.
 

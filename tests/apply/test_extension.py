@@ -11,6 +11,7 @@ import json
 import socketserver
 import tempfile
 import threading
+import re
 import time
 import unittest
 from pathlib import Path
@@ -342,11 +343,11 @@ class TestPopupsAsTabs(unittest.TestCase):
                                      "id => [id, document.getElementById(id).getAttribute('aria-label')]))")
                 self.assertEqual(names, {"glink": "Continue with Google", "gdiv": "Continue with Google", "plain": None})
                 # two Google controls, both named by the helper itself
-                self.assertRegex(job.title(), r"\[AA g=2 named=2\]$")
+                self.assertRegex(job.title(), r"\[AA g=2 named=2 v=[0-9][\w.+-]*\]$")
 
                 job.goto("http://127.0.0.1:8001/no-google.html")
                 time.sleep(1.0)
-                self.assertRegex(job.title(), r"\[AA g=0 named=0\]$")
+                self.assertRegex(job.title(), r"\[AA g=0 named=0 v=[0-9][\w.+-]*\]$")
             finally:
                 ctx.close()
 
@@ -365,7 +366,7 @@ class TestPopupsAsTabs(unittest.TestCase):
                                          "button-start-signup-with-google": "Continue with Google",
                                          "button-submit-signup-with-email": "Register now"})
                 # the button and the icon holder inside it, both named by the helper, as on the page itself
-                self.assertRegex(job.title(), r"\[AA g=2 named=2\]$")
+                self.assertRegex(job.title(), r"\[AA g=2 named=2 v=[0-9][\w.+-]*\]$")
             finally:
                 ctx.close()
 
@@ -423,6 +424,27 @@ class TestPopupsAsTabs(unittest.TestCase):
                 self.assertIsNone(job.evaluate(mark), "a 10x10 frame holds no form")
                 time.sleep(2.0)
                 self.assertEqual(job.evaluate(mark), "http://localhost:8001/other.html")
+            finally:
+                ctx.close()
+
+    def test_a_second_copy_of_bridge_js_does_nothing(self):
+        """An extension reload leaves every open tab running the old content script, so the service worker puts the
+        current one in beside it. A document must still end up with one copy: one title tag, one frame link."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                job.goto("http://127.0.0.1:8001/framed-form.html")
+                time.sleep(1.0)
+                version = sw.evaluate("async () => chrome.runtime.getManifest().version")
+                self.assertEqual(job.evaluate("document.documentElement.dataset.aaBridge"), version)
+                self.assertRegex(job.title(), r"\[AA g=\d+ named=\d+ v=" + re.escape(version) + r"\]$")
+                # what adoptTabs does for a tab that came back from "Needs Attention"
+                sw.evaluate(f"async () => chrome.scripting.executeScript("
+                            f"{{target: {{tabId: {job_id}, allFrames: true}}, files: ['bridge.js']}})")
+                time.sleep(1.0)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 1)
+                self.assertEqual(len(re.findall(r"\[AA g=", job.title())), 1)
             finally:
                 ctx.close()
 

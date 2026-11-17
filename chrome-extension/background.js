@@ -123,6 +123,15 @@ async function groupRequest(msg, tab, marker) {
 // Claude in Chrome (and so the workers) can use it again. This includes tabs that the candidate opened or moved there
 // themselves: 'ohmyjob apply adopted' matches them to jobs by page address afterwards. The tab ids in the page address
 // (older versions moved only those) are not used. Tabs of any other group are left alone.
+// chrome://, the Web Store and a page the extension may not touch refuse this; the tab then keeps whatever it runs.
+async function injectBridge(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["bridge.js"] });
+  } catch (e) {
+    // a tab that cannot be scripted
+  }
+}
+
 async function adoptTabs(tab) {
   const waiting = await chrome.tabGroups.query({ title: "Needs Attention" });
   let moved = 0;
@@ -132,7 +141,11 @@ async function adoptTabs(tab) {
       try {
         await chrome.tabs.group({ groupId: tab.groupId, tabIds: [t.id] }); // one at a time: a closed tab stops no other
         moved += 1;
-        // the page was loaded outside a run group: let it ask again, so pop-ups open as tabs (bridge.js)
+        // The page was loaded outside a run group, and often before the extension was last reloaded: a reload leaves
+        // every open tab running the old content script, and a message reaches that one, not this version. So the
+        // current bridge.js is put in first (it stops itself if the document already runs this version), and the
+        // message then reaches whichever copy is live.
+        await injectBridge(t.id);
         chrome.tabs.sendMessage(t.id, { type: "aa-recheck" }).catch(() => {});
       } catch (e) {
         // the tab is closed, or it cannot be grouped
