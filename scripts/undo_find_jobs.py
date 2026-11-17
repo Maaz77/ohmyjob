@@ -6,7 +6,7 @@ narrow the prefix to a minute to leave them out.) Only rows still at Found or De
 reconcile already moved on (Matched, Skipped-LowFit, Resume Built, Pending Review, Submitted ...) is kept, and so is its folder.
 A folder goes only when it sits in Applications/ and its leading id is the job_key of a removed row.
 
-Default is a dry run with a plan digest; `--apply --expect <digest>` copies Job_Tracker.xlsx to Job_Tracker.xlsx.pre-undo,
+Default is a dry run with a plan digest; `--apply --expect <digest>` copies Job_Tracker.xlsx to .ohmyjob/backup/Job_Tracker-<UTC>.pre-undo.xlsx (the next reconcile --apply deletes it),
 then writes the tracker and deletes the folders. Exit codes: 0 done / dry run, 3 fatal.
 """
 from __future__ import annotations
@@ -18,6 +18,8 @@ import sys
 from typing import Optional
 
 import workspace as W
+from datetime import datetime, timezone
+
 from reconcile import FOLDER_ID_RE
 from tracker import Tracker, TrackerError
 
@@ -59,7 +61,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.apply:
             if args.expect != digest:
                 fatal(f"--apply needs --expect <digest> from the dry run (now {digest}); the plan may have changed.")
-            backup = W.TRACKER.with_name(W.TRACKER.name + ".pre-undo")
+            backup_dir = W.STATE_DIR / "backup"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup = backup_dir / f"Job_Tracker-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.pre-undo.xlsx"
+            n = 1
+            while backup.exists():  # two undos in one second
+                n += 1
+                backup = backup.with_name(f"Job_Tracker-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{n}.pre-undo.xlsx")
             shutil.copy2(W.TRACKER, backup)
             for r in sorted(remove, key=lambda r: -r["_index"]):  # bottom up, so the indexes above stay right
                 tracker.sheet.delete_rows(r["_index"] + 1)

@@ -97,11 +97,11 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `help` | Reads the plugin README and `docs/SETTINGS.md` and prints the commands with their use-cases, the `ohmyjob.json` field table and the job status life cycle. The model may invoke it. |
 | `find-jobs` | Runs `ohmyjob scrape` in the background and summarizes (also usable from a scheduled `claude -p`). |
 | `add-job` | Puts postings the candidate found by hand into the tracker at `Found`: web addresses go straight to `ohmyjob add-job`. Never writes the tracker or a folder itself; never starts stage 2. |
-| `undo-find-jobs` | Dry run, confirmation, then `--apply --expect <digest>`: removes the `Found`/`Deleted` rows of the latest find run and their `Applications/` folders, after copying the tracker to `Job_Tracker.xlsx.pre-undo`. |
+| `undo-find-jobs` | Dry run, confirmation, then `--apply --expect <digest>`: removes the `Found`/`Deleted` rows of the latest find run and their `Applications/` folders, after copying the tracker to `.ohmyjob/backup/Job_Tracker-<UTC>.pre-undo.xlsx` (the next `/ohmyjob:reconcile` deletes it). |
 | `prep-jobs` | Forks the `prep-master` agent; optional job ids limit it to those jobs (`prep start --ids`). |
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers (`apply-jobs` first asks for the missing `# Work Authorization` lines). |
 | `apply-jobs-run`, `continue-applying-run` | Internal; fork the `application-master` agent (the second in continue mode). |
-| `reconcile` | Caveat check, dry run, confirmation, then apply. The apply also deletes `questions.json`, so unanswered follow-up questions do not carry into the next round. |
+| `reconcile` | Caveat check, dry run, confirmation, then apply. The apply also deletes `questions.json`, so unanswered follow-up questions do not carry into the next round, and deletes the `Job_Tracker-*.pre-undo.xlsx` backups of `undo-find-jobs` (the dry run lists them). |
 | `build-job-resumes` | Runs `ohmyjob resume build-jobs "<names>"`: the tailored resume of each named job folder, built again and set back to `Resume Built`. |
 | `dream` | Forks the `dream-master` agent: the traces since the last dream become the ATS notes of the workspace. |
 | `retro` | Runs in the main session, no agent (it is a conversation, like `apply-jobs`): the candidate marks recent skips as wrong and types preferences; the session drafts edits of the three Fit Preferences fields; `ohmyjob retro` checks, shows and writes them one at a time after the candidate's yes. |

@@ -18,7 +18,7 @@ What the rule does for every open tracker row (Found, Matched, Resume Built, Res
 
 Rows that are already Deleted or Skipped-LowFit are never changed. A row that is already Submitted but whose folder is still in `Pending-Review/` or `Needs-Attention/` (an earlier run stopped half way) only gets its folder moved.
 
-Closing the round also clears the follow-up questions: every question the application workers asked that the user did not answer (`ohmyjob apply questions`) is dropped, so it does not carry over into the next round. The answers already saved in `Profile.md` are not touched, and a job that runs again asks its question again. Only an apply drops them; a dry run and an invariant failure drop nothing.
+Closing the round also clears the follow-up questions: every question the application workers asked that the user did not answer (`ohmyjob apply questions`) is dropped, so it does not carry over into the next round. The answers already saved in `Profile.md` are not touched, and a job that runs again asks its question again. Closing the round also deletes the tracker backups `/ohmyjob:undo-find-jobs` left in `.ohmyjob/backup/` (`Job_Tracker-*.pre-undo.xlsx`); the `Profile-*.md` backups stay. Only an apply drops them; a dry run and an invariant failure drop nothing.
 
 ## Steps
 
@@ -36,6 +36,6 @@ Closing the round also clears the follow-up questions: every question the applic
 2. Run the dry run. It writes nothing:
    `ohmyjob reconcile`
 3. If any output line starts with `FATAL` or `ohmyjob:`, stop and tell the user the line as it is. A message that the tracker changed on disk or is open in Excel/LibreOffice means: close it or run again; do not retry in a loop.
-4. Show the user the report: each row that would change (sheet row, company, title, old and new status, folder move), the unresolved folders, the `Unanswered questions to clear` line (say they are dropped for good), and the invariant line with the rows and folders it names. Note the `Plan digest` line. Exit code 2 (invariant FAIL) means nothing can be written: show the report and stop. Exit code 1 only means some folders are unresolved; the rest can still be applied.
+4. Show the user the report (when it has an `Undo-find-jobs tracker backups to delete` line, say in the confirmation that these backup files exist and this reconcile deletes them for good; a decline deletes nothing): each row that would change (sheet row, company, title, old and new status, folder move), the unresolved folders, the `Unanswered questions to clear` line (say they are dropped for good), and the invariant line with the rows and folders it names. Note the `Plan digest` line. Exit code 2 (invariant FAIL) means nothing can be written: show the report and stop. Exit code 1 only means some folders are unresolved; the rest can still be applied.
 5. Ask the user to confirm. Do not apply without a clear yes. If the list holds a row the user did not expect (for example a folder they never reviewed), tell them to move it back to `Applications/` and run the dry run again.
 6. After a yes, run `ohmyjob reconcile --apply --expect <digest>` with the digest you showed. If it refuses because the plan changed, show the new dry run and ask again. Show the report and the final counts: rows marked Submitted, rows marked Deleted, folders moved, unanswered questions cleared.

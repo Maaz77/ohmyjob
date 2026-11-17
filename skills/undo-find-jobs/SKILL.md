@@ -19,6 +19,6 @@ What the rule does:
 ## Steps
 
 1. Run the dry run. It writes nothing: `ohmyjob undo-find-jobs $ARGUMENTS`
-2. Show the user the report as printed: the run, rows removed by status, folders deleted, rows kept, the sample, and note the `Plan digest` line. Say plainly that the rows and folders are deleted for good, and that the tracker is copied to `Job_Tracker.xlsx.pre-undo` first (the folders have no backup).
+2. Show the user the report as printed: the run, rows removed by status, folders deleted, rows kept, the sample, and note the `Plan digest` line. Say plainly that the rows and folders are deleted for good, and that the tracker is copied to `.ohmyjob/backup/Job_Tracker-<UTC>.pre-undo.xlsx` (the next `/ohmyjob:reconcile` deletes it) first (the folders have no backup).
 3. Ask the user to confirm (AskUserQuestion, options "Delete them" / "Cancel"). If the run is not the one they meant, tell them to give a date or minute and run again. Do not go on without a clear yes.
 4. After a yes, run `ohmyjob undo-find-jobs $ARGUMENTS --apply --expect <digest>` with the digest you showed. If it refuses because the plan changed, show the new dry run and ask again. Show the final counts and the backup path.

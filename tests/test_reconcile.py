@@ -431,3 +431,17 @@ def test_a_damaged_questions_file_is_not_fatal(workspace):
     r = run(workspace, "--apply")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Unanswered questions cleared: 0" in r.stdout
+
+
+def test_undo_find_jobs_backups_are_listed_by_dry_run_and_deleted_by_apply(workspace):
+    make(workspace, [(url(1001), "Found")])
+    backup_dir = workspace / ".ohmyjob" / "backup"
+    backup_dir.mkdir(parents=True)
+    undo = backup_dir / "Job_Tracker-20261117T090000Z.pre-undo.xlsx"
+    profile = backup_dir / "Profile-20261117T090000Z.md"
+    undo.write_text("x")
+    profile.write_text("x")
+    out = run(workspace).stdout
+    assert undo.name in out and "to delete" in out and undo.exists()
+    run(workspace, "--apply")
+    assert not undo.exists() and profile.exists()

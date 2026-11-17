@@ -16,6 +16,8 @@ take part in matching and in the invariant. A row whose id is shared by several 
 The round is closed by an apply, so every question still waiting for the candidate in .ohmyjob/questions.json is
 dropped: an unanswered or skipped question never carries over into the next round. A job that runs again asks it again.
 
+Any undo-find-jobs tracker backup (.ohmyjob/backup/Job_Tracker-*.pre-undo.xlsx) is listed by the dry run and deleted by --apply.
+
 Invariant: the number of Submitted rows equals the number of folders in Submitted/ (after the planned changes).
 Default is a dry run; --apply writes the tracker and moves the folders. The dry run prints a plan digest; with
 `--apply --expect <digest>` the run refuses (nothing written) when the plan has changed since.
@@ -46,6 +48,7 @@ REVIEWED_ROOTS = (W.PENDING_REVIEW, W.NEEDS_ATTENTION)  # a folder here means th
 OPEN_STATUSES = set(STATUSES) - TERMINAL_STATUSES
 
 FOLDER_ID_RE = re.compile(r"^(\d+)_")
+UNDO_BACKUPS = "Job_Tracker-*.pre-undo.xlsx"  # in .ohmyjob/backup/, written by undo-find-jobs; this round's close deletes them
 
 
 def pending_questions() -> int:
@@ -303,7 +306,15 @@ def run(args) -> int:
         W.QUESTIONS_FILE.unlink(missing_ok=True)
         applied = True
 
+    backups = sorted((W.STATE_DIR / "backup").glob(UNDO_BACKUPS))
+    if args.apply and invariant[2]:  # the round is closed (or nothing was left to close): the undo backups go with it
+        for b in backups:
+            b.unlink(missing_ok=True)
     print(build_report(args.apply, applied, changes, unresolved, invariant, questions))
+    if backups:
+        done = args.apply and invariant[2]
+        print(f"Undo-find-jobs tracker backups {'deleted' if done else 'to delete'} ({len(backups)}): "
+              + ", ".join(b.name for b in backups) + ("" if done else "  (reconcile --apply deletes them for good)"))
     if not invariant[2]:
         return 2
     return 1 if unresolved else 0

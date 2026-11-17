@@ -47,7 +47,7 @@ On top of that, several checks remove jobs you already have: a posting already i
 
 **Caveats.** A board can fail for one search term and still deliver jobs from the others; a failed board is reported as `ERROR` and the other boards carry on. LinkedIn in particular rate-limits: jobs reported as `failed` are ones whose detail page did not load, and they are left for the next run rather than lost. If almost everything is dropped on `title`, your search terms and the boards' titles do not meet — loosen the terms, or set `title_filter: off` for one run and see what comes back.
 
-**Undoing a run.** `/ohmyjob:undo-find-jobs [YYYY-MM-DD | 'YYYY-MM-DD HH:MM']` removes the rows the latest run added (every row of the newest `Date Found` date, or the date or minute you give) and deletes their folders in `Applications/`. It shows the counts and a sample first and asks before it changes anything, and it copies `Job_Tracker.xlsx` to `Job_Tracker.xlsx.pre-undo` (the folders have no backup). Only rows still at `Found` or `Deleted` go; a row that prep, apply or reconcile moved on is kept with its folder, and `Pending-Review/`, `Needs-Attention/` and `Submitted/` are never touched. Rows added by `/ohmyjob:add-job` on the same date are part of the run unless you give a minute.
+**Undoing a run.** `/ohmyjob:undo-find-jobs [YYYY-MM-DD | 'YYYY-MM-DD HH:MM']` removes the rows the latest run added (every row of the newest `Date Found` date, or the date or minute you give) and deletes their folders in `Applications/`. It shows the counts and a sample first and asks before it changes anything, and it copies `Job_Tracker.xlsx` to `.ohmyjob/backup/Job_Tracker-<UTC>.pre-undo.xlsx` (the next `/ohmyjob:reconcile` deletes it) (the folders have no backup). Only rows still at `Found` or `Deleted` go; a row that prep, apply or reconcile moved on is kept with its folder, and `Pending-Review/`, `Needs-Attention/` and `Submitted/` are never touched. Rows added by `/ohmyjob:add-job` on the same date are part of the run unless you give a minute.
 
 ### Stage 2 — Job Posting Screener and Resume Tailoring
 
@@ -139,6 +139,8 @@ This closes the round: it brings the tracker in line with your folders, moves th
 - Its folder is still in `Applications/` → left alone. `Applications/` is never touched. If you applied to such a job entirely by hand, move its folder to `Submitted/` yourself before you reconcile.
 
 Rows already at `Deleted` or `Skipped-LowFit` are never changed.
+
+**The undo backups are deleted.** The tracker copies `/ohmyjob:undo-find-jobs` keeps in `.ohmyjob/backup/` (`Job_Tracker-*.pre-undo.xlsx`) are listed by the dry run, which you confirm, and deleted by the apply. `Profile-*.md` backups are never touched.
 
 **The follow-up questions are dropped.** Closing the round clears `.ohmyjob/questions.json`: every question the workers asked that you did not answer (one you skipped, or one you never got to) is forgotten and is not asked again at the end of the next round. Answer the ones you care about with `/ohmyjob:apply-jobs` or `/ohmyjob:continue-applying` before you reconcile. Nothing in `Profile.md` is touched — the answers you did save stay there — and a job that runs again asks its question again. The dry run shows the count before you confirm; a reconcile that writes nothing (a dry run, or an invariant failure) drops nothing.
 
