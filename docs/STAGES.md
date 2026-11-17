@@ -37,12 +37,13 @@ On top of that, several checks remove jobs you already have: a posting already i
 
 **A posting in a language you do not speak** is dropped from freehire rows while they are collected: freehire labels the language each ad is written in, and a label that your `# Languages` section in `Profile.md` does not name drops the job (`lang` in the breakdown). There is no level test, so a language you list counts however well you speak it, and the list is read as complete: a language you never listed is treated as one you do not have. A posting with no label, any other board, and a profile without that section are never dropped here; the screener (stage 2) reads the description for the language the work really requires.
 
-**What you get.** One line per board — how many were scraped, how many are new, and a breakdown of why the rest were dropped — then a total. Every new job gets a tracker row at `Found` and a folder, `Applications/<id>_<Company>_<Title>/`, with a `job.md` holding the posting. A job whose company is in `exclude_companies` is recorded as `Deleted` with a note and gets no folder at all.
+**What you get.** A structured summary with three sections: **Job Finder Summary** (added, skipped, auto-excluded, scraped counts), **Filtered** (per-reason drop counts: title, level, filter terms, job type, duplicates, twins, language, junk, unusable, board failures), and **Sources** (per-board passed counts and freehire status). Before the summary, new jobs are listed by board. Every new job gets a tracker row at `Found` and a folder, `Applications/<id>_<Company>_<Title>/`, with a `job.md` holding the posting. A job whose company is in `exclude_companies` is recorded as `Deleted` with a note and gets no folder at all.
 
-**What you can steer.** All of it through `ohmyjob.json`. The command itself takes no arguments, but you can ask for two things in plain words when you run it:
+**What you can steer.** All of it through `ohmyjob.json`. The command also takes three optional arguments:
 
-- *"do a dry run"* — it counts what would be new and writes nothing.
-- *"take a git snapshot first"* — it commits the tracker and `Applications/` as they are before the run, so you can go back. It is skipped outside a git repository, and it only commits what `.gitignore` does not ignore — the workspace `.gitignore` ignores both the tracker and `Applications/` by default, so remove those two lines first if you want this.
+- `verbose` — streams live progress from the search to stderr (board starts, per-term results, filter events). Without it the run is silent until the summary.
+- `--dry-run` — counts what would be new and writes nothing.
+- `--git-snapshot` — commits the tracker and `Applications/` as they are before the run, so you can go back. It is skipped outside a git repository, and it only commits what `.gitignore` does not ignore — the workspace `.gitignore` ignores both the tracker and `Applications/` by default, so remove those two lines first if you want this.
 
 **Caveats.** A board can fail for one search term and still deliver jobs from the others; a failed board is reported as `ERROR` and the other boards carry on. LinkedIn in particular rate-limits: jobs reported as `failed` are ones whose detail page did not load, and they are left for the next run rather than lost. If almost everything is dropped on `title`, your search terms and the boards' titles do not meet — loosen the terms, or set `title_filter: off` for one run and see what comes back.
 
