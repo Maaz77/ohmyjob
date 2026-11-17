@@ -18,7 +18,8 @@ In the steps below, `DD` means the command `ohmyjob dream`.
 
 ## Steps
 1. Run `DD start`. If its `count` is 0, show its output and stop.
-2. Run `DD next`. It prints the workers for the free slots.
+2. Run `DD next`. It prints the workers for the free slots. It waits up to 90 s for a worker to finish, so an empty
+   `workers` list is normal.
    - `done` is true: go to step 3.
    - `workers` is not empty: start all of them in ONE message, one Agent call per worker, with subagent_type
      `ohmyjob:dream-host-worker`, the `description` and the `prompt` that `DD next` printed, and `run_in_background: true`.
@@ -30,5 +31,6 @@ In the steps below, `DD` means the command `ohmyjob dream`.
 ## Rules
 - Use only the `DD` commands and Agent(ohmyjob:dream-host-worker). A hook denies every other tool.
 - Never read a trace file, a bundle file or a note yourself.
-- A line that starts with `FATAL` or `ohmyjob: `: show it and stop.
+- Never end your turn before `DD end` has run. The only way to stop early is a line that starts with `FATAL` or
+  `ohmyjob: `: show it and stop.
 - Keep your own messages short.

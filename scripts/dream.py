@@ -4,7 +4,8 @@ One Opus master (`ohmyjob:dream-master`) runs the commands; one Sonnet worker pe
 (`ohmyjob:dream-host-worker`) reads the evidence of that key and writes its note.
 
     ohmyjob dream start    group the new ledger lines by ATS key, write one bundle per key, back the notes up
-    ohmyjob dream next     the workers to start next (one per key, at most SLOTS at a time)
+    ohmyjob dream next     the workers to start next (one per key, at most SLOTS at a time); waits up to 90 s
+                           for a worker to finish when no slot is free
     ohmyjob dream finish   check the notes the workers changed, write Dream_Report.md
     ohmyjob dream end      delete the run folder, move the watermark, print the summary
     ohmyjob dream reject   put the notes, the report and the watermark back as they were before the last dream
@@ -189,30 +190,36 @@ def cmd_start(args: argparse.Namespace) -> None:
 
 def cmd_next(args: argparse.Namespace) -> None:
     path = need_run()
-    with locked():
-        state = run_state(path)
-        groups = state.get("groups") or {}
-        now = time.time()
-        for key, group in groups.items():
-            if group.get("done") or not group.get("spawned"):
-                continue
-            if Path(group["bundle"]).with_name(f"{key}.result.json").exists():
-                group["done"] = True  # the report is in, even if the hook could not mark it
-                continue
-            if now - float(group.get("spawned_at") or now) > WORKER_SECONDS:
-                # the worker never reported: give up on it, so this dream can end
-                group.update({"done": True, "error": f"no report in {WORKER_SECONDS // 60} minutes"})
-        running = sum(1 for g in groups.values() if g.get("spawned") and not g.get("done"))
-        workers = []
-        for key, group in sorted(groups.items()):
-            if group.get("done") or group.get("spawned") or running >= L.SLOTS:
-                continue
-            group.update({"spawned": True, "spawned_at": now})
-            running += 1
-            workers.append({"description": f"Dream: {key}",
-                            "prompt": f"ats={key} note={group['note']} bundle={group['bundle']}"})
-        L.write_json(path / "state.json", state)
-    print(json.dumps({"done": all(g.get("done") for g in groups.values()), "workers": workers}))
+    deadline = time.time() + L.NEXT_SECONDS  # like pj.py 'next': wait here, so the master's turn does not end
+    while True:
+        with locked():
+            state = run_state(path)
+            groups = state.get("groups") or {}
+            now = time.time()
+            for key, group in groups.items():
+                if group.get("done") or not group.get("spawned"):
+                    continue
+                if Path(group["bundle"]).with_name(f"{key}.result.json").exists():
+                    group["done"] = True  # the report is in, even if the hook could not mark it
+                    continue
+                if now - float(group.get("spawned_at") or now) > WORKER_SECONDS:
+                    # the worker never reported: give up on it, so this dream can end
+                    group.update({"done": True, "error": f"no report in {WORKER_SECONDS // 60} minutes"})
+            running = sum(1 for g in groups.values() if g.get("spawned") and not g.get("done"))
+            workers = []
+            for key, group in sorted(groups.items()):
+                if group.get("done") or group.get("spawned") or running >= L.SLOTS:
+                    continue
+                group.update({"spawned": True, "spawned_at": now})
+                running += 1
+                workers.append({"description": f"Dream: {key}",
+                                "prompt": f"ats={key} note={group['note']} bundle={group['bundle']}"})
+            L.write_json(path / "state.json", state)
+        done = all(g.get("done") for g in groups.values())
+        if workers or done or time.time() > deadline:
+            print(json.dumps({"done": done, "workers": workers}))
+            return
+        time.sleep(3)
 
 
 # --------------------------------------------------------------------------- finish

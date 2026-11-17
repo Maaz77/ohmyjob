@@ -5,13 +5,17 @@ dream agents are tested here too.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import test_aa as T
 from test_aa import HOOKS, SCRIPTS
@@ -95,7 +99,7 @@ class TestDreamFlow(Base):
         self.assertEqual(len(first["workers"]), 2)
         self.assertFalse(first["done"])
         self.assertRegex(first["workers"][0]["prompt"], r"^ats=\S+ note=\S+ bundle=\S+$")
-        self.assertEqual(self.json_ok("next")["workers"], [])  # both are running
+        # (a second `next` while both run now waits up to 90 s: TestDreamNextWaits covers it with a short wait)
         for key in ("workday", "jobs.example.com"):
             self.write_note(key, f"# {key}\nhosts: {key}\n\n- 2026-11-10: sign in with Google first.\n")
             self.result(key, lessons_added=[{"text": "sign in with Google first", "evidence": [f"run/{key}"]}])
@@ -189,6 +193,48 @@ class TestDreamFlow(Base):
     def test_dream_needs_no_git_and_no_run(self):
         self.assertEqual(self.dream("next").returncode, 3)
         self.assertIn("no dream is running", self.dream("finish").stdout)
+
+
+class TestDreamNextWaits(unittest.TestCase):
+    """`next` waits for a running worker (like prep and apply), so the master's turn does not end early."""
+
+    def next_with_run(self, on_sleep=None) -> tuple[dict, int]:
+        """cmd_next on a run whose one group is spawned and not done; on_sleep(result_path) runs at each wait."""
+        import dream  # noqa: E402
+
+        real_sleep, sleeps = time.sleep, []
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "run"
+            run = base / "d1"
+            (run / "workday").mkdir(parents=True)
+            (base / "CURRENT").write_text("d1", encoding="utf-8")
+            bundle, result = run / "workday" / "workday.json", run / "workday" / "workday.result.json"
+            L.write_json(run / "state.json", {"groups": {"workday": {
+                "note": str(Path(tmp) / "workday.md"), "bundle": str(bundle),
+                "done": False, "spawned": True, "spawned_at": time.time()}}})
+
+            def sleep(_seconds):
+                sleeps.append(1)
+                if on_sleep:
+                    on_sleep(result)
+                real_sleep(0.1)
+
+            out = io.StringIO()
+            with mock.patch.multiple(dream, RUN_BASE=base, CURRENT=base / "CURRENT", DREAM_DIR=Path(tmp) / "dream"), \
+                    mock.patch.object(dream.L, "NEXT_SECONDS", 0.2), mock.patch.object(dream.time, "sleep", sleep), \
+                    contextlib.redirect_stdout(out):
+                dream.cmd_next(None)
+        return json.loads(out.getvalue()), len(sleeps)
+
+    def test_next_waits_then_returns_empty_when_the_worker_is_still_running(self):
+        out, sleeps = self.next_with_run()
+        self.assertEqual(out, {"done": False, "workers": []})
+        self.assertGreaterEqual(sleeps, 1)  # it waited; before the fix it returned at once
+
+    def test_next_notices_a_worker_that_reports_while_it_waits(self):
+        out, sleeps = self.next_with_run(lambda result: L.write_json(result, {"ats": "workday"}))
+        self.assertEqual(out, {"done": True, "workers": []})
+        self.assertEqual(sleeps, 1)
 
 
 class TestDreamKeys(unittest.TestCase):
