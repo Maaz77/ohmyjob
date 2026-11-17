@@ -177,6 +177,10 @@ def today() -> str:
 # --------------------------------------------------------------------------- files
 
 
+class JobError(Exception):
+    """A job that cannot be recorded. The other jobs are recorded; this one is listed."""
+
+
 class DataError(W.WorkspaceError):
     """A file that the user can edit is damaged. A CLI command prints it as one FATAL line (main catches
     WorkspaceError); a caller that has a fallback (worker_limits) catches it itself."""

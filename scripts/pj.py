@@ -55,9 +55,6 @@ GROUNDS = ("core-unsupported", "wrong-discipline", "dealbreaker")
 BLANK_LOCATIONS = {"", "not specified", "none", "n a"}  # as norm() writes them ("N/A" -> "n a")
 
 
-class JobError(Exception):
-    """A job that cannot be recorded. The other jobs are recorded; this one is listed."""
-
 
 def emit(obj: Any) -> None:
     print(json.dumps(obj, ensure_ascii=False))
@@ -133,24 +130,24 @@ def delete_folder(folder: Path, allow_yaml: bool) -> None:
     (and, unless allow_yaml, never one with any resume file)."""
     folder = folder.resolve()
     if folder.parent != W.APPLICATIONS.resolve() or not folder.is_dir():
-        raise JobError(f"refused to delete {folder}: not a folder directly inside Applications/")
+        raise L.JobError(f"refused to delete {folder}: not a folder directly inside Applications/")
     files = [p for p in folder.iterdir() if p.is_file()]
     if any(p.suffix == ".pdf" for p in files) or (not allow_yaml and any(p.suffix == ".yaml" for p in files)):
-        raise JobError(f"refused to delete {folder.name}: it holds a built resume")
+        raise L.JobError(f"refused to delete {folder.name}: it holds a built resume")
     shutil.rmtree(folder)
 
 
 def check_deletable(folder: Path, allow_yaml: bool) -> None:
     folder = folder.resolve()
     if folder.parent != W.APPLICATIONS.resolve() or not folder.is_dir():
-        raise JobError(f"{folder.name}: not a folder directly inside Applications/")
+        raise L.JobError(f"{folder.name}: not a folder directly inside Applications/")
     files = [p for p in folder.iterdir() if p.is_file()]
     if any(p.suffix == ".pdf" for p in files) or (not allow_yaml and any(p.suffix == ".yaml" for p in files)):
-        raise JobError(f"{folder.name}: holds a built resume (.pdf/.yaml), so it is not deleted")
+        raise L.JobError(f"{folder.name}: holds a built resume (.pdf/.yaml), so it is not deleted")
 
 
 def fill_section(text: str, title_re: str, bullets: list[str]) -> str:
-    """Write bullets under an existing, empty heading. Raises JobError if the heading is missing or not empty."""
+    """Write bullets under an existing, empty heading. Raises L.JobError if the heading is missing or not empty."""
     lines = text.splitlines()
     pattern = re.compile(title_re, re.I)
     for _lvl, title, start, end in L.md_sections(text):
@@ -159,10 +156,10 @@ def fill_section(text: str, title_re: str, bullets: list[str]) -> str:
             if body == [f"- {b}" for b in bullets]:
                 return text  # already written by an earlier, interrupted record
             if body:
-                raise JobError(f"job.md: '{title}' is not empty")
+                raise L.JobError(f"job.md: '{title}' is not empty")
             new = lines[:start + 1] + [""] + [f"- {b}" for b in bullets] + [""] + lines[end:]
             return "\n".join(new).rstrip("\n") + "\n"
-    raise JobError(f"job.md has no '{title_re}' heading")
+    raise L.JobError(f"job.md has no '{title_re}' heading")
 
 
 def fill_overview(text: str, field: str, value: str) -> str:
@@ -175,8 +172,8 @@ def fill_overview(text: str, field: str, value: str) -> str:
                 if match and match.group(2) in ("", value):
                     lines[i] = f"{match.group(1)} {value}"
                     return "\n".join(lines).rstrip("\n") + "\n"
-            raise JobError(f"job.md: no blank '- {field}:' line in the Overview")
-    raise JobError("job.md has no Overview section")
+            raise L.JobError(f"job.md: no blank '- {field}:' line in the Overview")
+    raise L.JobError("job.md has no Overview section")
 
 
 def append_h1(text: str, title: str, block: str) -> str:
@@ -672,7 +669,7 @@ def write_build_brief(run_dir: Path, key: str, job: dict) -> Path:
 def row_for(tracker: Tracker, key: str) -> dict:
     rows = tracker.rows_for_key(key)
     if len(rows) != 1:
-        raise JobError(f"expected 1 tracker row for job {key}, found {len(rows)}")
+        raise L.JobError(f"expected 1 tracker row for job {key}, found {len(rows)}")
     return rows[0]
 
 
@@ -692,7 +689,7 @@ def discard(state: dict, tracker: Tracker, plans: list[tuple]) -> None:
             check_deletable(W.APPLICATIONS / job["folder"], allow_yaml)
             write_row(tracker, key, status, note, *score)
             ready.append((key, status, note, allow_yaml))
-        except JobError as exc:
+        except L.JobError as exc:
             job["error"] = str(exc)
             state["issues"].append(f"{job['folder']}: not discarded ({exc}); its row is unchanged")
     if not ready:
@@ -712,7 +709,7 @@ def discard(state: dict, tracker: Tracker, plans: list[tuple]) -> None:
             state["counts"]["folders_deleted"] += 1
             job["outcome"] = status
             job["note"] = note
-        except JobError as exc:
+        except L.JobError as exc:
             job["error"] = str(exc)
             state["issues"].append(f"{job['folder']}: row set to {status} but the folder stays ({exc})")
         job["done"] = True
@@ -1108,9 +1105,9 @@ def record_screen(state: dict, tracker: Tracker, key: str, result: Optional[dict
         source = DEFAULT_RESUMES / result["matched_resume"]
         target = W.APPLICATIONS / job["folder"] / f"{resume_name(job['folder'])}.pdf"
         if not source.is_file():
-            raise JobError(f"the ready-made resume {result['matched_resume']} is gone from Default_Resume_Files/")
+            raise L.JobError(f"the ready-made resume {result['matched_resume']} is gone from Default_Resume_Files/")
         if target.exists():
-            raise JobError(f"{target.name} already exists in the job folder")
+            raise L.JobError(f"{target.name} already exists in the job folder")
         text = append_h1(text, "Resume Preparation",
                          f"Ready-made resume used as it is: `{result['matched_resume']}` (copied to `{target.name}`). "
                          "No resume-worker ran.\n")
@@ -1184,7 +1181,7 @@ def record(run_dir: Path, ready_only: bool = False) -> str:
             try:
                 (record_screen if job["phase"] == "screen" else record_build)(state, tracker, key, result, discards, writes)
                 recorded.append(key)
-            except Exception as exc:  # noqa: BLE001  (JobError, or a folder removed by hand)
+            except Exception as exc:  # noqa: BLE001  (L.JobError, or a folder removed by hand)
                 job["error"] = str(exc)
                 job["done"] = True
                 state["issues"].append(f"{job['folder']}: not recorded ({exc}); row unchanged")

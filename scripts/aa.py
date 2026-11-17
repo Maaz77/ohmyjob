@@ -70,9 +70,6 @@ def fatal(message: str) -> None:
     sys.exit(3)
 
 
-class JobError(Exception):
-    """A job that cannot be recorded. finish records the other jobs and lists this one."""
-
 
 RUN_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_[0-9a-f]{6}$")  # the id that 'start' makes (see cmd_start)
 
@@ -1143,7 +1140,7 @@ def record_all(state: dict, folders: list[str], results: dict) -> Optional[str]:
     for folder in folders:
         try:
             done.append(record_one(state, tracker, folder, results.get(folder)))
-        except JobError as exc:
+        except L.JobError as exc:
             state["jobs"][folder]["error"] = str(exc)
     if not done:
         # No job was recorded; return an error so the caller can handle it
@@ -1178,14 +1175,14 @@ def record_one(state: dict, tracker: Tracker, folder: str, result: Optional[dict
     src = job_folder(job)
     dest = src if closed else dest_root / folder
     if not src.is_dir():
-        raise JobError(f"folder not found: {src}")
+        raise L.JobError(f"folder not found: {src}")
     if dest.exists() and dest != src:
-        raise JobError(f"destination already exists, nothing moved: {dest}")
+        raise L.JobError(f"destination already exists, nothing moved: {dest}")
     key = L.folder_id(folder)
     rows = tracker.rows_for_key(key) if key else []
     if len(rows) > 1:
         # never move a folder without its tracker row: fix the tracker first
-        raise JobError(f"more than one tracker row has job id {key}; nothing was changed")
+        raise L.JobError(f"more than one tracker row has job id {key}; nothing was changed")
     job_md_path = src / "job.md"
     original_md = job_md_path.read_text(encoding="utf-8")
     overview = L.job_overview(original_md)
@@ -1197,7 +1194,7 @@ def record_one(state: dict, tracker: Tracker, folder: str, result: Optional[dict
             shutil.move(str(src), str(dest))
     except Exception as exc:  # noqa: BLE001
         job_md_path.write_text(original_md, encoding="utf-8")
-        raise JobError(f"could not move the folder, job.md restored: {exc}") from None
+        raise L.JobError(f"could not move the folder, job.md restored: {exc}") from None
     note_line = tracker_note(verdict, result, reasons)
     try:
         if rows:
@@ -1225,7 +1222,7 @@ def record_one(state: dict, tracker: Tracker, folder: str, result: Optional[dict
         if dest != src:
             shutil.move(str(dest), str(src))
         (src / "job.md").write_text(original_md, encoding="utf-8")
-        raise JobError(f"could not update the tracker row, folder moved back, job.md restored: {exc}") from None
+        raise L.JobError(f"could not update the tracker row, folder moved back, job.md restored: {exc}") from None
     return folder, src, dest, original_md
 
 
