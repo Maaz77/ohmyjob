@@ -364,7 +364,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                        "necessary). If it offers none, turn its options off and then save (Confirm choices, Save).")
         if X.DELETE.find(name):
             raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
-        if name.strip() and not filled and not sticky and (X.CMP.find(name) or X.CMP.find(around) or X.COOKIE.find(name)):
+        # `sticky` plays no part here: it says that a form of an earlier run may stand filled on the page, which
+        # changes nothing about a consent dialog, and every job of /ohmyjob:continue-applying is sticky.
+        if name.strip() and not filled and (X.CMP.find(name) or X.CMP.find(around) or X.COOKIE.find(name)):
             L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
             return
     word = None if choice else X.FINAL.find(name)

@@ -1,0 +1,12 @@
+<!doctype html><title>Apply</title>
+<!-- A frame that is small when the page is built and is sized to its form afterwards, by style alone: Greenhouse
+     does this to its embed. A style change is no change of the tree, so nothing else looks at the frame again. -->
+<h1>Apply</h1>
+<iframe id="board" title="Greenhouse Job Board" src="http://localhost:8001/other.html" style="width:10px;height:10px"></iframe>
+<script>
+  addEventListener("load", () => {
+    setTimeout(() => {
+      document.getElementById("board").style.cssText = "width:780px;height:900px";
+    }, 1800);
+  });
+</script>

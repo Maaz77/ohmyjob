@@ -1485,6 +1485,18 @@ class TestConsentDialog(Base):
                   sample("himalayas_consent_options.txt"), W, "A1")
         for ref in ("ref_41", "ref_46", "ref_49"):
             self.assertAllowed(self.click(tab, ref, "A1", "Turns the consent option off"))
+
+    def test_the_consent_dialog_in_continue_mode(self):
+        """Every job of /ohmyjob:continue-applying starts sticky (a form of the last run may stand filled on the
+        page). That says nothing about a consent dialog, which is the shape this site blocks the job with."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text())
+        state["tabs"][str(tab)]["sticky"] = True  # what `assign --continue` writes for every job it queues
+        path.write_text(json.dumps(state))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, sample("himalayas_consent_dialog.txt"), W, "A1")
+        self.assertAllowed(self.click(tab, "ref_32", "A1", "Saves the consent choices with the toggles off"))
         # a final word under a dialog that is no consent dialog keeps its refusal
         self.post("read_page", {"tabId": tab, "filter": "interactive"},
                   'dialog "Apply for this job" [ref_200]\n button "Confirm" [ref_201] type="button"\n', W, "A1")

@@ -17,6 +17,8 @@
   const FRAME_MIN = 200;  // an application form is never smaller; a tracker pixel or an ad slot often is
   let tries = 0;
   let naming = false;
+  let frameSizes = null;            // ResizeObserver: a frame that grows late is looked at again
+  const framePlace = new WeakMap(); // frame -> the address the frame itself reported
 
   function whenRoot(callback) {
     if (document.documentElement) {
@@ -145,10 +147,32 @@
     return box.width >= FRAME_MIN && box.height >= FRAME_MIN;
   }
 
+  // A frame grows after it loads (Greenhouse sizes its embed to the form), and a style change is no change of the
+  // tree, so the observer below never fires for it: without this the frame is measured once, while it is still
+  // small, and never looked at again.
+  function watchFrameSize(frame) {
+    if (!frameSizes) return;
+    try {
+      frameSizes.observe(frame);
+    } catch (e) {
+      // a frame that cannot be observed: its src is still read on every pass
+    }
+  }
+
+  function considerFrame(frame) {
+    const url = framePlace.get(frame) || usableFrameUrl(frame.getAttribute("src"));
+    if (url && bigEnough(frame)) markFrame(frame, url);
+  }
+
   function nameFrames() {
-    for (const frame of document.querySelectorAll("iframe[src], frame[src]")) {
-      const url = usableFrameUrl(frame.getAttribute("src"));
-      if (url && bigEnough(frame)) markFrame(frame, url);
+    if (!frameSizes && typeof ResizeObserver === "function") {
+      frameSizes = new ResizeObserver((entries) => {
+        for (const entry of entries) considerFrame(entry.target);
+      });
+    }
+    for (const frame of document.querySelectorAll("iframe, frame")) {
+      watchFrameSize(frame);
+      considerFrame(frame);
     }
     askFramesWhereTheyAre();
   }
@@ -196,7 +220,9 @@
       if (!url) return;
       for (const frame of document.querySelectorAll("iframe, frame")) {
         if (frame.contentWindow !== event.source) continue;
-        if (bigEnough(frame)) markFrame(frame, url);
+        framePlace.set(frame, url);  // kept: the frame can still be too small to judge
+        watchFrameSize(frame);
+        considerFrame(frame);
         return;
       }
     });

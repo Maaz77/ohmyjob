@@ -409,6 +409,23 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_a_frame_that_grows_late_is_marked(self):
+        """A frame is small while the page is built and is sized to its form afterwards, by style alone. That is no
+        change of the tree, so the frame has to be measured again when it grows."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+            try:
+                job = [page for page in ctx.pages if page is not home][0]
+                job.goto("http://127.0.0.1:8001/grown-frame.html")
+                time.sleep(1.0)
+                mark = "() => { const b = document.getElementById('board').previousElementSibling;" \
+                       "return b && b.dataset.aaFrame === '1' ? b.getAttribute('href') : null; }"
+                self.assertIsNone(job.evaluate(mark), "a 10x10 frame holds no form")
+                time.sleep(2.0)
+                self.assertEqual(job.evaluate(mark), "http://localhost:8001/other.html")
+            finally:
+                ctx.close()
+
     def test_a_sign_in_tab_gets_no_google_count(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
