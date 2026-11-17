@@ -63,9 +63,10 @@ def test_writes_folder_job_md_and_tracker_row(setup, capsys):
     boards["indeed"] = frame(post(title="Operations Analyst", company="Beta AG", url="https://de.indeed.com/viewjob?jk=abc123",
                                   job_url_direct="https://careers.beta.example/ops?utm_medium=x"))
     assert scrape.run(root, configure(sources=["linkedin", "indeed"])) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("linkedin: 1 scraped, 1 new") and out[1].startswith("indeed: 1 scraped, 1 new")
-    assert out[-1].startswith("total: 2 scraped, 2 new jobs at Found")
+    out = capsys.readouterr().out
+    assert "Added             : 2 new job(s)" in out
+    assert "LinkedIn passed    : 1" in out and "Indeed passed      : 1" in out
+    assert "run /ohmyjob:prep-jobs" in out
     li = root / "Applications" / "111_Acme-GmbH_Operations-Analyst"
     ov = L.job_overview((li / "job.md").read_text(encoding="utf-8"))
     assert ov["Job URL"] == "https://www.linkedin.com/jobs/view/111" and ov["Source"] == "linkedin"
@@ -112,14 +113,14 @@ def test_junk_posting_is_dropped(setup, capsys):
     boards["linkedin"] = frame(post(url="https://www.linkedin.com/jobs/view/6", description="Pay the $99 starter kit fee to begin."),
                                post(url="https://www.linkedin.com/jobs/view/7"))
     scrape.run(root, configure())
-    assert "1 junk dropped" in capsys.readouterr().out and [r["_key"] for r in rows(root)] == ["7"]
+    assert "Junk              : 1" in capsys.readouterr().out and [r["_key"] for r in rows(root)] == ["7"]
 
 
 def test_title_filter_and_off(setup, capsys):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(post(title="Head Chef", url="https://www.linkedin.com/jobs/view/5"))
     scrape.run(root, configure())
-    assert "1 title dropped" in capsys.readouterr().out and rows(root) == []
+    assert "Job title         : 1" in capsys.readouterr().out and rows(root) == []
     scrape.run(root, configure(title_filter="off"))
     assert [r["_key"] for r in rows(root)] == ["5"]
 
@@ -134,7 +135,7 @@ def test_excludes_are_applied(setup, capsys):
     scrape.run(root, configure(exclude_companies=["Example Staffing"], exclude_seniority_level=["director"],
                                filter_title_terms=["sales"]))
     out = capsys.readouterr().out
-    assert "1 level, 1 term" in out and "1 auto-excluded" in out
+    assert "Job level         : 1" in out and "Filter terms      : 1" in out and "Auto-excluded     : 1 by company name" in out
     got = {r["_key"]: r for r in rows(root)}
     assert sorted(got) == ["1", "4"]
     # an excluded company is recorded as Deleted with a note, and gets no folder
@@ -142,7 +143,7 @@ def test_excludes_are_applied(setup, capsys):
     assert got["4"]["Status"] == "Found"
     assert not list((root / "Applications").glob("1_*")) and list((root / "Applications").glob("4_*"))
     scrape.run(root, configure(exclude_companies=["Example Staffing"]))
-    assert "2 known dropped" in capsys.readouterr().out  # keys 1 and 4 are met again: known, not added twice
+    assert "Skipped           : 2 already tracked" in capsys.readouterr().out  # keys 1 and 4 are met again: known, not added twice
 
 
 def test_twin_from_later_source_is_dropped_and_order_decides(setup, capsys):
@@ -151,7 +152,7 @@ def test_twin_from_later_source_is_dropped_and_order_decides(setup, capsys):
     boards["indeed"] = frame(post(company="ACME", url="https://de.indeed.com/viewjob?jk=zz"),
                              post(title="Operations Analyst", company="Other", url="https://de.indeed.com/viewjob?jk=yy"))
     scrape.run(root, configure(sources=["linkedin", "indeed"]))
-    assert "1 twin dropped" in capsys.readouterr().out
+    assert "Twin of earlier   : 1" in capsys.readouterr().out
     assert sorted(r["Source"] + ":" + r["Company"] for r in rows(root)) == ["indeed:Other", "linkedin:Acme GmbH"]
 
 
@@ -188,7 +189,7 @@ def test_existing_folder_and_row_are_skipped_never_overwritten(setup, capsys):
     scrape.run(root, configure())
     out = capsys.readouterr().out
     assert (folder / "job.md").read_text(encoding="utf-8") == "MINE" and rows(root) == []
-    assert "2 known dropped" in out
+    assert "Skipped           : 2 already tracked" in out
     # the folder makes the job known, so it is dropped before the write; the WARNING of scrape.py covers the race
     # where a folder appears after that check (it cannot be produced from here without patching the scan)
 
@@ -204,7 +205,7 @@ def test_same_posting_twice_keeps_one_key(setup, capsys):
     boards["google"] = frame(post(url=second))
     scrape.run(root, configure(sources=["google"]))
     assert len(rows(root)) == 1 and len(list((root / "Applications").glob("9*_Acme-GmbH_*"))) == 1
-    assert "1 known dropped" in capsys.readouterr().out.splitlines()[-2]
+    assert "Skipped           : 1 already tracked" in capsys.readouterr().out
 
 
 def test_board_error_is_reported_and_all_failing_is_fatal(setup, capsys):
@@ -213,7 +214,7 @@ def test_board_error_is_reported_and_all_failing_is_fatal(setup, capsys):
     boards["indeed"] = frame(post(url="https://de.indeed.com/viewjob?jk=a1"))
     with pytest.raises(scrape.Stop, match="every board failed"):
         scrape.run(root, configure(sources=["linkedin"]))
-    assert "linkedin: 0 scraped, 0 new ERROR 'Operations Analyst': response status code 429" in capsys.readouterr().out
+    assert "WARNING linkedin: ERROR 'Operations Analyst': response status code 429" in capsys.readouterr().out
     assert scrape.run(root, configure(sources=["linkedin", "indeed"])) == scrape.EXIT_BOARD_FAILED  # one board failed, the other ran
     assert len(rows(root)) == 1
 
@@ -263,7 +264,8 @@ def test_dry_run_writes_nothing(setup, capsys):
     root, boards, calls, configure = setup
     boards["linkedin"] = frame(post())
     assert scrape.run(root, configure(), dry_run=True) == 0
-    assert "1 would be new" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Added             : 1 new job(s)" in out and "dry run" in out
     assert rows(root) == [] and not any((root / "Applications").glob("111*"))
 
 
@@ -438,7 +440,7 @@ def test_freehire_rows_get_a_folder_a_source_and_a_note(setup, freehire, capsys)
                                           url="https://www.reed.example/jobs/22?gclid=zz")]
     assert scrape.run(root, configure(sources=["freehire"], recency_days=3)) == 0
     assert calls == [] and freehire.calls[0]["open_within_days"] == 3 and freehire.calls[0]["countries"] == "DE"
-    assert "freehire: 2 scraped, 2 new" in capsys.readouterr().out
+    assert "Added             : 2 new job(s)" in capsys.readouterr().out
     got = sorted(rows(root), key=lambda r: r["Company"])
     assert [r["Source"] for r in got] == ["freehire", "freehire"]
     assert got[0]["Notes"] == "Source: freehire/greenhouse" and got[1]["Job URL"] == "https://www.reed.example/jobs/22"
@@ -497,7 +499,7 @@ def test_freehire_failure_is_an_error_line_and_exit_2(setup, freehire, monkeypat
     monkeypatch.setattr(freehire_source, "_fetch", boom)
     monkeypatch.setattr(freehire_source.time, "sleep", lambda s: None)
     assert scrape.run(root, configure(sources=["linkedin", "freehire"])) == scrape.EXIT_BOARD_FAILED
-    assert "freehire: 0 scraped, 0 new ERROR" in capsys.readouterr().out and len(rows(root)) == 1
+    assert "WARNING freehire: ERROR" in capsys.readouterr().out and len(rows(root)) == 1
 
 
 # --------------------------------------------------------------------------- behaviour kept from the first finder
@@ -509,7 +511,7 @@ def test_same_title_and_company_under_another_id_is_one_job(setup, capsys):
                                post(url="https://www.linkedin.com/jobs/view/3", company="Other"),
                                post(url="https://www.linkedin.com/jobs/view/4", title="Operations Analyst II"))
     scrape.run(root, configure())
-    assert "1 duplicate dropped" in capsys.readouterr().out
+    assert "Duplicate title   : 1" in capsys.readouterr().out
     assert sorted(r["_key"] for r in rows(root)) == ["1", "3", "4"]
 
 
@@ -522,7 +524,7 @@ def test_the_same_job_met_under_two_terms_is_kept_once_in_term_order(setup, caps
 
     boards["linkedin"] = by_term
     scrape.run(root, configure(sources=["linkedin"], search_query=["Operations Analyst", "Project Coordinator"]))
-    assert "linkedin: 2 scraped, 1 new (1 dup id dropped)" in capsys.readouterr().out
+    assert "Duplicate job id  : 1" in capsys.readouterr().out
     assert [r["Job Title"] for r in rows(root)] == ["Operations Analyst"]  # the first term's copy
     assert sorted(c["search_term"] for c in calls) == ["Operations Analyst", "Project Coordinator"]
 
@@ -618,7 +620,7 @@ def test_one_role_in_two_cities_is_two_jobs(setup, capsys):
                                post(url="https://www.linkedin.com/jobs/view/2", location={"city": "Lyon", "country": "france"}),
                                post(url="https://www.linkedin.com/jobs/view/3", location=paris))
     scrape.run(root, configure(sources=["linkedin"]))
-    assert "1 duplicate dropped" in capsys.readouterr().out
+    assert "Duplicate title   : 1" in capsys.readouterr().out
     assert sorted(r["_key"] for r in rows(root)) == ["1", "2"]
 
 
@@ -628,7 +630,7 @@ def test_freehire_unusable_and_repeated_results_are_counted_one_by_one(setup, fr
     scrape.run(root, configure(sources=["freehire"], search_query=["Operations Analyst", "Project Coordinator"]))
     out = capsys.readouterr().out
     # per term: 3 read, 2 unusable; the second term meets job 1 again
-    assert "freehire: 6 scraped, 1 new (4 bad, 1 dup id dropped)" in out
+    assert "Freehire unusable : 4" in out and "Freehire duplicate: 1" in out and "Added             : 1 new job(s)" in out
 
 
 def test_a_failed_job_md_write_leaves_no_folder(setup, monkeypatch):
@@ -686,8 +688,7 @@ def test_linkedin_row_without_description_is_failed_and_other_boards_are_not(set
     boards["indeed"] = frame(post(url="https://de.indeed.com/viewjob?jk=aa", description=None))
     scrape.run(root, configure(sources=["linkedin", "indeed"], employment_types=types))
     out = capsys.readouterr().out
-    assert "linkedin: 1 scraped, 0 new (1 failed dropped)" in out
-    assert "failed" not in out.split("indeed:")[1] and [r["Source"] for r in rows(root)] == ["indeed"]
+    assert "LinkedIn failed   : 1" in out and [r["Source"] for r in rows(root)] == ["indeed"]
 
 
 def test_throttle_warning_needs_more_than_half_and_at_least_three(setup, capsys):
@@ -730,7 +731,7 @@ def test_freehire_rows_in_an_unlisted_language_are_dropped_and_counted(setup, fr
                       fh_item(3, company="C", enrichment=lang("")), fh_item(4, company="D", enrichment=lang("en-GB"))]
     scrape.run(root, configure(sources=["freehire"]))
     assert sorted(r["Company"] for r in rows(root)) == ["B", "C", "D"]
-    assert "(1 lang dropped)" in capsys.readouterr().out
+    assert "Posting language  : 1" in capsys.readouterr().out
 
 
 def test_no_languages_section_drops_nothing(setup, freehire):

@@ -26,7 +26,7 @@ def test_quiet_run_installs_no_handler(setup, capsys):
     cap = capsys.readouterr()
     assert logging.root.handlers == before and cap.err == ""
     assert calls[0]["verbose"] == 0
-    assert cap.out.splitlines()[0].startswith("linkedin: 1 scraped, 1 new")
+    assert "Added             : 1 new job(s)" in cap.out
 
 
 def test_verbose_run_logs_stages_to_stderr(setup, capsys):
@@ -35,11 +35,11 @@ def test_verbose_run_logs_stages_to_stderr(setup, capsys):
     assert scrape.run(root, configure(sources=["linkedin"]), verbose=True) == 0
     cap = capsys.readouterr()
     assert calls[0]["verbose"] == 2
-    assert "INFO | LinkedIn | TERM_START | board=linkedin | term='Operations Analyst'" in cap.err
-    assert "INFO | LinkedIn | TERM_DONE | board=linkedin | term='Operations Analyst' | results=1" in cap.err
-    assert "INFO | LinkedIn | BOARD_DONE | board=linkedin | rows=1" in cap.err
+    assert "INFO | LinkedIn | LINKEDIN_SCRAPE_STARTED | term=Operations Analyst" in cap.err
+    assert "INFO | LinkedIn | LINKEDIN_SCRAPE_FINISHED | term=Operations Analyst | status=success | results=1" in cap.err
+    assert "INFO | LinkedIn | LINKEDIN_SCRAPE_SUMMARY | terms=1 | results=1 | before filtering" in cap.err
     assert "INFO | LinkedIn | BOARD_START" in cap.err
-    assert "TERM_" not in cap.out and cap.out.splitlines()[0].startswith("linkedin: 1 scraped, 1 new")
+    assert "SCRAPE_STARTED" not in cap.out and "Added             : 1 new job(s)" in cap.out
 
 
 def test_dropped_job_names_its_reason(setup, capsys):
@@ -47,4 +47,4 @@ def test_dropped_job_names_its_reason(setup, capsys):
     boards["linkedin"] = frame(post(title="Chef de Cuisine", url="https://www.linkedin.com/jobs/view/222"))
     scrape.run(root, configure(sources=["linkedin"]), verbose=True)
     err = capsys.readouterr().err
-    assert "INFO | DROPPED | reason=title | board=linkedin | title='Chef de Cuisine' | company='Acme GmbH'" in err
+    assert "INFO | TITLE_FILTERED | title=Chef de Cuisine | company=Acme GmbH | reason=title_does_not_match_search_term" in err
