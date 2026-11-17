@@ -47,6 +47,8 @@ On top of that, several checks remove jobs you already have: a posting already i
 
 **Caveats.** A board can fail for one search term and still deliver jobs from the others; a failed board is reported as `ERROR` and the other boards carry on. LinkedIn in particular rate-limits: jobs reported as `failed` are ones whose detail page did not load, and they are left for the next run rather than lost. If almost everything is dropped on `title`, your search terms and the boards' titles do not meet — loosen the terms, or set `title_filter: off` for one run and see what comes back.
 
+**Undoing a run.** `/ohmyjob:undo-find-jobs [YYYY-MM-DD | 'YYYY-MM-DD HH:MM']` removes the rows the latest run added (every row of the newest `Date Found` date, or the date or minute you give) and deletes their folders in `Applications/`. It shows the counts and a sample first and asks before it changes anything, and it copies `Job_Tracker.xlsx` to `Job_Tracker.xlsx.pre-undo` (the folders have no backup). Only rows still at `Found` or `Deleted` go; a row that prep, apply or reconcile moved on is kept with its folder, and `Pending-Review/`, `Needs-Attention/` and `Submitted/` are never touched. Rows added by `/ohmyjob:add-job` on the same date are part of the run unless you give a minute.
+
 ### Stage 2 — Job Posting Screener and Resume Tailoring
 
 ```

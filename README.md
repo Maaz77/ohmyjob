@@ -122,6 +122,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:setup` | Prepare the environment and the workspace. Run once. |
 | `/ohmyjob:find-jobs` | Stage 1. Search the boards and add new jobs to the tracker. `verbose` for live progress; `--dry-run` to count without writing; `--git-snapshot` to commit the tracker first. |
 | `/ohmyjob:add-job` | Stage 1, by hand. Put a posting you found yourself into the tracker, from its address. |
+| `/ohmyjob:undo-find-jobs` | Stage 1, undo. Remove the rows the latest find-jobs run added and delete their folders, after a confirmation. |
 | `/ohmyjob:edit-template` | Restyle the resume or CV template, or add a section, from a request in plain words. |
 | `/ohmyjob:prep-jobs` | Stage 2. Screen every new job, then tailor a resume for each match. |
 | `/ohmyjob:apply-jobs` | Stage 3. Fill each application and park it before Submit. |
@@ -140,6 +141,7 @@ What you do in each stage, what you can steer and what can go wrong: [docs/STAGE
 | `/ohmyjob:master-resume` | none | Draft the `# Resume` section of `Profile.md` from your resume files, then revise it by hand. |
 | `/ohmyjob:find-jobs` | `[verbose] [--dry-run] [--git-snapshot]` | **Stage 1.** Search the boards, filter, add the new jobs to the tracker at `Found`. `verbose` streams live progress from the search. `--dry-run` counts what would be new and writes nothing. `--git-snapshot` commits the tracker and `Applications/` before the run (skipped outside a git repo or when `.gitignore` ignores them). |
 | `/ohmyjob:add-job` | `<address> [<address> ...]` | **Stage 1, by hand.** Add the postings you found yourself (a career page, a referral link, a newsletter) at `Found`, as if the scraper had found them. The search filters never apply; a job already in the tracker is named, not added twice; a page it cannot read is reported and nothing is added. |
+| `/ohmyjob:undo-find-jobs` | `[YYYY-MM-DD \| 'YYYY-MM-DD HH:MM']` (none = newest `Date Found` date) | **Stage 1, undo.** Undo the latest find-jobs run: shows the counts and a sample, asks, copies the tracker to `Job_Tracker.xlsx.pre-undo`, then removes the run's rows (`Found` and `Deleted` only; a row that already moved on is kept) and deletes their folders in `Applications/`. Rows from `/ohmyjob:add-job` of the same date count as part of the run; a minute argument leaves them out. |
 | `/ohmyjob:prep-jobs` | `[job-id ...]` (none = every `Found`/`Matched` job) | **Stage 2.** Screen every `Found` job, then tailor and build a resume for every match. |
 | `/ohmyjob:apply-jobs` | `[--selected "<name, name>"]` or `[--top-k-match <N>]`, not both | **Stage 3.** Fill each application in its own Chrome tab and park it before Submit. |
 | `/ohmyjob:continue-applying` | none | **Stage 3.** Continue the tabs in the "Needs Attention" group after you unblocked them. |

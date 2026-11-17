@@ -29,6 +29,7 @@ Claude starts in):
 ## Daily loop
 1. `/ohmyjob:find-jobs`
    A job you found yourself: `/ohmyjob:add-job <address>` (or paste the posting text); it joins the same round at `Found`.
+   A run that found the wrong jobs: `/ohmyjob:undo-find-jobs` removes its rows and folders (asks first, keeps `Job_Tracker.xlsx.pre-undo`).
 2. `/ohmyjob:prep-jobs`
 3. `/ohmyjob:apply-jobs`
 4. Fix the tabs in the "Needs Attention" Chrome tab group by hand, then `/ohmyjob:continue-applying`

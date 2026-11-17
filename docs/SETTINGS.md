@@ -40,7 +40,7 @@ The `Status` column of `Job_Tracker.xlsx`. The `Notes` column next to it holds t
 
 | Status | Set by | What comes next |
 |---|---|---|
-| `Found` | `/ohmyjob:find-jobs` (also `prep-jobs`, for a folder without a row) | `/ohmyjob:prep-jobs` screens it. |
+| `Found` | `/ohmyjob:find-jobs` (also `prep-jobs`, for a folder without a row); `/ohmyjob:undo-find-jobs` removes the row again | `/ohmyjob:prep-jobs` screens it. |
 | `Matched` | `prep-jobs`, when the screener scores the job 6 or more and picks a tailorable resume | A worker tailors a copy and builds the PDF: `Resume Built` or `Resume Failed`. |
 | `Skipped-LowFit` | `prep-jobs`, when the score is low, or the poster is an agency, or a dealbreaker applies, or the posting states a work authorization requirement your `# Work Authorization` lines say you cannot meet (its `Notes` start "Work authorization block:"), or the posting requires a language your `# Languages` section does not list (its `Notes` start "Language block:") | Final. The folder is deleted; the reason is in `Notes`. Reconcile never touches it. |
 | `Resume Built` | `prep-jobs`, when the build passed with exactly the source's page count — or a ready-made PDF matched and was copied | `/ohmyjob:apply-jobs` queues it. Applied entirely by hand instead? Move its folder to `Submitted/`, then `/ohmyjob:reconcile`. |

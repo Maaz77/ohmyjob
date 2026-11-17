@@ -51,7 +51,7 @@ flowchart TB
     OHMYJOB --> FOLDERS
 ```
 
-`prep-jobs`, `apply-jobs`, `continue-applying` and `dream` fork a master, which starts the workers. `find-jobs`, `reconcile` and the two resume builds are scripts the main session runs directly. Every tool call of all of them passes the hooks.
+`prep-jobs`, `apply-jobs`, `continue-applying` and `dream` fork a master, which starts the workers. `find-jobs`, `undo-find-jobs`, `reconcile` and the two resume builds are scripts the main session runs directly. Every tool call of all of them passes the hooks.
 
 ## How you use it
 
@@ -97,6 +97,7 @@ The three by-hand steps of a round are the design, not a gap: the plugin cannot 
 | `help` | Reads the plugin README and `docs/SETTINGS.md` and prints the commands with their use-cases, the `ohmyjob.json` field table and the job status life cycle. The model may invoke it. |
 | `find-jobs` | Runs `ohmyjob scrape` in the background and summarizes (also usable from a scheduled `claude -p`). |
 | `add-job` | Puts postings the candidate found by hand into the tracker at `Found`: web addresses go straight to `ohmyjob add-job`. Never writes the tracker or a folder itself; never starts stage 2. |
+| `undo-find-jobs` | Dry run, confirmation, then `--apply --expect <digest>`: removes the `Found`/`Deleted` rows of the latest find run and their `Applications/` folders, after copying the tracker to `Job_Tracker.xlsx.pre-undo`. |
 | `prep-jobs` | Forks the `prep-master` agent; optional job ids limit it to those jobs (`prep start --ids`). |
 | `apply-jobs`, `continue-applying` | Thin skills in the main session: call their `-run` skill, then ask the collected follow-up questions in one message and save the answers (`apply-jobs` first asks for the missing `# Work Authorization` lines). |
 | `apply-jobs-run`, `continue-applying-run` | Internal; fork the `application-master` agent (the second in continue mode). |
@@ -125,6 +126,7 @@ Plugin agents ignore `permissionMode`, so a hook returns an explicit allow for e
 |---|---|---|
 | `ohmyjob scrape` | `scrape.py`, `scrape_core.py` | Search, filter, dedupe, write job folders and tracker rows. |
 | `ohmyjob add-job` | `add_job.py` | Add postings found by hand: fetch the page, read its schema.org JobPosting, check what is known (id, twin), write the folder, `job.md` and the `Found` row. No search filter applies. |
+| `ohmyjob undo-find-jobs [run] [--apply --expect D]` | `undo_find_jobs.py` | Remove the rows of one find run (by `Date Found` prefix, default the newest date) that are still `Found`/`Deleted`, and their `Applications/` folders; dry run first, tracker backup before the write. |
 | `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. |
 | `ohmyjob prep <cmd>` | `pj.py` (hooks: `pj_hooks.py`) | Prep queue, briefs, yaml checks, build, records. `work_auth.py` is its work authorization pre-pass. |
 | `ohmyjob apply <cmd>` | `aa.py`, `aa_lib.py` (hooks: `hooks.py`; `judge.py`, `lexicon.py`) | Apply queue, briefs, result checks, tab groups, questions. `gaps` and `authorize` (main session only, not the master) ask for and write the `# Work Authorization` lines before a run. |
