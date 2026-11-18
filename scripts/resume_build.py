@@ -2,7 +2,7 @@
 """Build a resume PDF: read ONE full resume yaml, render the Awesome-CV LaTeX template, compile with LuaLaTeX.
 
 CLI: `ohmyjob resume build <resume.yaml> [--out <pdf>]` prints one line: `OK <pdf>`, `OVERFLOW <N> pages` or
-`FAIL <reason>`. `ohmyjob resume master [--apply]` drafts the Resume section of Profile.md (master_resume.py). `ohmyjob resume build-all [<name.yaml>] [--dir <dir>]` builds every *.yaml of the dir except Template*.yaml, or only the named one (default dir
+`FAIL <reason>`. `ohmyjob resume build-jobs "<name, name, ...>"` builds the PDF of each named job folder and sets its tracker row. `ohmyjob resume master [--apply]` drafts the Resume section of Profile.md (master_resume.py). `ohmyjob resume build-all [<name.yaml>] [--dir <dir>]` builds every *.yaml of the dir except Template*.yaml, or only the named one (default dir
 Default_Resume_Files) next to itself and prints one line per file. `ohmyjob resume template [--reset]` makes (or deletes) the user's editable copy of the template, `Resume_Template/` in the workspace. Import API (used by pj.py): `build()`, `render()`, `ignored_keys()`, `rendered_len()`, `BULLET_BUDGET`, `SKILLS_BUDGET`.
 
 Everything in the yaml is data from a model: `tex()` escapes every LaTeX special, so yaml text never reaches LaTeX as a

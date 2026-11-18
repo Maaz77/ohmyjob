@@ -19,7 +19,7 @@ Positive evidence of "closed", per host, and what each rule rests on:
 Nothing else is evidence: no page text on any other host, no 404 elsewhere.
 
 Politeness: one request at a time per host, a pause between two calls to one host, a stop for the host after
-STOP_AFTER refusals in a row, at most MAX_HOSTS_AT_ONCE hosts in parallel, a hard time budget for the whole check.
+STOP_AFTER refusals in a row, at most MAX_HOSTS_AT_ONCE hosts in parallel, a time budget for the whole check (DEADLINE_SECONDS stops new requests; one already in flight can still run to TIMEOUT_SECONDS).
 The session and the headers are the scraper's own (JobSpy's LinkedIn session). A check is reused within a call (the same
 address is fetched once); nothing is kept between runs.
 

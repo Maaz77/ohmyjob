@@ -85,7 +85,7 @@ The rest (what you need, your resumes, your profile, Chrome) is in [docs/SETUP.m
 ## What it will never do
 
 - Press Submit. Hooks refuse the final button of every form.
-- Type a password or create an account on a job site. It stops and tells you instead.
+- Type a password or create an account on a job site. Workers are told to stop and tell you instead; the hooks enforce it on Google pages and by refusing sign-up buttons.
 - Invent a fact for your resume. It uses only what is in your own profile and resumes.
 - Send your data anywhere except your own folder, your job boards and your own Chrome.
 
@@ -163,7 +163,7 @@ You can drop a job at any time, at any stage, by deleting its folder.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-dark.png">
-    <img alt="ohmyjob architecture as nested layers. At the core, Anthropic models: Haiku runs prep-master and screen-worker, Sonnet runs resume-worker, the application agents and the dream hosts, Opus runs dream-master. Around it, the Claude Code harness: skills, subagents, hook events, tools, Chrome MCP and the agent loop. Around that, the ohmyjob harness, whose agents run in a clockwise round: Find, Prep (master, screen workers, tailor workers, LuaLaTeX build; a failed resume is fixed by you and rebuilt with /build-job-resumes), Apply (application-master and one hook-guarded worker per Chrome tab, never pressing Submit; you submit, fix blocked tabs and answer questions), Dream (traces become ATS notes for the next Apply), and Reconcile, then the next round." src="assets/architecture-light.png" width="100%">
+    <img alt="ohmyjob architecture as nested layers. At the core, Anthropic models: Haiku runs prep-master and screen-worker, Sonnet runs resume-worker and the dream hosts, Haiku also runs the application agents (a stuck worker is taken over once by Sonnet), Opus runs dream-master. Around it, the Claude Code harness: skills, subagents, hook events, tools, Chrome MCP and the agent loop. Around that, the ohmyjob harness, whose agents run in a clockwise round: Find, Prep (master, screen workers, tailor workers, LuaLaTeX build; a failed resume is fixed by you and rebuilt with /build-job-resumes), Apply (application-master and one hook-guarded worker per Chrome tab, never pressing Submit; you submit, fix blocked tabs and answer questions), Dream (traces become ATS notes for the next Apply), and Reconcile, then the next round." src="assets/architecture-light.png" width="100%">
   </picture>
 </p>
 

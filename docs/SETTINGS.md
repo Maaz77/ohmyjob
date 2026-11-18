@@ -10,12 +10,12 @@ Setup creates this file with mock values; you edit it. It is plain JSON with no 
 |---|---|---|---|
 | `sources` | list of text | `["linkedin"]` | **Required in practice.** The boards, searched in this order — when two boards list the same job, the first one keeps it. Choices: `linkedin indeed zip_recruiter glassdoor google bayt naukri bdjobs hellowork freehire`. |
 | `search_query` | list of text | `[]` | **Required.** Job titles; one search per term per board. Nothing is searched while this is empty. |
-| `location` | text | `""` | **Required.** City or region, for example `"Berlin, Germany"`. Google needs a city. |
-| `country` | text | `""` | **Required while `indeed` or `glassdoor` is in `sources`** — without it they search the USA. Choices: `argentina australia austria bahrain belgium brazil canada chile china colombia "costa rica" "czech republic" denmark ecuador egypt finland france germany greece "hong kong" hungary india indonesia ireland israel italy japan kuwait luxembourg malaysia mexico morocco netherlands "new zealand" nigeria norway oman pakistan panama peru philippines poland portugal qatar romania "saudi arabia" singapore "south africa" "south korea" spain sweden switzerland taiwan thailand türkiye ukraine "united arab emirates" uk usa uruguay venezuela vietnam`. |
+| `location` | text | `""` | City or region, for example `"Berlin, Germany"`; may be empty. Google needs a city. |
+| `country` | text | `""` | **Required while `indeed` or `glassdoor` is in `sources`** — an empty `country` is refused. Choices: `argentina australia austria bahrain belgium brazil canada chile china colombia "costa rica" "czech republic" denmark ecuador egypt finland france germany greece "hong kong" hungary india indonesia ireland israel italy japan kuwait luxembourg malaysia mexico morocco netherlands "new zealand" nigeria norway oman pakistan panama peru philippines poland portugal qatar romania "saudi arabia" singapore "south africa" "south korea" spain sweden switzerland taiwan thailand türkiye ukraine "united arab emirates" uk usa uruguay venezuela vietnam`. |
 | `recency_days` | whole number | `1` | Only postings from the last N days. `0` means no age limit. |
-| `results_per_term` | whole number, 1 or more | `30` | How many results to request per term per board. |
+| `results_per_term` | whole number, 1 or more | `30` | How many results to request per term per board. `freehire` ignores it and reads every page. |
 | `employment_types` | list of text | `["fulltime", "parttime", "contract"]` | Checked against the posting's own type field. Choices: `fulltime parttime contract temporary internship perdiem other volunteer`. `[]` means every type. |
-| `exclude_companies` | list of text | `[]` | Companies to skip. |
+| `exclude_companies` | list of text | `[]` | Companies to skip. A match is recorded as a `Deleted` tracker row. |
 | `exclude_seniority_level` | list of text | `[]` | Seniority words to skip, for example `"director"`, `"intern"`. Matched in the title, and against the board's own seniority label as a whole value. |
 | `filter_title_terms` | list of text | `[]` | Words that drop a posting when they appear in its title. |
 | `title_filter` | text | `"strict"` | `strict` keeps a posting only if its title matches a search term (accents, word forms and built-in aliases applied); `off` keeps every title. |

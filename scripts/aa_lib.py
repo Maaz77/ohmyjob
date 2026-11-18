@@ -7,7 +7,7 @@ Layout (the paths come from workspace.py, in the workspace folder):
   .ohmyjob/run/apply/<run_id>/jobs/<folder>/result.json captured worker result
   .ohmyjob/run/apply/<run_id>/snap/...                  last tool outputs per tab
   .ohmyjob/run/apply/<run_id>/guard.log                 every guard decision that denied or bound
-  <plugin>/ats/*.md                                     ATS notes that a worker may read
+  <plugin>/ats/*.md and <workspace>/ats/*.md            ATS notes that a worker may read (the workspace note wins by file name)
 
 A run folder is deleted at the end of a run ('end') and before a new run ('start'); only folders that are ours
 (a run id made by 'start') are removed. Set OHMYJOB_WORKSPACE to run the scripts against another workspace (tests).

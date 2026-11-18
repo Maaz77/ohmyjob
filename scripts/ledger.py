@@ -5,7 +5,7 @@ deleted. It writes one line per job to `.ohmyjob/traces/ledger.jsonl` and, for t
 trace file next to it. Dream (`/ohmyjob:dream`) reads those traces and writes the ATS notes of this workspace.
 
 Everything here is redacted: no value the worker filled in, no answer it drafted, no email address, and no line of
-a page that holds a value of the `# Resume` header of Profile.md.
+a page that holds a value of a `- Name|Email|Phone|Address|Location:` line of Profile.md.
 """
 from __future__ import annotations
 
@@ -31,9 +31,9 @@ DREAM_HINT_TRACES = 10      # new traces before 'end' suggests a dream
 COSTLY_FACTOR = 2.0         # a parked job this much over the median of its ATS is a "costly_win"
 COSTLY_MIN_SAMPLES = 5      # fewer parked jobs of this ATS in the ledger: use COSTLY_TURNS_FALLBACK instead
 COSTLY_TURNS_FALLBACK = 60
-# ponytail: ledger lines before cost_usd carry no model, so the model the workers ran on then is assumed for
-# them. Every such line predates the Haiku-first change, so this stays "sonnet" even though
-# agents/application-worker.md is now haiku: an old line from another model is mispriced.
+# A line without cost_usd is priced from its tokens with its own `model` when that names a price family. A line with
+# no usable model (written before `model` was recorded, 4335f69) gets this one: the worker was `model: sonnet` from
+# the first version until it was pinned to haiku (6753021), the same day `model` began to be recorded, so "sonnet".
 OLD_LINE_MODEL = "sonnet"
 
 SIGNIN_STEPS = ("none", "option", "popup", "account", "consent", "done")
@@ -115,7 +115,8 @@ def classify_outcome(verdict: str, code: str, blocker: str, has_result: bool, st
 
 
 def line_cost(line: dict) -> Optional[float]:
-    """API-equivalent dollars of a ledger line: its cost_usd, or (an old line) its tokens priced with OLD_LINE_MODEL."""
+    """API-equivalent dollars of a ledger line: its cost_usd, or (an old line) its tokens priced with its own model,
+    else with OLD_LINE_MODEL."""
     if "cost_usd" in line:
         return line["cost_usd"]
     tokens = line.get("tokens")
@@ -123,7 +124,8 @@ def line_cost(line: dict) -> Optional[float]:
         return None
     usage = {"input_tokens": tokens.get("input"), "cache_creation_input_tokens": tokens.get("cache_creation"),
              "cache_read_input_tokens": tokens.get("cache_read"), "output_tokens": tokens.get("output")}
-    return L.usage_cost(usage, OLD_LINE_MODEL)
+    cost = L.usage_cost(usage, line.get("model") or "")
+    return cost if cost is not None else L.usage_cost(usage, OLD_LINE_MODEL)
 
 
 def classify_bin(outcome: str, ats: str, turns: Optional[int], cost: Optional[float], ledger_lines: list[dict]) -> str:

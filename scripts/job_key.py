@@ -3,8 +3,8 @@
 job_key(url) is the number that leads a job's folder name and that the tracker's Job URL reduces to. A LinkedIn
 address keeps its job id (a /jobs/view/<digits> on any other site is not one). Any other http(s) address gets "9"
 plus 14 digits of a hash of its host, path and query (utm_* tracking parameters left out); a fragment counts only
-when it is a hash route (#/job/111), not an anchor or a text fragment. That is 15 digits, so it cannot meet a
-LinkedIn id (10 digits).
+when it is a hash route (#/job/111), not an anchor or a text fragment. That is 15 digits; a LinkedIn id is 10 digits today, so the two
+are assumed never to meet (the id regex accepts any digit run, so this is an assumption, not a check).
 
 Do not change the key of an address that is already in use: folders and tracker rows carry it, and reconcile marks
 an open row whose folder it cannot pair as Deleted. The pinned vectors in tests/test_job_key.py guard this.

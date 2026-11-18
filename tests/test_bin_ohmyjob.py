@@ -82,7 +82,7 @@ def test_the_exit_code_of_the_script_is_the_exit_code(plugin, workspace):
 def test_an_unknown_word_prints_the_usage(plugin, workspace, args):
     proc = run(plugin, *args, cwd=workspace)
     assert proc.returncode == 2
-    assert proc.stdout.startswith("usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream|retro|usage|undo-find-jobs>")
+    assert proc.stdout.startswith("usage: ohmyjob <prep|apply|scrape|reconcile|resume|dream|add-job|retro|usage|undo-find-jobs>")
 
 
 def test_a_script_missing_from_the_plugin_is_fatal(plugin, workspace):

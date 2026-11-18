@@ -12,7 +12,7 @@ Run as `ohmyjob prep <command>`.
   assign-screen [--max N]  write the briefs of the next screen jobs, print the screen-worker prompts
   assign-build [--max N]   copy the matched yaml, write the briefs of the next build jobs, print the resume-worker prompts
   build <job>              (resume-worker only) check the job's yaml, then compile its PDF
-  record                   record every assigned job: job.md, then the tracker (one save), then deletions
+  record                   record every assigned job: job.md, then the tracker (one save; a discard saves it again)
   end                      print the run summary, delete the run folder
 
 Every command prints JSON or a few lines. An error prints a line that starts with FATAL.

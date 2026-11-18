@@ -2,7 +2,7 @@
 """Claude Code hooks for the application assistant (hooks/hooks.json -> scripts/hook.sh -> this file).
 
   hooks.py guard        PreToolUse   Chrome tools, Read, Edit, Write, Bash, Agent   enforces the rules
-  hooks.py snapshot     PostToolUse  Chrome tools                saves page and tab data (application agents only)
+  hooks.py snapshot     PostToolUse  Chrome tools                saves page and tab data (every Chrome caller but prep agents)
   hooks.py handback     PreToolUse   SubagentHandback            checks and saves the worker result
   hooks.py capture      SubagentStop application-worker          the same, when the result is final text
   hooks.py report       Stop                                     shows the cost report of the last run, once
@@ -12,8 +12,8 @@ the parsed top-level fields of the hook input (agent_type, tool_name, cwd) and n
   - ohmyjob:application-master / application-worker: the rules below. A validated call is answered with an explicit
     allow (a background agent cannot answer a permission prompt); anything else is denied (exit 2, reason on stderr).
   - ohmyjob:prep-master / screen-worker / resume-worker: handed to pj_hooks.py (its main), the prep rules.
-  - the main session and every other agent: only Chrome calls are looked at (no JavaScript, no final-button click);
-    everything else gets no decision.
+  - the main session and every other agent: only Chrome calls are looked at (no JavaScript, no final-button click, fresh
+    refs, one pressable click per read, allowlisted actions and keys, the Apply rules); everything else gets no decision.
 The guard has onFailure "block": a crash of this script blocks the call.
 
 A worker reports through the SubagentHandback tool when Claude Code uses hand-backs (auto mode). Otherwise its final
@@ -150,6 +150,10 @@ class Ctx:
             mine = self.my_tab()
             if mine is not None and str(mine) != L.tab_key(tab):
                 return False
+            # a worker that claimed a brief takes the job tab of that brief only, never a sibling's unbound tab
+            claimed = [f for f, j in (self.state.get("jobs") or {}).items() if j.get("brief_agent") == self.agent_id]
+            if claimed and entry.get("folder") not in claimed:
+                return False
             entry["agent_id"] = self.agent_id
             self.dirty = True
             L.log(self.run_dir, "bind", tab=int(tab), folder=entry.get("folder"), agent_id=self.agent_id)
@@ -200,17 +204,26 @@ class Ctx:
                 entry["sticky"] = False
                 entry["filled"] = False
                 entry["filled_host"] = None
-            elif entry.get("filled") and not entry.get("sticky") and entry.get("filled_host") != new_host:
+            elif entry.get("filled") and not entry.get("sticky") \
+                    and (entry.get("filled_host") or "").removeprefix("www.") != (new_host or "").removeprefix("www."):
                 entry["filled"] = False
                 entry["filled_host"] = None
-            entry["focus_role"] = None
-            entry["last_click"] = None
+        self.void_page(tab)
+        self.set_url(tab, full)
+
+    def void_page(self, tab: Any) -> None:
+        """The page of this tab is gone (navigate, back, forward): its refs, clicks and focus mean nothing now."""
+        entry = self.entry(tab)
+        if entry is not None:
+            entry["clicked"] = []
+            entry["choice_dirty"] = False
+            entry["focus_role"] = entry["focus_ref"] = None
         # refs of the old page are void: clicks need a new read_page first
         refs_file = L.refs_path(self.run_dir, tab)
         if refs_file.exists():
             refs_file.unlink()
         self._refs.pop(L.tab_key(tab), None)
-        self.set_url(tab, full)
+        self.dirty = True
 
     def focus(self, tab: Any) -> Optional[str]:
         return (self.entry(tab) or {}).get("focus_role")
@@ -232,10 +245,10 @@ class Ctx:
             self.dirty = True
 
     def set_last_click(self, tab: Any, ref: str) -> None:
-        """The last button or link clicked in this tab; read_page clears it (snapshot)."""
+        """The buttons and links clicked in this tab since its last full read_page (snapshot clears them)."""
         entry = self.entry(tab)
-        if entry is not None and entry.get("last_click") != ref:
-            entry["last_click"] = ref
+        if entry is not None and ref not in entry.setdefault("clicked", []):
+            entry["clicked"].append(ref)
             self.dirty = True
 
     def job(self, tab: Any) -> Optional[dict]:
@@ -333,11 +346,14 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     name = item.get("name") or ""
     role = item.get("role") or ""
     attrs = item.get("attrs") or {}
+    # read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
+    # button whose text sits in a span (Vuetify and friends) arrives here without a name, or with only part of it
+    # ("Review" over a child "and submit"). Take the names inside it, as check_google_click does: a nameless
+    # control takes them as its name, and the final and Apply tests read the own name plus the inside text.
+    inside = " ".join(L.subtree_names(snapshot, ref))[:300]
     if not name.strip():
-        # read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
-        # button whose text sits in a span (Vuetify and friends) arrives here without a name and no list below can
-        # see it. Take the names inside it, as check_google_click does.
-        name = " ".join(L.subtree_names(snapshot, ref))[:300]
+        name = inside
+    scan = f"{name} {inside}"
     filled = ctx.filled(tab)
     # /continue-applying: the candidate may have filled part of the application by hand, so the Haiku check decides
     # about Apply. Not on the job's own page: nothing of the earlier run stands there, and `on_navigate` clears
@@ -360,6 +376,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # application, and only a phrase of a consent dialog counts from the dialog around it.
     around = L.ancestor_names(snapshot, ref)
     banner = X.COOKIE.find(name) or X.COOKIE.find(around) or X.CMP.find(name) or X.CMP.find(around)
+    # a page of an OAuth server (its address without the query) asks for a sign-in permission: no click but a choice
+    if not choice and L.OAUTH_URL_RE.search(re.split(r"[?#]", ctx.url(tab) or "")[0]):
+        raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
     if banner:
         if X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or ""):
             raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
@@ -372,19 +391,24 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
         # `sticky` plays no part here: it says that a form of an earlier run may stand filled on the page, which
         # changes nothing about a consent dialog, and every job of /ohmyjob:continue-applying is sticky.
-        if name.strip() and not filled and (X.CMP.find(name) or X.CMP.find(around) or X.COOKIE.find(name)):
+        # not a name that holds a final word beside the consent phrase ("Submit and save my choices")
+        rest = X.norm(scan)
+        rest = rest.replace(X.CMP.find(rest) or "\0", " ")
+        if name.strip() and not filled and not X.FINAL.find(rest) \
+                and (X.CMP.find(name) or X.CMP.find(around) or X.COOKIE.find(name)):
             L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
             return
-    word = None if choice else X.FINAL.find(name)
+    word = None if choice else X.FINAL.find(scan)
     if word:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. Stop here with status 'parked'.")
-    if role == "button" and not name.strip() and attrs.get("type") == "submit":
+    # a <button> without a type attribute is a submit button as well
+    if role == "button" and not name.strip() and (attrs.get("type") == "submit" or filled and attrs.get("type") not in ("button", "reset")):
         raise Deny("This is a submit button without a name, and nothing inside it is named either. If you have not "
                    "read this page with filter 'all' yet, call read_page alone with filter 'all' and the ref_id of its "
                    "form or dialog, then click it again. If you already did, do not click it: stop with status "
                    "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
-    if filled and apply_word:
+    if filled and not choice and X.APPLY.find(scan):
         raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. If the "
                    "form is filled up to this button, stop here with status 'parked'; else fill the form first.")
     if consent and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
@@ -404,7 +428,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
     if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
         return
-    if role == "button" or (role == "link" and not L.navigable_href(attrs.get("href"))):
+    if role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
                    "filled": filled or ("unknown" if sticky else False)}
         result = ctx.judged_click(payload)
@@ -496,6 +520,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
     if short == "navigate":
         url = str(ti.get("url") or "").strip()
         if url in ("back", "forward"):
+            ctx.void_page(tab)  # the new address is not known yet: the snapshot hook records it
             return None
         problem = L.url_problem(url)
         if problem:
@@ -559,6 +584,8 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
         if not L.is_search_field(item):
             ctx.mark_filled(tab)
             log_fill(ctx, tab, ref, item, ti.get("value"))
+        if role in L.CHOICE_ROLES or role in ("combobox", "listbox") or (item.get("attrs") or {}).get("type") in ("checkbox", "radio"):
+            ctx.set_flag(tab, "choice_dirty", True)  # an answer can rename a button, as a click on a choice does
         ctx.set_focus(tab, role, ref)
         return None
 
@@ -612,9 +639,9 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             pressable = role not in L.CHOICE_ROLES and role not in L.TYPE_ROLES
             if pressable and (ctx.entry(tab) or {}).get("choice_dirty"):
                 # an answer can rename a button (Next becomes Submit); the check knows only the old name
-                raise Deny("You clicked a checkbox, radio button or option since the last read_page. Call read_page first, "
+                raise Deny("You clicked or filled a checkbox, radio button, option or list since the last read_page. Call read_page first, "
                            "for the whole page (without ref_id): an answer can rename a button (Next can become Submit).")
-            if pressable and (ctx.entry(tab) or {}).get("last_click") == ti["ref"]:
+            if pressable and ti["ref"] in (ctx.entry(tab) or {}).get("clicked", []):
                 # the same element can change its name after a click (Next becomes Submit); the check knows only the old name
                 raise Deny("You clicked this control already and read no page since. Call read_page first, for the whole "
                            "page (without ref_id): its name can change after a click (Next can become Submit).")
@@ -1282,7 +1309,7 @@ def dream_guard(inp: dict, tool: str, ti: dict, agent_type: str, agent_id: Optio
     if tool == "Read":
         if not dream_read_allowed(ti.get("file_path"), agent_id):
             finish_deny(None, "The dream host worker reads only its own bundle, the ATS notes and the plugin's "
-                              "agents/application-worker.md, by absolute paths.", tool=tool, agent_type=agent_type)
+                              "agents/application-worker.md.", tool=tool, agent_type=agent_type)
         finish_allow()
     if tool in ("Edit", "Write"):
         if not dream_write_allowed(ti.get("file_path"), agent_id):
@@ -1624,8 +1651,8 @@ def snapshot(inp: dict) -> None:
                 entry["filled"] = True
                 entry["filled_host"] = L.host_of(state["tab_urls"].get(L.tab_key(ti["tabId"])))
                 changed = True
-            if not ti.get("ref_id") and (entry.get("last_click") or entry.get("choice_dirty")):
-                entry["last_click"] = None  # the worker saw the page after its click (a part read may miss that control)
+            if not ti.get("ref_id") and (entry.get("clicked") or entry.get("choice_dirty")):
+                entry["clicked"] = []  # the worker saw the page after its click (a part read may miss that control)
                 entry["choice_dirty"] = False
                 changed = True
         # ---- progress watchdog: a new page, a first fill, a first choice, an upload or a Google step is progress;

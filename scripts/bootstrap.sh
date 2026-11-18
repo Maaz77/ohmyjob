@@ -9,7 +9,8 @@
 # --workspace is the PROJECT folder (default: the current folder); the workspace is <project>/ohmyjob.
 # Steps: Claude Code version gate, uv, venv (uv sync --frozen --no-dev into <data>/venv), LaTeX warm-up build,
 # Chrome extension copy, .ohmyjob/env.sh, workspace .claude/settings.json (merged), scaffold (tracker, folders,
-# ohmyjob.json, CLAUDE.md, .gitignore). Idempotent: a second run rewrites only env.sh. Nothing existing is overwritten.
+# ohmyjob.json, CLAUDE.md, .gitignore). Idempotent: a second run also rebuilds the warm-up PDFs, re-syncs the venv when uv.lock changed,
+# re-copies the extension when it differs and re-merges settings. It never overwrites a user file.
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

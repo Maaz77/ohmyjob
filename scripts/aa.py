@@ -13,7 +13,8 @@ Run it as `ohmyjob apply <command>` (bin/ohmyjob finds the workspace and the plu
   adopt-plan             /continue-applying: the page that brings the job tabs back from the "Needs Attention" group
   adopted                /continue-applying: keep the jobs whose tab came back; leave the others alone
   assign --continue      /continue-applying: give each kept job its own tab again, queue the workers
-  next                   print the queued workers for the free slots (an UPLOAD_HANG job is queued again once);
+  next                   print the queued workers for the free slots (an UPLOAD_HANG job is queued again once; a stuck Haiku job
+                         is handed over to a Sonnet worker on its tab, once);
                          waits up to 90 s for a free slot; prints "done": true when every worker has reported
   retry-plan             a job whose worker reported UPLOAD_HANG gets a short resume name and a new worker (once)
   finish                 check every worker result, write the job.md notes, move the folders, update the tracker
@@ -1118,8 +1119,8 @@ def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
 
 
 def fills_check(run_dir: Path, profile: str, pairs: list) -> dict:
-    """Is each filled value supported by Profile.md? Fail open: any error is recorded and nothing else changes.
-    Returns {"verdict", "unsupported": n, "labels": [...], "unlabelled": n} (no values) or {"error": ...}.
+    """Is each filled value supported by Profile.md? Never raises: any error comes back as {"error": ...}, and fills_gate
+    then blocks the job (FILL_REVIEW). Returns {"verdict", "unsupported": n, "labels": [...], "unlabelled": n} (no values) or {"error": ...}.
     `pairs`: (label, value) or (label, value, fallback); `unlabelled` counts the fallback ones."""
     try:
         result, error = J.ask(run_dir, "fills", {"profile": profile, "fills": [p[:2] for p in pairs]}, model="sonnet")
@@ -1473,6 +1474,7 @@ def cmd_end(args: argparse.Namespace) -> None:
                 counts = {k: usage.get(k) or 0 for k in L.USAGE_KEYS}
             except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
                 continue
+            # the key "Haiku check" covers every judge call (click checks on Haiku, the fills check on Sonnet); the model is the second key
             row = judge.setdefault(("Haiku check", entry.get("model") or "?"), collections.Counter())
             row["calls"] += 1
             row.update(counts)

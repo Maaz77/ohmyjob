@@ -129,7 +129,9 @@ class TestClassifyBin(unittest.TestCase):
 
     def test_the_cost_of_a_line(self):
         tokens = {"input": 1_000_000, "cache_creation": 0, "cache_read": 0, "output": 1_000_000}
-        self.assertAlmostEqual(ledger.line_cost({"tokens": tokens}), 12.0)  # an old line: sonnet, 2 + 10
+        self.assertAlmostEqual(ledger.line_cost({"tokens": tokens}), 12.0)  # no cost_usd, no model: OLD_LINE_MODEL (sonnet), 2 + 10
+        self.assertAlmostEqual(ledger.line_cost({"tokens": tokens, "model": "claude-haiku-5-5"}), 0.60)  # its own model: haiku, 0.10 + 0.50
+        self.assertAlmostEqual(ledger.line_cost({"tokens": tokens, "model": "gpt-x"}), 12.0)  # no known family: the fallback
         self.assertEqual(ledger.line_cost({"tokens": tokens, "cost_usd": 0.5}), 0.5)
         self.assertIsNone(ledger.line_cost({"tokens": tokens, "cost_usd": None}))  # unknown stays unknown
         self.assertIsNone(ledger.line_cost({"tokens": None}))

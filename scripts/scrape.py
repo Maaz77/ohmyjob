@@ -6,8 +6,9 @@ title matches a term, its employment type and company pass the filters, it does 
 the same job key) and it is not a twin of a posting from an earlier board or of a recent tracker row. Each new job
 gets Applications/<key>_<Company>_<Title>/job.md and a tracker row at "Found". The next step is /ohmyjob:prep-jobs.
 
-Output: one line per board, one total line, `WARNING ...` lines, and `FATAL: ...` when the run cannot continue (exit 1;
-exit 2: the run finished but a board failed).
+Output: a multi-section summary (Search Results, Job Finder Summary, Filtered, Sources), `WARNING ...` lines, and
+`FATAL: ...` when the run cannot continue (exit 1; exit 2: the run finished but a board failed). A posting whose company
+matches exclude_companies is not dropped: it is recorded as a Deleted tracker row (no folder), so it is not met again.
 """
 from __future__ import annotations
 

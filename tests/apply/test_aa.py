@@ -1796,7 +1796,7 @@ class TestFillsJudge(unittest.TestCase):
         for bad in ({"verdict": "allow", "unsupported": []}, {"verdict": "ok"}, "ok", None):
             self.assertFalse(judge.valid("fills", bad))
 
-    def test_the_check_fails_open(self):
+    def test_a_failed_check_returns_an_error(self):
         import aa
         from unittest import mock
         with tempfile.TemporaryDirectory() as tmp, \

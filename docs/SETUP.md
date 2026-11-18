@@ -81,6 +81,8 @@ Setup never asks you anything about yourself and never writes your real data. It
 |---|---|
 | `/ohmyjob:find-jobs` | `ohmyjob.json` or `Profile.md` still has its marker — otherwise it would search for Alex Example's jobs. |
 | `/ohmyjob:prep-jobs` | `Profile.md` still has its marker, or no usable resume is left. |
+| `/ohmyjob:add-job` | `ohmyjob.json` or `Profile.md` still has its marker. |
+| `/ohmyjob:retro` | `Profile.md` still has its marker. |
 | `/ohmyjob:apply-jobs`, `/ohmyjob:continue-applying` | `Profile.md` still has its marker — otherwise made-up answers would be typed into real forms. |
 
 ## Fill in your details

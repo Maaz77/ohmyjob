@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 import test_aa as T
-from test_aa import ATS, C, HOOKS, INDEED_JOB, LINKEDIN_JOB, M, SCRIPTS, W
+from test_aa import ATS, C, HOOKS, INDEED_JOB, LINKEDIN_JOB, M, SCRIPTS, W, sample
 
 PREP_MASTER = "ohmyjob:prep-master"
 RESUME_WORKER = "ohmyjob:resume-worker"
@@ -1184,6 +1184,123 @@ class TestJudgeCommand(unittest.TestCase):
             finally:
                 os.environ.clear()
                 os.environ.update(old)
+
+
+TAIL = '\n\nViewport: 1920x825\n\nTab Context:\n- Executed on tabId: 101\n- Available tabs:\n  • tabId 101: "Apply" ("%s")\n'
+PAGE_NAV = ('dialog "Step 2" [ref_40]\n button "Back" [ref_71] type="button"\n button "Next" [ref_66] type="button"\n'
+            ' button "Help" [ref_72] type="button"\n radio "Yes" [ref_51] type="radio"\n')
+
+
+class TestClickGuardHoles(T.Base):
+    """Holes of the worker click guard: a final control behind a consent word, a nameless button, a repeated click,
+    a form_input answer, back/forward, a www hop, a child text, an OAuth page, other roles, focus, a sibling tab."""
+
+    def boot(self, url="https://jobs.example.com/apply", filled=False):
+        self.aa_json("start")
+        (self.f1, self.t1, self.b1), (self.f2, self.t2, self.b2) = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": url}, W, "A1"))
+        if filled:
+            self.edit_tab(filled=True, filled_host="jobs.example.com")
+
+    def edit_tab(self, **fields):
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text())
+        state["tabs"]["101"].update(fields)
+        path.write_text(json.dumps(state))
+
+    def read(self, text, url="https://jobs.example.com/apply", mode="interactive"):
+        self.clear_watchdog()
+        self.post("read_page", {"tabId": 101, "filter": mode}, text + TAIL % url, W, "A1")
+
+    def try_click(self, text, ref="ref_1", mode="interactive", **kw):
+        self.read(text, mode=mode, **kw)
+        self.clear_watchdog()
+        return self.click(101, ref, "A1", "Goes on")
+
+    def test_final_word_beside_a_consent_phrase(self):
+        self.boot()
+        for page in ['dialog "Privacy choices" [ref_9]\n button "Submit application" [ref_1]\n',
+                     'form "Job alert: manage preferences" [ref_9]\n button "Send" [ref_1]\n',
+                     'dialog "Apply" [ref_9]\n button "Submit and save my choices" [ref_1]\n',
+                     'button "Submit application - we use cookies" [ref_1]\n']:
+            self.assertDenied(self.try_click(page), "final control")
+
+    def test_nameless_button_without_type_after_a_form(self):
+        self.boot(filled=True)
+        self.assertDenied(self.try_click("form [ref_9]\n button [ref_1]\n"), "submit button without a name")
+        self.assertAllowed(self.try_click('form [ref_9]\n button [ref_1] type="button"\n'))
+
+    def test_same_control_twice_with_another_click_between(self):
+        self.boot()
+        self.read(PAGE_NAV)
+        self.assertAllowed(self.click(101, "ref_66", "A1"))
+        self.assertAllowed(self.click(101, "ref_72", "A1"))
+        self.assertDenied(self.click(101, "ref_66", "A1"), "clicked this control already")
+        self.read(PAGE_NAV)
+        batch = {"actions": [{"name": "computer", "input": {"tabId": 101, "action": "left_click", "ref": r,
+                                                             "action_summary": "Goes on"}} for r in ("ref_66", "ref_72", "ref_66")]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "clicked this control already")
+
+    def test_form_input_on_a_radio_needs_a_new_read(self):
+        self.boot()
+        self.read(PAGE_NAV)
+        self.assertAllowed(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_51", "value": True}, W, "A1"))
+        self.assertDenied(self.click(101, "ref_66", "A1"), "read_page first")
+
+    def test_back_voids_the_page_state(self):
+        self.boot()
+        self.read(PAGE_NAV)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "back"}, W, "A1"))
+        self.post("navigate", {"tabId": 101, "url": "back"}, "Navigated back" + TAIL % "https://www.google.com/x", W, "A1")
+        self.assertEqual(self.state()["tab_urls"]["101"], "https://www.google.com/x")
+        self.assertDenied(self.click(101, "ref_71", "A1"), "Unknown ref")
+
+    def test_www_hop_keeps_filled(self):
+        self.boot("https://www.careers.example.com/apply")
+        self.read(sample("constructed_form_page.txt"), url="https://www.careers.example.com/apply")
+        self.assertTrue(self.state()["tabs"]["101"]["filled"])
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://careers.example.com/apply"}, W, "A1"))
+        self.assertDenied(self.try_click('main [ref_9]\n button "Apply now" [ref_1] type="button"\n',
+                                         url="https://careers.example.com/apply"), "application form")
+
+    def test_final_word_in_a_child_of_a_named_button(self):
+        self.boot()
+        self.assertDenied(self.try_click('button "Review" [ref_1] type="submit"\n generic "and submit" [ref_2]\n', mode="all"),
+                          "final control")
+        self.assertDenied(self.try_click('button "Next" [ref_1] type="button"\n generic "Submit application" [ref_2]\n', mode="all"),
+                          "final control")
+
+    def test_oauth_page_refuses_every_non_choice_click(self):
+        for url in ("https://appleid.apple.com/auth/authorize?client_id=x", "https://provider.example.com/oauth/authorize?x=1"):
+            self.boot(url)
+            for name in ("Continue", "Yes", "Approve", "Grant access"):
+                self.assertDenied(self.try_click('button "%s" [ref_1]\n' % name, url=url), "sign-in permission")
+                self.clear_watchdog()
+        self.boot("https://jobs.example.com/apply?oauth_token=abc")
+        self.assertAllowed(self.try_click('button "Next" [ref_1]\n'))
+
+    def test_menuitem_goes_to_the_haiku_check(self):
+        self.boot()
+        before = len(self.judge_calls())
+        self.try_click('menuitem "Soumission finale" [ref_1]\n')
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
+    def test_focus_ref_does_not_survive_navigation(self):
+        self.boot()
+        self.read('dialog "Form" [ref_40]\n textbox "First name" [ref_41] type="text"\n')
+        self.assertAllowed(self.click(101, "ref_41", "A1"))
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://jobs.example.com/b"}, W, "A1"))
+        self.read('main [ref_1]\n textbox "Keyword" [ref_41] type="text"\n')
+        self.assertDenied(self.guard(C + "computer", {"tabId": 101, "action": "type", "text": "abc"}, W, "A1"),
+                          "type only right after you click")
+
+    def test_worker_with_a_brief_cannot_bind_a_sibling_tab(self):
+        self.aa_json("start")
+        (f1, t1, b1), (f2, t2, b2) = self.assign(101, 102)
+        self.assertAllowed(self.guard("Read", {"file_path": b1}, W, "A1"))
+        url = {"tabId": t2, "url": "https://careers.example.com/apply"}
+        self.assertDenied(self.guard(C + "navigate", url, W, "A1"), "use only your own tab")
+        self.assertAllowed(self.guard(C + "navigate", url, W, "A2"))
 
 
 if __name__ == "__main__":

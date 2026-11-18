@@ -9,7 +9,7 @@ The rule, for every OPEN row (Found, Matched, Resume Built, Resume Failed, Pendi
   - its folder is already in Submitted/: the row becomes Submitted (nothing to move);
   - its folder is in Applications/: the row is left alone (the job is not reviewed yet);
   - no folder anywhere: the row becomes Deleted.
-Rows that are already Deleted or Skipped-LowFit are never written. A Submitted row whose folder is still in
+Rows that are already Deleted or Skipped-LowFit, and rows with a blank or hand-typed status, are never written. A Submitted row whose folder is still in
 Pending-Review/ or Needs-Attention/ (an earlier run stopped after saving) only gets the folder moved. All terminal rows
 take part in matching and in the invariant. A row whose id is shared by several rows, or whose folder is claimed twice, is left untouched.
 
@@ -132,7 +132,7 @@ def resolve(entries: list[FolderEntry], rows: list[dict]):
                     if row is not oldest and row["Status"] in OPEN_STATUSES:
                         duplicate_notes.append((row, oldest["Status"] or ""))
 
-    # A row claimed by two folders (cannot happen with unique keys; kept as a safety net).
+    # A row claimed by two folders (two folders with the same job id: reported as shared-folder).
     row_to_folders: dict[int, list[Path]] = defaultdict(list)
     for folder, row in resolved.items():
         row_to_folders[row["_index"]].append(folder)

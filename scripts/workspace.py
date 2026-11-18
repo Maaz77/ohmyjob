@@ -396,7 +396,7 @@ def validate_config(raw: Any) -> dict:
             config[section][key] = CHECKS[f"{section}.{key}"](f"{section}.{key}", value)
     search = config["search"]
     if not search["country"] and any(board in COUNTRY_BOARDS for board in search["sources"]):
-        _fail("search.country", f"is empty, but {' and '.join(COUNTRY_BOARDS)} search the USA without a country. "
+        _fail("search.country", f"is empty, but {' and '.join(COUNTRY_BOARDS)} need a country to search. "
                                 f"Set a country, or leave {' and '.join(COUNTRY_BOARDS)} out of search.sources")
     return config
 

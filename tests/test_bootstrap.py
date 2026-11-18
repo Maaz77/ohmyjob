@@ -454,7 +454,7 @@ def test_invalid_settings_json_is_not_overwritten(env):
     assert path.read_text() == "{ not json"
 
 
-def test_subagent_cap_is_the_default_twenty(env):
+def test_subagent_cap_is_the_default_fifty(env):
     env.ws.mkdir(parents=True)
     ok(env.run())
     assert read_settings(env)["env"]["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "50"
