@@ -267,9 +267,22 @@
     });
   }
 
+  // An app-store badge ("Get it on Google Play") carries a Google image but signs nobody in. True for a link to a
+  // store, or for anything inside one.
+  const STORE_HOSTS = new Set(["play.google.com", "apps.apple.com", "itunes.apple.com"]);
+  function inStoreLink(el) {
+    const link = el.closest("a[href]");
+    if (!link) return false;
+    try {
+      return STORE_HOSTS.has(new URL(link.getAttribute("href"), location.href).hostname);
+    } catch (e) {
+      return false;
+    }
+  }
+
   function nameGoogleButtons() {
     for (const el of document.querySelectorAll(CONTROLS)) {
-      if (hasName(el)) continue;
+      if (hasName(el) || inStoreLink(el)) continue;
       const label = el.closest("label");
       if (label && label.textContent.trim()) continue;
       if (!hasGoogleIcon(label || el)) continue;
@@ -278,7 +291,7 @@
       if (label && !hasName(label)) label.setAttribute("aria-label", GOOGLE_NAME);
     }
     for (const el of iconHolders()) {
-      if (hasName(el) || !isClickable(el) || !hasGoogleIcon(el)) continue;
+      if (hasName(el) || !isClickable(el) || inStoreLink(el) || !hasGoogleIcon(el)) continue;
       el.setAttribute("aria-label", GOOGLE_NAME);
       const label = el.closest("label");
       if (label && !hasName(label)) label.setAttribute("aria-label", GOOGLE_NAME);
@@ -299,6 +312,7 @@
     };
     const candidates = [...document.querySelectorAll(CONTROLS), ...iconHolders()];
     for (const el of candidates) {
+      if (inStoreLink(el)) continue;
       const label = el.closest("label");
       if (hasGoogleIcon(label || el)) {
         add(el, hasName(el) || !!(label && label.textContent.trim()));
@@ -319,7 +333,7 @@
       if (/google/i.test(background) && !/googleusercontent\.com/i.test(background)) add(el, hasName(el));
     }
     // Google's own sign-in widget: its button lives in a cross-origin frame, so it has no name here
-    for (const frame of document.querySelectorAll('iframe[src*="accounts.google.com/gsi/"]')) add(frame, false);
+    for (const frame of document.querySelectorAll('iframe[src^="https://accounts.google.com/gsi/"]')) add(frame, false);
     return { count, named };
   }
 

@@ -378,6 +378,43 @@ class TestDreamHint(unittest.TestCase):
         self.assertEqual(len(ledger.read_ledger()), 1)
 
 
+class TestWallSeenAndJobModel(unittest.TestCase):
+    """F3a: `wall_seen` keeps a wall verified after a reload. F3b: the model of a handover job is sonnet."""
+
+    BLOCKED = {"status": "blocked", "open": [], "blocker": "ACCOUNT_WALL: asks for an emailed code"}
+
+    def run_with_last_page(self, tab_state):
+        import aa
+        run_dir = Path(T.tempfile.mkdtemp(prefix="wall_"))
+        page = 'textbox "Email" [ref_1] type="text"\nbutton "Continue" [ref_2]\n'  # the step after the code page
+        L.write_text(L.snapshot_path(run_dir, 7), page)
+        L.write_json(L.refs_path(run_dir, 7), L.parse_refs(page))
+        state = {"tabs": {"7": tab_state}}
+        job = {"tab": 7, "model": "haiku"}
+        return ledger.account_wall_verified(run_dir, state, 7), aa.handover_reason(run_dir, state, job, self.BLOCKED)
+
+    def test_a_code_page_seen_earlier_verifies_the_wall_and_no_handover_runs(self):
+        self.assertEqual(self.run_with_last_page({"wall_seen": True}), (True, None))
+
+    def test_without_wall_seen_the_last_page_decides(self):
+        verified, reason = self.run_with_last_page({})
+        self.assertFalse(verified)
+        self.assertEqual(reason, "account wall the page does not confirm")
+
+    def test_the_job_model_wins_and_else_the_worker_that_started_last(self):
+        # agent ids sort the other way round than the start times
+        agents = [{"agent_type": W, "agent_id": "a1", "model": "claude-sonnet-5-5", "started": "2026-11-18T10:05:00Z"},
+                  {"agent_type": W, "agent_id": "z9", "model": "claude-haiku-5-5", "started": "2026-11-18T10:00:00Z"}]
+        state = {"tabs": {"7": {"role": "job", "agent_id": "a1", "folder": "f"}, "8": {"role": "job", "agent_id": "z9", "folder": "f"}}}
+        self.assertEqual(ledger._job_model(agents, state, "f", {"model": "haiku"}), "claude-sonnet-5-5")
+        self.assertEqual(ledger._job_model([], state, "f", {"model": "sonnet"}), "sonnet")
+        # parsed times: as strings "...59.9Z" sorts before "...59Z" although it is later
+        late = {"agent_type": W, "agent_id": "a", "model": "claude-sonnet-5-5", "started": "2026-11-18T09:59:59.9Z"}
+        early = {"agent_type": W, "agent_id": "b", "model": "claude-haiku-5-5", "started": "2026-11-18T09:59:59Z"}
+        state = {"tabs": {"7": {"role": "job", "agent_id": "a", "folder": "f"}, "8": {"role": "job", "agent_id": "b", "folder": "f"}}}
+        self.assertEqual(ledger._job_model([early, late], state, "f", {}), "claude-sonnet-5-5")
+
+
 if __name__ == "__main__":
     unittest.main()
 

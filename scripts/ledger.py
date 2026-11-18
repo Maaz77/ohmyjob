@@ -10,6 +10,7 @@ a page that holds a value of a `- Name|Email|Phone|Address|Location:` line of Pr
 from __future__ import annotations
 
 import collections
+import datetime
 import fnmatch
 import json
 import re
@@ -82,13 +83,14 @@ def snapshot_has_password_or_signup(run_dir: Optional[Path], tab: Any) -> bool:
     """The last page of this tab really had a sign-up or a password field: an ACCOUNT_WALL report is then verified."""
     if run_dir is None:
         return False
-    text = L.snapshot_text(run_dir, tab)
-    if 'type="password"' in text:
-        return True
-    for item in L.snapshot_refs(run_dir, tab).values():
-        if (item.get("attrs") or {}).get("type") == "password":
-            return True
-    return any(X.SIGNUP.find(line) for line in text.splitlines())
+    return L.wall_evidence(L.snapshot_text(run_dir, tab), L.snapshot_refs(run_dir, tab))
+
+
+def account_wall_verified(run_dir: Optional[Path], state: dict, tab: Any) -> bool:
+    """Some page of this tab showed the wall (`wall_seen`, set when each page was saved), or the last one does. A reload
+    can replace a one-time-code page with the email step before the report is judged."""
+    entry = (state.get("tabs") or {}).get(L.tab_key(tab)) or {}
+    return bool(entry.get("wall_seen")) or snapshot_has_password_or_signup(run_dir, tab)
 
 
 def classify_outcome(verdict: str, code: str, blocker: str, has_result: bool, stopped_by: Any = None,
@@ -420,6 +422,25 @@ def _write_trace(run_dir: Path, state: dict, entry: dict, result: Optional[dict]
     return name
 
 
+def _job_model(agents: list, state: dict, folder: str, job: dict) -> Optional[str]:
+    """The full model id of the worker that started last (ids sort by chance, not by time); the job's own model
+    ("haiku", or "sonnet" after a handover) only when no transcript names one."""
+    workers = [rec for rec in agents if rec["agent_type"] == L.WORKER and _worker_folder(rec, state) == folder
+               and rec.get("model")]
+    if not workers:
+        return job.get("model")
+
+    def when(rec: dict) -> Any:
+        try:  # parsed, so "…Z" and "…+00:00" and different fraction lengths sort by time
+            return datetime.datetime.fromisoformat(str(rec.get("started")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+
+    if all(when(rec) is not None for rec in workers):
+        return max(workers, key=when)["model"]
+    return max(workers, key=lambda rec: str(rec.get("started") or ""))["model"]  # the string, when one cannot be parsed
+
+
 def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str],
                             master_id: Optional[str]) -> int:
     """One ledger line per job of this run, and a trace for the jobs worth learning from. Returns the line count."""
@@ -451,7 +472,7 @@ def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str
         # the page had a Google option and no sign-in step ran: the worker missed it, it was no account wall
         if code == "ACCOUNT_WALL" and step in (None, "none") and (google["count"] > 0 or in_snapshot):
             code = "GOOGLE_MISSED"
-        verified = snapshot_has_password_or_signup(run_dir, tab) if code == "ACCOUNT_WALL" else None
+        verified = account_wall_verified(run_dir, state, tab) if code == "ACCOUNT_WALL" else None
         usage = _folder_usage(agents, folder, state)
         watchdog = job.get("watchdog") or {}
         stopped_by = job.get("stopped_by")
@@ -479,8 +500,7 @@ def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str
             "seconds": seconds, "calls": watchdog.get("calls", 0),
             "progress_events": watchdog.get("progress", 0), "max_stall": watchdog.get("max_stall", 0),
             "stopped_by": stopped_by,
-            "model": next((rec["model"] for rec in reversed(agents) if rec["agent_type"] == L.WORKER
-                           and _worker_folder(rec, state) == folder and rec.get("model")), job.get("model")),
+            "model": _job_model(agents, state, folder, job),
             "handover": bool(job.get("handover")),
             # verdict, count and labels only: the values stay in guard.log (redact_result keeps them out of here)
             "fills_check": job.get("fills_check"),

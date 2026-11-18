@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 import test_aa as T
+import aa_lib as L  # noqa: E402  (test_aa puts scripts/ on the path)
 from test_aa import ATS, C, HOOKS, INDEED_JOB, LINKEDIN_JOB, M, SCRIPTS, W, sample
 
 PREP_MASTER = "ohmyjob:prep-master"
@@ -1269,6 +1270,167 @@ class TestClickGuardHoles(T.Base):
         self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://careers.example.com/apply"}, W, "A1"))
         self.assertDenied(self.try_click('main [ref_9]\n button "Apply now" [ref_1] type="button"\n',
                                          url="https://careers.example.com/apply"), "application form")
+
+    # F2: a start-Apply link on a tab that only looks like a form (a job page with search boxes) goes through.
+    APPLY_LINK = 'link "Apply now" [ref_1] href="/talentcommunity/apply/1?locale=en_GB"\n'
+    OPENS = "Opens the Apply now page of the job"
+
+    def apply_click(self, text, note=OPENS, url="https://jobs.example.com/apply", **kw):
+        self.read(text, url=url, **kw)
+        return self.click(101, "ref_1", "A1", note)
+
+    def test_a_start_apply_link_passes_on_a_tab_with_no_answer(self):
+        self.boot(filled=True)
+        self.assertAllowed(self.apply_click(self.APPLY_LINK))
+        self.assertTrue(any("apply-link-pass" in line for line in
+                            (self.run_dir() / "guard.log").read_text(encoding="utf-8").splitlines()))
+
+    def test_the_start_apply_link_is_denied_in_every_other_case(self):
+        self.boot(filled=True)
+        # a button, a "#" link and a javascript: link
+        self.assertDenied(self.apply_click('button "Apply now" [ref_1] type="button"\n'), "application form")
+        self.assertDenied(self.apply_click('link "Apply now" [ref_1] href="#"\n'), "application form")
+        self.assertDenied(self.apply_click('link "Apply now" [ref_1] href="javascript:void(0)"\n'), "application form")
+        # a board, as the current page and as the target
+        self.assertDenied(self.apply_click(self.APPLY_LINK, url="https://www.indeed.com/viewjob"), "application form")
+        self.assertDenied(self.apply_click('link "Apply now" [ref_1] href="https://www.ziprecruiter.com/apply/1"\n'),
+                          "application form")
+        # a note that says it submits, and a link to this very page
+        self.assertDenied(self.apply_click(self.APPLY_LINK, note="Submits the application"), "can send the application")
+        self.assertDenied(self.apply_click('link "Apply now" [ref_1] href="https://jobs.example.com/apply#top"\n'),
+                          "application form")
+
+    def test_the_start_apply_link_is_denied_after_an_answer(self):
+        self.boot(filled=True)
+        self.read('textbox "Cover note" [ref_2] type="text"\n' + self.APPLY_LINK)
+        self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_2", "value": "x"}, W, "A1"))
+        self.assertTrue(self.state()["tabs"]["101"]["acted"])
+        # the answer is there: the order to park comes back
+        self.assertDenied(self.apply_click(self.APPLY_LINK), "status 'parked'")
+
+    def test_a_consent_toggle_is_no_answer_but_a_tick_is(self):
+        self.boot(filled=True)
+        self.read('dialog "Cookie preferences" [ref_9]\n button "Analytics" [ref_3] type="checkbox"\n' + self.APPLY_LINK)
+        self.assertAllowed(self.click(101, "ref_3", "A1", "Turns off the analytics cookies"))
+        self.assertFalse(self.state()["tabs"]["101"].get("acted"))
+        self.assertAllowed(self.apply_click(self.APPLY_LINK))
+        self.boot(filled=True)
+        self.read('checkbox "I can work in the UK" [ref_3]\n' + self.APPLY_LINK)
+        self.assertAllowed(self.click(101, "ref_3", "A1", "Ticks the work right box"))
+        self.assertTrue(self.state()["tabs"]["101"]["acted"])
+
+    def test_the_order_to_park_needs_an_answer_on_the_tab(self):
+        self.boot(filled=True)
+        self.assertDenied(self.apply_click('button "Apply now" [ref_1] type="button"\n'), "Nothing was filled on this tab")
+        self.assertDenied(self.apply_click('button "Submit application" [ref_1] type="button"\n'), "Nothing was filled")
+        self.edit_tab(acted=True)
+        self.assertDenied(self.apply_click('button "Apply now" [ref_1] type="button"\n'), "status 'parked'")
+
+    # R1: every condition of the start-Apply exception, one test each
+    def test_r1_an_applies_note_and_a_confirm_link_are_denied(self):
+        self.boot(filled=True)
+        confirm = 'link "Apply" [ref_1] href="/jobs/1/apply/confirm"\n'
+        self.assertDenied(self.apply_click(confirm, note="Applies to this job"), "can send the application")
+        self.assertAllowed(self.apply_click(confirm))  # a note that opens a page is the narrow pass
+
+    def test_r1_the_name_must_hold_an_apply_word(self):
+        self.boot(filled=True)
+        self.assertDenied(self.apply_click('link "Continue" [ref_1] href="/next"\n', note="Applies to this job"),
+                          "can send the application")
+
+    def test_r1_a_sticky_tab_never_gets_the_exception_not_even_on_its_own_address(self):
+        self.boot(filled=True)
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text())
+        state["jobs"][self.f1]["apply_url"] = "https://jobs.example.com/apply"
+        state["tabs"]["101"]["sticky"] = True
+        path.write_text(json.dumps(state))
+        self.assertDenied(self.apply_click(self.APPLY_LINK))
+
+    def test_r1_a_backslash_address_is_read_as_the_browser_reads_it(self):
+        self.boot(filled=True)
+        self.assertDenied(self.apply_click('link "Apply now" [ref_1] href="/\\www.indeed.com/x"\n'))
+
+    def test_r1_the_target_page_must_differ_from_this_one(self):
+        self.boot("https://jobs.example.com/apply/", filled=True)
+        for href in ("?apply=1", "./?submit", "/apply", "/APPLY/", "#top"):
+            self.assertDenied(self.apply_click(f'link "Apply now" [ref_1] href="{href}"\n',
+                                               url="https://jobs.example.com/apply/"), "can send the application")
+            self.clear_watchdog()
+
+    def test_r1_the_wider_board_list_covers_the_exception_only(self):
+        self.boot(filled=True)
+        self.assertDenied(self.apply_click(self.APPLY_LINK, url="https://www.dice.com/job/1"))
+        self.assertDenied(self.apply_click('link "Apply now" [ref_1] href="https://www.cwjobs.co.uk/a"\n'))
+
+    def test_r1_a_page_with_a_file_input_is_an_application_form(self):
+        self.boot(filled=True)
+        page = 'button "Attach resume" [ref_5] type="file"\n' + self.APPLY_LINK
+        self.assertDenied(self.apply_click(page))
+
+    # R2: the child names of a nameless button reach the finish gate through the interactive read that ends a park
+    def test_r2_a_later_interactive_read_keeps_the_child_names(self):
+        self.boot()
+        self.read('button [ref_7] type="submit"\n generic "Submit application" [ref_8]\n', mode="all")
+        self.read('button [ref_7] type="submit"\n', mode="interactive")
+        refs = L.snapshot_refs(self.run_dir(), 101)
+        self.assertEqual(L.final_controls(refs, False, L.snapshot_text(self.run_dir(), 101)), ["Submit application"])
+        self.edit_tab(acted=True)
+        result = {"status": "parked", "final_button": "", "open": [], "filled": ["x"], "uploaded": None}
+        self.assertEqual(L.check_result(self.run_dir(), self.state(), {"tab": 101}, result)[0], "PASS")
+
+    def test_s1_the_child_names_are_not_carried_to_another_page(self):
+        self.boot()
+        self.read('button [ref_45] type="submit"\n generic "Send me jobs like this" [ref_46]\n', mode="all",
+                  url="https://jobs.example.com/a")
+        self.read('button [ref_45] type="submit"\n', url="https://jobs.example.com/b")
+        refs = L.snapshot_refs(self.run_dir(), 101)
+        self.assertNotIn("inside", refs["ref_45"])
+        self.edit_tab(acted=True)
+        result = {"status": "parked", "final_button": "", "open": [], "filled": ["x"], "uploaded": None}
+        self.assertNotEqual(L.check_result(self.run_dir(), self.state(), {"tab": 101}, result)[0], "PASS")
+
+    def test_s3_a_note_that_applies_and_also_opens_a_page_is_denied(self):
+        self.boot(filled=True)
+        confirm = 'link "Apply" [ref_1] href="/jobs/1/apply/confirm"\n'
+        self.assertDenied(self.apply_click(confirm, note="Applies to this job and opens the confirmation page"),
+                          "can send the application")
+        self.assertDenied(self.apply_click(
+            confirm, note="Opens the Apply page, applies with my profile and loads the confirmation page"),
+            "can send the application")
+        self.assertAllowed(self.apply_click(confirm, note="Opens the Apply now page of the job"))
+
+    def test_s4_port_and_path_parameter_self_links_and_the_guardian_board(self):
+        self.boot(filled=True)
+        for href in ("https://jobs.example.com:443/apply", "/apply;jsessionid=ABC123"):
+            self.assertDenied(self.apply_click(f'link "Apply now" [ref_1] href="{href}"\n'), "can send the application")
+            self.clear_watchdog()
+        self.assertDenied(self.apply_click(self.APPLY_LINK, url="https://jobs.theguardian.com/job/1"),
+                          "can send the application")
+
+    # R4: wall_seen
+    def test_r4_wall_seen_needs_a_password_or_code_ask_and_stays_on_the_host(self):
+        self.boot()
+        self.read('link "Register" [ref_1] href="/r"\ngeneric "confirm your identity" [ref_2]\n')
+        self.assertFalse(self.state()["tabs"]["101"].get("wall_seen"))
+        self.read('heading "Confirm Your Identity" [ref_1]\n')
+        self.assertTrue(self.state()["tabs"]["101"]["wall_seen"])
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://jobs.example.com/apply"}, W, "A1"))
+        self.assertTrue(self.state()["tabs"]["101"]["wall_seen"])  # a reload keeps it
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://other.example.org/"}, W, "A1"))
+        self.assertFalse(self.state()["tabs"]["101"]["wall_seen"])
+
+    # R5
+    def test_r5_a_radio_button_is_an_answer(self):
+        self.boot()
+        self.read('button "Yes" [ref_3] type="radio"\n')
+        self.assertAllowed(self.click(101, "ref_3", "A1", "Picks Yes"))
+        self.assertTrue(self.state()["tabs"]["101"]["acted"])
+
+    def test_r5_the_nothing_filled_text_leaves_the_parked_way_open(self):
+        self.boot(filled=True)
+        self.assertDenied(self.apply_click('button "Apply now" [ref_1] type="button"\n'),
+                          "filled up to this button, stop with status 'parked'")
 
     def test_final_word_in_a_child_of_a_named_button(self):
         self.boot()

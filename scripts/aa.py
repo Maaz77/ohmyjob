@@ -979,7 +979,7 @@ def handover_reason(run_dir: Path, state: dict, job: dict, result: Optional[dict
     code = ledger.classify_blocker(blocker) if blocker else ""
     if code in NO_HANDOVER_CODES:
         return None
-    unverified = code == "ACCOUNT_WALL" and not ledger.snapshot_has_password_or_signup(run_dir, job["tab"])
+    unverified = code == "ACCOUNT_WALL" and not ledger.account_wall_verified(run_dir, state, job["tab"])
     if code == "ACCOUNT_WALL" and not unverified:
         return None  # a verified wall: Sonnet will see the same page
     if isinstance(result, dict) and "status" in result and "open" in result:  # a well-formed report only

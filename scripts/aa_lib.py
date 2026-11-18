@@ -510,11 +510,13 @@ def agent_usage(transcript: Optional[str], master_id: Optional[str]) -> list[dic
         if f.stem != f"agent-{master_id}" and meta.get("parentAgentId") != master_id:
             continue
         calls: dict = {}
+        started = ""  # timestamp of the first line: the agent ids are random, so they say nothing about the order
         for line in f.open(encoding="utf-8"):
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            started = started or str(d.get("timestamp") or "")
             m = d.get("message")
             if d.get("type") != "assistant" or not isinstance(m, dict) or not m.get("usage"):
                 continue
@@ -529,7 +531,7 @@ def agent_usage(transcript: Optional[str], master_id: Optional[str]) -> list[dic
             usage.update(u)
         records.append({"agent_id": f.stem.replace("agent-", ""), "agent_type": meta.get("agentType") or "?",
                         "description": meta.get("description") or "", "transcript": str(f),
-                        "model": model, "usage": usage})
+                        "model": model, "usage": usage, "started": started})
     return records
 
 
@@ -920,6 +922,9 @@ NOTE_FINAL_RE = re.compile(
     re.I,
 )
 NOTE_APPLY_RE = re.compile(r"\b(apply|applies|applying)\b", re.I)
+# A note that says the click opens or loads another page or form. Only a start-Apply link may use it to pass the
+# weak apply-word branch ("Opens the Apply now page of the job"); "Applies to this job" does not say it.
+NOTE_OPENS_RE = re.compile(r"\b(opens?|loads?|goes\s+to|navigates?\s+to)\b[^.]*?\b(page|form)\b", re.I)
 # A note that moves within a flow ("Goes to the next Easy Apply step"): "Easy Apply" is LinkedIn's product name,
 # so the bare word alone must not deny a mid-dialog click. Only the weak apply-word branch ignores it;
 # NOTE_FINAL_RE still denies a note that also says it submits.
@@ -930,14 +935,16 @@ NOTE_STEP_RE = re.compile(
 )
 
 
-def note_problem(note: Optional[str], filled: bool) -> Optional[str]:
-    """The words of a click note that say the click sends the application, or None."""
+def note_problem(note: Optional[str], filled: bool, start_link: bool = False) -> Optional[str]:
+    """The words of a click note that say the click sends the application, or None. `start_link`: the click is
+    on a start-Apply link, so a note that opens a page or form passes the weak branch."""
     text = NOTE_NEGATION_RE.sub(" ", note or "")
     match = NOTE_FINAL_RE.search(text)
     if match:
         return match.group(0)
     if filled and not NOTE_STEP_RE.search(text):
-        match = NOTE_APPLY_RE.search(text)
+        # a start-Apply link may say what it opens; the apply word is then looked for outside that span only
+        match = NOTE_APPLY_RE.search(NOTE_OPENS_RE.sub(" ", text) if start_link else text)
         if match:
             return match.group(0)
     return None
@@ -1283,6 +1290,12 @@ def ancestor_names(text: str, ref: str) -> str:
     return " ".join(reversed(names))
 
 
+def consent_control(text: str, ref: str, name: str) -> bool:
+    """A cookie or consent dialog control: its own name, or the dialog it sits in."""
+    around = ancestor_names(text, ref)
+    return bool(X.COOKIE.find(name) or X.COOKIE.find(around) or X.CMP.find(name) or X.CMP.find(around))
+
+
 def subtree_names(text: str, ref: str) -> list[str]:
     """The name of `ref` and the names of the lines inside it (the lines right below it with a deeper indent).
 
@@ -1395,16 +1408,45 @@ def snapshot_refs(run_dir: Path, tab: Any) -> dict:
     return read_json(refs_path(run_dir, tab), {})
 
 
-def final_controls(refs: dict, filled: bool) -> list[str]:
-    """Names of visible final controls (Submit and similar in any listed language; Apply after a fill)."""
-    names = []
-    for item in refs.values():
+CODE_FIELD_RE = re.compile(r"^\s*(textbox|spinbutton|heading)\b")
+
+
+def wall_evidence(text: str, refs: dict, signup: bool = True) -> bool:
+    """The page asks for a password or a one-time code (a field or a heading), or, with `signup`, has sign-up words:
+    evidence of an account wall. The sticky `wall_seen` uses signup=False: a "Register" link is on many job pages."""
+    if 'type="password"' in text or any((i.get("attrs") or {}).get("type") == "password" for i in refs.values()):
+        return True
+    for line in text.splitlines():
+        if (CODE_FIELD_RE.match(line) and X.CODE_ASK.find(line)) or (signup and X.SIGNUP.find(line)):
+            return True
+    return False
+
+
+def final_items(refs: dict, filled: bool, text: str = "") -> list[tuple[str, dict]]:
+    """(name, item) of visible final controls (Submit and similar in any listed language; Apply after a fill).
+    A control with no name of its own takes the names inside it (`text` is the page): LinkedIn and Ashby put
+    "Submit application" in a child of a nameless button."""
+    found = []
+    for ref, item in refs.items():
         name = item.get("name") or ""
         if item.get("marker"):
             continue  # an [AA alert] banner can quote the page ("Submit failed"); it is no button
-        if item.get("role") in CLICKABLE_ROLES - CHOICE_ROLES and (X.FINAL.find(name) or (filled and X.APPLY.find(name))):
-            names.append(name)
-    return names
+        if item.get("role") not in CLICKABLE_ROLES - CHOICE_ROLES:
+            continue
+        if not name.strip() and text:
+            name = " ".join(subtree_names(text, ref))[:300]
+        if not name.strip():
+            name = item.get("inside") or ""  # kept from an "all" read: the interactive read has no child lines
+        if text and consent_control(text, ref, name):
+            continue  # a cookie panel's "Confirm My Choices" is no application button
+        if X.FINAL.find(name) or (filled and X.APPLY.find(name)):
+            found.append((name, item))
+    return found
+
+
+def final_controls(refs: dict, filled: bool, text: str = "") -> list[str]:
+    """Names of visible final controls (see final_items)."""
+    return [name for name, _item in final_items(refs, filled, text)]
 
 
 def check_result(run_dir: Path, state: dict, job: dict, result: Optional[dict]) -> tuple[str, list[str]]:
@@ -1423,13 +1465,29 @@ def check_result(run_dir: Path, state: dict, job: dict, result: Optional[dict]) 
     # The values of the fields are split off the names (parse_refs) and never reach this verdict, so empty fields cannot be checked here.
     # What can be checked: the worker either reached the step with the final button, or it says why not.
     refs = snapshot_refs(run_dir, job["tab"])
-    finals = final_controls(refs, True)
-    if finals and not any(X.FINAL.find(n) for n in finals) and not tab_state.get("filled"):
+    items = final_items(refs, True, snapshot_text(run_dir, job["tab"]))
+    finals = [name for name, _item in items]
+    # "nothing done" is judged on the worker's own work, never on `filled`: that flag also comes from the shape of a
+    # page, and a job page with search boxes set it (run 2026-11-18, BAE: parked at "Apply now" with no form seen)
+    nothing_done = not tab_state.get("acted") and not result.get("filled") and not result.get("uploaded")
+    all_links = all(item.get("role") == "link" and navigable_href((item.get("attrs") or {}).get("href"))
+                    for _name, item in items)
+    if finals and not any(X.FINAL.find(n) for n in finals) and (not tab_state.get("filled") or all_links or nothing_done):
         # an Apply button with no form seen opens the form; it is not the final step (such a tab was once parked
-        # and went to Pending-Review unfilled). No retry: a push to go on could send a form
-        # that the checks did not recognize.
+        # and went to Pending-Review unfilled). A navigable Apply link is never the last step of a form, whatever
+        # was ticked before it. No retry: a push to go on could send a form that the checks did not recognize.
+        if tab_state.get("acted") and all_links:
+            return "BLOCKED", [f"Stopped at '{finals[0]}', a link that opens another page: it is never the final step "
+                               "of a form."]
         return "BLOCKED", [f"Stopped at '{finals[0]}' before the application form: this tab showed no form and "
                            "nothing was filled."]
+    # also with a final control on the page: a final word from a child name ("Send me jobs like this") must not turn
+    # a job page into a PASS. The text carries the marker of aa.NO_FINAL_MARKER, so the Sonnet handover still applies.
+    # An own-name final control keeps a park of a form that the site filled itself a PASS.
+    own_final = any(X.FINAL.find(item.get("name") or "") for _name, item in items)
+    if result["status"] == "parked" and nothing_done and not own_final:
+        return "BLOCKED", ["OTHER: The worker stopped before any final control: nothing was filled, uploaded or "
+                           "answered on this tab."]
     if not finals and not result["open"]:
         return "FAIL", [
             "You stopped before the final step and listed no open question. "

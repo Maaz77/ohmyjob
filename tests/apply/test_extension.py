@@ -348,6 +348,14 @@ class TestPopupsAsTabs(unittest.TestCase):
                 job.goto("http://127.0.0.1:8001/no-google.html")
                 time.sleep(1.0)
                 self.assertRegex(job.title(), r"\[AA g=0 named=0 v=[0-9][\w.+-]*\]$")
+
+                # a store badge holds a Google image but is not a Google sign-in
+                job.goto("http://127.0.0.1:8001/store-badge.html")
+                time.sleep(1.0)
+                names = job.evaluate("['badge', 'holder', 'badge2'].map("
+                                     "id => document.getElementById(id).getAttribute('aria-label'))")
+                self.assertEqual(names, [None, None, None])
+                self.assertRegex(job.title(), r"\[AA g=0 named=0 v=[0-9][\w.+-]*\]$")
             finally:
                 ctx.close()
 

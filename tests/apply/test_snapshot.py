@@ -259,10 +259,6 @@ class TestHandbackInput(unittest.TestCase):
         self.assertEqual(obj["status"], "blocked")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestCheckResultParked(unittest.TestCase):
     """A parked result is a win only when the end of the flow is evidenced."""
 
@@ -272,7 +268,7 @@ class TestCheckResultParked(unittest.TestCase):
             run_dir = Path(tmp)
             L.snap_dir(run_dir).mkdir(parents=True, exist_ok=True)
             L.refs_path(run_dir, 7).write_text(json.dumps(refs), encoding="utf-8")
-            result = {"status": "parked", "final_button": final_button, "open": open_items}
+            result = {"status": "parked", "final_button": final_button, "open": open_items, "filled": ["Name"]}
             return L.check_result(run_dir, {"tabs": {"7": {"filled": True}}}, {"tab": 7}, result)[0]
 
     DISMISS = {"ref_1": {"role": "button", "name": "Dismiss", "attrs": {}, "line": 'button "Dismiss"'}}
@@ -289,3 +285,116 @@ class TestCheckResultParked(unittest.TestCase):
 
     def test_named_final_button_passes(self):
         self.assertEqual(self.run_check(self.DISMISS, "Submit application", ["q1"]), "PASS")
+
+
+class TestConsentIsNoFinalControl(unittest.TestCase):
+    PAGE = ('dialog "Cookie Preferences" [ref_1]\n button "Confirm My Choices" [ref_2]\n'
+            'link "Apply now »" [ref_3] href="/talentcommunity/apply/1/"\n')
+
+    def check(self, page):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            L.write_text(L.snapshot_path(run_dir, 7), page)
+            L.write_json(L.refs_path(run_dir, 7), L.parse_refs(page))
+            result = {"status": "parked", "final_button": "Apply now »", "open": ["x"], "filled": [], "uploaded": None}
+            verdict = L.check_result(run_dir, {"tabs": {"7": {"filled": True}}}, {"tab": 7}, result)[0]
+            return verdict, L.final_controls(L.parse_refs(page), True, page)
+
+    def test_cookie_panel_button_is_no_final_control(self):
+        verdict, controls = self.check(self.PAGE)
+        self.assertEqual(verdict, "BLOCKED")
+        self.assertNotIn("Confirm My Choices", controls)
+
+    def test_submit_outside_a_consent_dialog_is_listed(self):
+        _verdict, controls = self.check(self.PAGE + 'button "Submit application" [ref_4]\n')
+        self.assertIn("Submit application", controls)
+
+
+BAE_PAGE = (
+    'combobox "All" [ref_97]\ncombobox "All" [ref_100]\n'
+    'textbox "Select how often (in days) to receive an alert" [ref_106] type="number"\n'
+    'textbox "Select how often (in days) to receive an alert" [ref_112] type="number"\n'
+    'link "Apply now »" [ref_114] href="/talentcommunity/apply/1458057333/?locale=en_GB"\n')
+NAMELESS_SUBMIT = 'button "Easy Apply to this job" [ref_1]\nbutton [ref_2] type="submit"\n generic "Submit application" [ref_3]\n'
+
+
+class TestFalseParkGate(unittest.TestCase):
+    """F1: a page that only looks like a form is not proof that a form was reached."""
+
+    def check(self, page, tab_state, **report):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            L.write_text(L.snapshot_path(run_dir, 7), page)
+            L.write_json(L.refs_path(run_dir, 7), L.parse_refs(page))
+            result = {"status": "parked", "final_button": "Apply now »", "open": ["x"], "filled": [], "uploaded": None,
+                      **report}
+            return L.check_result(run_dir, {"tabs": {"7": tab_state}}, {"tab": 7}, result)
+
+    def test_bae_page_is_shaped_like_a_form_but_parks_blocked(self):
+        self.assertTrue(L.looks_like_form(L.parse_refs(BAE_PAGE)))
+        self.assertEqual(self.check(BAE_PAGE, {"filled": True, "acted": False})[0], "BLOCKED")
+        # a tick elsewhere made the tab "acted": the Apply link is still no last step
+        self.assertEqual(self.check(BAE_PAGE, {"filled": True, "acted": True})[0], "BLOCKED")
+
+    def test_a_tab_that_never_showed_a_form_parks_blocked_at_apply_even_with_filled_fields(self):
+        verdict = self.check('button "Apply now" [ref_1]\n', {"filled": False, "acted": False}, filled=["x"])
+        self.assertEqual(verdict[0], "BLOCKED")
+
+    def test_a_link_final_after_an_answer_has_its_own_message(self):
+        verdict, reasons = self.check(BAE_PAGE, {"filled": True, "acted": True})
+        self.assertEqual(verdict, "BLOCKED")
+        self.assertIn("a link that opens another page", reasons[0])
+
+    def test_a_final_word_from_a_child_name_does_not_pass_a_job_page(self):
+        page = 'button [ref_1] type="submit"\n generic "Send me jobs like this" [ref_2]\n'
+        verdict, reasons = self.check(page, {"filled": True}, final_button="Send")
+        self.assertEqual(verdict, "BLOCKED")
+        self.assertIn("stopped before any final control", reasons[0])
+
+    def test_a_site_filled_form_parked_at_an_own_name_submit_passes(self):
+        page = 'button "Submit application" [ref_1]\n'
+        self.assertEqual(self.check(page, {"filled": True}, final_button="Submit application")[0], "PASS")
+
+    def test_a_nameless_submit_is_a_final_control_under_its_child_name(self):
+        refs = L.parse_refs(NAMELESS_SUBMIT)
+        self.assertEqual(L.final_controls(refs, False, NAMELESS_SUBMIT), ["Submit application"])
+        self.assertEqual(self.check(NAMELESS_SUBMIT, {"acted": True}, final_button="")[0], "PASS")
+
+    def test_a_prefilled_easy_apply_with_an_upload_passes(self):
+        verdict = self.check(NAMELESS_SUBMIT, {"filled": True}, final_button="", uploaded="resume.pdf")
+        self.assertEqual(verdict[0], "PASS")
+
+    def test_parked_with_nothing_done_and_no_final_control_is_blocked(self):
+        verdict, reasons = self.check('button "Dismiss" [ref_1]\n', {}, final_button="Submit", open=[])
+        self.assertEqual(verdict, "BLOCKED")
+        self.assertIn("stopped before any final control", reasons[0])  # NO_FINAL_MARKER: the handover reads it
+        self.assertEqual(self.check('button "Dismiss" [ref_1]\n', {"acted": True}, final_button="Submit", open=["x"])[0], "PASS")
+
+
+class TestWallEvidence(unittest.TestCase):
+    """F3a: a one-time-code step is account-wall evidence, and the wall stays seen after a reload."""
+
+    CODE_PAGE = 'heading "Confirm Your Identity" [ref_1]\n' + "".join(
+        f'textbox "Digit {i}" [ref_{i + 1}] type="text"\n' for i in range(1, 7))
+
+    def test_the_sticky_flag_ignores_sign_up_links_ads_and_captchas(self):
+        for page in ('link "Register" [ref_1] href="/register"\n',
+                     'generic "You must confirm your identity at the interview" [ref_1]\n',
+                     'heading "Security code review engineer" [ref_1]\n',
+                     'textbox "Enter the code shown" [ref_1] type="text"\n'):
+            self.assertFalse(L.wall_evidence(page, L.parse_refs(page), signup=False), page)
+        self.assertTrue(L.wall_evidence(self.CODE_PAGE, L.parse_refs(self.CODE_PAGE), signup=False))
+        self.assertTrue(L.wall_evidence('textbox "Password" [ref_1] type="password"\n', {}, signup=False))
+
+    def test_code_step_counts_and_a_plain_page_does_not(self):
+        self.assertTrue(L.wall_evidence(self.CODE_PAGE, L.parse_refs(self.CODE_PAGE)))
+        for page in ('textbox "Enter the verification code" [ref_1]\n', 'textbox "Password" [ref_1] type="password"\n',
+                     'link "Sign up" [ref_1]\n'):
+            self.assertTrue(L.wall_evidence(page, L.parse_refs(page)), page)
+        self.assertFalse(L.wall_evidence('button "Next" [ref_1]\n', L.parse_refs('button "Next" [ref_1]\n')))
+
+
+if __name__ == "__main__":
+    unittest.main()

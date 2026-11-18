@@ -32,6 +32,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urldefrag, urljoin, urlsplit
 
 # The ohmyjob modules read the workspace when they are imported, so they are imported only once main() knows the
 # workspace (from the parsed cwd): see load_modules().
@@ -65,6 +66,10 @@ MAX_STAGGER_WAIT = 120.0
 # opens a dialog (ats/linkedin-easy-apply.md), and an "Apply" that leaves for the employer is a link.
 BOARD_LABELS = {"ziprecruiter", "naukri", "indeed", "glassdoor", "bayt", "bdjobs", "hellowork", "monster", "jooble",
                 "reed", "totaljobs", "stepstone", "jobsdb", "seek"}
+# The boards for the start-Apply exception only (start_apply_link): wider than BOARD_LABELS, whose uses stay as they are
+APPLY_BOARDS = BOARD_LABELS | {"dice", "cwjobs", "jobsite", "caterer", "milkround", "retailchoice", "cv-library", "cvlibrary",
+                               "careerbuilder", "simplyhired", "efinancialcareers", "wellfound", "otta", "adzuna",
+                               "jobserve", "guardianjobs", "theguardian"}
 MAX_JUDGE_ROUNDS = 6  # Haiku checks for one tool call (a browser_batch can hold several new names)
 ALLOW = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}
 
@@ -185,8 +190,21 @@ class Ctx:
         entry = self.entry(tab) or {}
         return bool(entry.get("filled"))
 
+    def acted(self, tab: Any) -> bool:
+        """True once the worker gave a real answer on this tab (a fill, an upload, a tick or an option). Unlike
+        `filled`, a page that only looks like a form never sets it: the finish gate and the 'parked' orders read it."""
+        return bool((self.entry(tab) or {}).get("acted"))
+
+    def mark_acted(self, tab: Any) -> None:
+        entry = self.entry(tab)
+        if entry is not None and not entry.get("acted"):
+            entry["acted"] = True
+            entry["filled_host"] = entry.get("filled_host") or self.host(tab)  # on_navigate resets by this host
+            self.dirty = True
+
     def mark_filled(self, tab: Any) -> None:
         entry = self.entry(tab)
+        self.mark_acted(tab)  # before the early return: the shape path often set `filled` first
         if entry is not None and not entry.get("filled"):
             entry["filled"] = True
             entry["filled_host"] = self.host(tab)
@@ -204,10 +222,15 @@ class Ctx:
                 entry["sticky"] = False
                 entry["filled"] = False
                 entry["filled_host"] = None
-            elif entry.get("filled") and not entry.get("sticky") \
+                entry["acted"] = False
+                entry["wall_seen"] = False
+            elif entry.get("wall_seen") and (entry.get("wall_host") or "").removeprefix("www.") != (new_host or "").removeprefix("www."):
+                entry["wall_seen"] = False  # a reload of the same host keeps it: that is the case it is for
+            if not restart and (entry.get("filled") or entry.get("acted")) and not entry.get("sticky") \
                     and (entry.get("filled_host") or "").removeprefix("www.") != (new_host or "").removeprefix("www."):
                 entry["filled"] = False
                 entry["filled_host"] = None
+                entry["acted"] = False
         self.void_page(tab)
         self.set_url(tab, full)
 
@@ -352,6 +375,70 @@ def check_signin_lease(ctx: Ctx, tab: Any) -> None:
     L.log(ctx.run_dir, "lease-own" if entry["holder"] == tab_key else "lease-shared", tab=int(tab), host=host)
 
 
+# The orders that end a denial. A tab where the worker answered nothing may be a job page and no form at all: the
+# order to park there made a worker end a job page as "parked" (run 2026-11-18, BAE), so it gets the other order.
+NOTHING_FILLED = ("Nothing was filled on this tab: if this page has no application form, stop with status 'blocked' "
+                  "(blocker 'OTHER: <what you saw>'), not 'parked'; if it is a form filled up to this button, stop with status "
+                  "'parked'.")
+
+
+def park_order(ctx: Ctx, tab: Any, parked: str) -> str:
+    return parked if ctx.acted(tab) else NOTHING_FILLED
+
+
+def consent_banner(snapshot: str, ref: str, name: str) -> bool:
+    """A cookie or consent dialog: the control's own name, or the dialog it sits in. See check_click_name."""
+    return L.consent_control(snapshot, ref, name)
+
+
+def sticky_tab(ctx: Ctx, tab: Any) -> bool:
+    """/continue-applying: the candidate may have filled part of the application by hand (see check_click_name)."""
+    sticky = bool((ctx.entry(tab) or {}).get("sticky"))
+    if sticky:
+        job, here = ctx.job(tab) or {}, L.job_key(ctx.url(tab))
+        if here and here in {L.job_key(job.get("url")), L.job_key(job.get("apply_url"))}:
+            sticky = False  # an address with no job key of its own gives no answer, so it keeps sticky
+    return sticky
+
+
+def _page_path(url: str) -> tuple:
+    """Host and path of an address to compare two pages: lower case, no trailing slash, no query, no hash."""
+    parts = urlsplit(url)  # hostname: no port. Path parameters (";jsessionid=...") are not part of the page.
+    return ((parts.hostname or "").removeprefix("www."), re.sub(r";[^/]*", "", parts.path).lower().rstrip("/"))
+
+
+def start_apply_link(ctx: Ctx, tab: Any, ref: str, item: dict) -> Optional[str]:
+    """The target host of a link that only opens the next page, when the tab showed no real answer; else None.
+    A tab that merely looks like a form (a job page with search boxes) must not shut the Apply link of the employer:
+    the link goes to another page and sends nothing. Every condition has to hold: an Apply word in the name or
+    inside it; a link with a navigable address; no answer of the worker on the tab; a tab that is not
+    /continue-applying (the raw flag: a candidate's own form can stand on any address); no file input on the page
+    (that is an application form); no board in the current host or the target host; a target page that is not the
+    current one. A final word is denied before this runs (check_click_name)."""
+    attrs = item.get("attrs") or {}
+    href = attrs.get("href")
+    entry = ctx.entry(tab) or {}
+    if item.get("role") != "link" or not L.navigable_href(href) or ctx.acted(tab) or entry.get("sticky"):
+        return None
+    snapshot = L.snapshot_text(ctx.run_dir, tab)
+    inside = " ".join(L.subtree_names(snapshot, ref))[:300]
+    if not X.APPLY.find(f"{item.get('name') or ''} {inside}"):
+        return None
+    if 'type="file"' in snapshot or any((i.get("attrs") or {}).get("type") == "file" for i in ctx.refs(tab).values()):
+        return None
+    here = ctx.url(tab) or ""
+    # a browser reads a backslash as a slash: "/\www.indeed.com/x" is "//www.indeed.com/x"
+    target = urljoin(here, str(href).strip().replace("\\", "/"))
+    if urlsplit(target).scheme not in ("http", "https"):
+        return None
+    to = L.host_of(target) or ""
+    if APPLY_BOARDS & (set((ctx.host(tab) or "").split(".")) | set(to.split("."))):
+        return None
+    if _page_path(target) == _page_path(here):
+        return None
+    return to
+
+
 def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     name = item.get("name") or ""
     role = item.get("role") or ""
@@ -369,11 +456,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # /continue-applying: the candidate may have filled part of the application by hand, so the Haiku check decides
     # about Apply. Not on the job's own page: nothing of the earlier run stands there, and `on_navigate` clears
     # sticky for exactly this address. A tab adopted in continue mode is never navigated, so the same test runs here.
-    sticky = bool((ctx.entry(tab) or {}).get("sticky"))
-    if sticky:
-        job, here = ctx.job(tab) or {}, L.job_key(ctx.url(tab))
-        if here and here in {L.job_key(job.get("url")), L.job_key(job.get("apply_url"))}:
-            sticky = False  # an address with no job key of its own gives no answer, so it keeps sticky
+    sticky = sticky_tab(ctx, tab)
     # a checkbox, a radio button or an option never sends a form. A consent dialog builds its toggles as
     # `button ... type="checkbox"`, so the type counts as well as the role.
     choice = role in L.CHOICE_ROLES or attrs.get("type") in ("checkbox", "radio")
@@ -389,7 +472,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # purpose: "cookie" has to be in the control's own name, because a dialog named "Apply to Crumbl Cookies" is an
     # application, and only a phrase of a consent dialog counts from the dialog around it.
     around = L.ancestor_names(snapshot, ref)
-    banner = X.COOKIE.find(name) or X.COOKIE.find(around) or X.CMP.find(name) or X.CMP.find(around)
+    banner = consent_banner(snapshot, ref, name)
     # a page of an OAuth server (its address without the query) asks for a sign-in permission: no click but a choice
     if not choice and L.OAUTH_URL_RE.search(re.split(r"[?#]", ctx.url(tab) or "")[0]):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
@@ -419,7 +502,8 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             return
     word = None if choice else X.FINAL.find(scan)
     if word:
-        raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. Stop here with status 'parked'.")
+        raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
+                   + park_order(ctx, tab, "Stop here with status 'parked'."))
     # a <button> without a type attribute is a submit button as well
     if role == "button" and not name.strip() and (attrs.get("type") == "submit" or filled and attrs.get("type") not in ("button", "reset")):
         raise Deny("This is a submit button without a name, and nothing inside it is named either. If you have not "
@@ -428,8 +512,14 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
     if filled and not choice and X.APPLY.find(scan):
-        raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. If the "
-                   "form is filled up to this button, stop here with status 'parked'; else fill the form first.")
+        to = start_apply_link(ctx, tab, ref, item)
+        if to is None:
+            raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. "
+                       + park_order(ctx, tab, "If the form is filled up to this button, stop here with status "
+                                    "'parked'; else fill the form first."))
+        # judged as on a tab that showed no form: the rules below still run, and the link passes as a navigable link
+        L.log(ctx.run_dir, "apply-link-pass", tab=int(tab), host=ctx.host(tab), to=to)
+        filled = False
     # A tick never sends or grants anything by itself (a label such as "Allow ..." or "... delete your data ... / Yes"
     # is an answer), so the permission, delete, sign-up and Google rules below skip it.
     if consent and not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
@@ -455,7 +545,8 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         result = ctx.judged_click(payload)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "
-                       "Do not click it. If this is the step with the final button, stop here with status 'parked'.")
+                       "Do not click it. " + park_order(ctx, tab, "If this is the step with the final button, stop here "
+                                                         "with status 'parked'."))
 
 
 def check_google_click(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
@@ -679,10 +770,12 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
                 # the same element can change its name after a click (Next becomes Submit); the check knows only the old name
                 raise Deny("You clicked this control already and read no page since. Call read_page first, for the whole "
                            "page (without ref_id): its name can change after a click (Next can become Submit).")
-            problem = L.note_problem(note, ctx.filled(tab))
+            # a start-Apply link is judged as on a tab with no form: only the weak apply-word branch is dropped
+            # (NOTE_FINAL_RE still denies), and check_click_name decides about the click itself
+            problem = L.note_problem(note, ctx.filled(tab), start_apply_link(ctx, tab, ti["ref"], item) is not None)
             if problem:
                 raise Deny(f"Your note says that this click can send the application ('{problem}'). Do not click it. "
-                           "Stop here with status 'parked'.")
+                           + park_order(ctx, tab, "Stop here with status 'parked'."))
             if google:
                 check_google_click(ctx, tab, ti["ref"], item)
                 ctx.set_focus(tab, None)
@@ -691,6 +784,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
                 raise Deny("This sign-in tab is not a Google page. Do not use it. If you cannot go on in your own tab, "
                            f"stop with status 'blocked' (blocker: sign-in pop-up of {ctx.host(tab) or 'another site'}).")
             check_click_name(ctx, tab, ti["ref"], item)
+            # a toggle of a cookie or consent dialog is no answer to the application
+            answer = role in L.TICK_ROLES or role == "option" or (item.get("attrs") or {}).get("type") in ("checkbox", "radio")
+            if answer and not consent_banner(L.snapshot_text(ctx.run_dir, tab), ti["ref"], item.get("name") or ""):
+                ctx.mark_acted(tab)
             if role in L.TICK_ROLES:  # an answer given by a click is a fill
                 log_fill(ctx, tab, ti["ref"], item, item.get("name"))
             elif role == "option":  # the answer of the dropdown that was clicked open before
@@ -1523,6 +1620,7 @@ def save_page(run_dir: Path, tab: Any, text: str, partial: bool) -> bool:
     path = L.snapshot_path(run_dir, tab)
     old_refs = L.snapshot_refs(run_dir, tab)
     questions = L.question_labels(text)
+    here = (L.page_url(text, tab) or "").split("#")[0]  # `inside` is carried within one page only
     for ref, item in refs.items():
         # a question learned from an "all" read survives a read without label lines, while the ref names the same element
         before = old_refs.get(ref) or {}
@@ -1530,6 +1628,17 @@ def save_page(run_dir: Path, tab: Any, text: str, partial: bool) -> bool:
             item["label"] = questions[ref]
         elif before.get("label") and (before.get("role"), before.get("name")) == (item["role"], item["name"]):
             item["label"] = before["label"]
+        # a nameless button keeps its child names (LinkedIn's and Ashby's Submit): only an "all" read lists them, and
+        # the interactive read that ends a park has no lines inside a control. The finish gate reads them.
+        if not item["name"].strip() and item["role"] in L.CLICKABLE_ROLES:
+            inside = " ".join(L.subtree_names(text, ref))[:300]
+            if inside:
+                item["inside"], item["inside_url"] = inside, here
+            elif before.get("inside") and before.get("role") == item["role"] and not before.get("name") \
+                    and here and before.get("inside_url") == here:
+                # a click keeps the refs of the page before until the next read: the same ref on another page
+                # is another control
+                item["inside"], item["inside_url"] = before["inside"], here
     if partial and path.exists():
         # keep the whole page first: the labels and questions around a ref are looked up there (first match)
         text = path.read_text(encoding="utf-8") + "\n" + text
@@ -1691,6 +1800,12 @@ def snapshot(inp: dict) -> None:
                 # the tab shows an application form, also one that the site filled: Apply is final from now on
                 entry["filled"] = True
                 entry["filled_host"] = L.host_of(state["tab_urls"].get(L.tab_key(ti["tabId"])))
+                changed = True
+            # a password field or a one-time-code ask (not sign-up words: a "Register" link is on many job pages)
+            if not entry.get("wall_seen") and L.wall_evidence(L.snapshot_text(run_dir, ti["tabId"]),
+                                                                L.snapshot_refs(run_dir, ti["tabId"]), signup=False):
+                entry["wall_seen"] = True  # sticky on this host: a reload can replace this page before the report
+                entry["wall_host"] = L.host_of(state["tab_urls"].get(L.tab_key(ti["tabId"])))
                 changed = True
             if not ti.get("ref_id") and (entry.get("clicked") or entry.get("choice_dirty")):
                 entry["clicked"] = []  # the worker saw the page after its click (a part read may miss that control)

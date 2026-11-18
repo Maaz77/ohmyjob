@@ -1754,12 +1754,20 @@ class TestHandover(Base):
             self.result(folder, tab, status="blocked", blocker=blocker)
             self.assertEqual(self.handover(), [], blocker)
 
-    def test_an_account_wall_is_handed_over_only_when_the_page_does_not_confirm_it(self):
+    def test_an_account_wall_that_a_page_showed_is_not_handed_over(self):
         folder, tab = self.setup_run()
         self.result(folder, tab, status="blocked", blocker="ACCOUNT_WALL: it wants an account")
         self.post("read_page", {"tabId": tab, "filter": "interactive"},
                   f'textbox "Password" [ref_2] type="password"\n\nTab Context:\n- tab {tab}', W, "A1")
         self.assertEqual(self.handover(), [])  # verified: Sonnet would see the same page
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  f'link "Jobs" [ref_2]\n\nTab Context:\n- tab {tab}', W, "A1")
+        # `wall_seen` is sticky: a reload that replaced the wall page does not make the wall unverified
+        self.assertEqual(self.handover(), [])
+
+    def test_an_account_wall_that_no_page_showed_is_handed_over(self):
+        folder, tab = self.setup_run()
+        self.result(folder, tab, status="blocked", blocker="ACCOUNT_WALL: it wants an account")
         self.post("read_page", {"tabId": tab, "filter": "interactive"},
                   f'link "Jobs" [ref_2]\n\nTab Context:\n- tab {tab}', W, "A1")
         self.assertEqual(len(self.handover()), 1)

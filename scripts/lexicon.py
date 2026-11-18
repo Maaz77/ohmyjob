@@ -319,6 +319,19 @@ SIGNUP = Terms(
      "fungua akaunti"],
 )
 
+# A page that asks for a one-time code that the site sent (an email or text step instead of a password): evidence of an
+# account wall, as a password field is. Named like the field or the heading of that step.
+CODE_ASK = Terms(
+    ["verification code", "one-time code", "one time code", "enter the code we sent",
+     "confirm your identity", "one-time passcode", "one time passcode"],
+    ["codice di verifica", "codice monouso", "conferma la tua identità",
+     "code de vérification", "code à usage unique", "confirmez votre identité",
+     "bestätigungscode", "einmalcode", "einmalpasswort", "bestätigen sie ihre identität",
+     "código de verificación", "código de un solo uso", "confirma tu identidad",
+     "código de verificação", "confirme a sua identidade", "verificatiecode", "eenmalige code",
+     "bevestig je identiteit"],
+)
+
 # Delete and withdraw.
 DELETE = Terms(
     ["delete", "withdraw", "elimina", "eliminare", "cancella", "cancellare", "ritira", "ritirare", "supprimer",
