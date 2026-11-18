@@ -134,7 +134,7 @@ class TestPrepHandOff(T.Base):
                                          "agent_id": "P1"})
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 out = json.loads(proc.stdout)
-                self.assertEqual((out["pj"], out["tool"], out["ws"]), (event, tool, str(self.root)))
+                self.assertEqual((out["pj"], out["tool"], out["ws"]), (event, tool, str(self.root.resolve())))
 
     def test_other_callers_do_not(self):
         proc = self.call("guard", {"tool_name": C + "javascript_tool", "tool_input": {"agent_type": PREP_MASTER}})
@@ -1164,7 +1164,7 @@ class TestSlots(T.Base):
         self.assertEqual(run(self.env), "49")  # the default cap of 50, less the master
         self.assertEqual(run({**self.env, "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "2"}), "1")
         (self.root / "ohmyjob.json").write_text("{not json")  # the config plays no part
-        self.assertEqual(run(self.env), "19")
+        self.assertEqual(run(self.env), "49")
         (self.root / "ohmyjob.json").write_text('{"search": {"sources": ["linkedin"]}}')
 
 
