@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P1 shadow</title></head><body>
+<h1>Shadow probe</h1>
+<div id="open-host"></div>
+<div id="closed-host"></div>
+<x-slot-el id="slotted"><input type="text" aria-label="Slotted Light Input" id="slot-in"></x-slot-el>
+<button id="pagenext" onclick="log('PAGE NEXT clicked')">Page Next</button>
+<pre id="log"></pre>
+<div id="banner-host"></div>
+<script src="common.js"></script>
+<script>
+var o=document.getElementById('open-host').attachShadow({mode:'open'});
+o.innerHTML='<label for="oi">Open Name</label><input id="oi" type="text"><button id="obtn">Shadow Next</button><select aria-label="Open Select"><option>One</option><option>Two</option></select>';
+o.getElementById('obtn').onclick=function(){log('SHADOW NEXT clicked')};
+o.getElementById('oi').addEventListener('input',function(e){log('open input: '+e.target.value)});
+var c=document.getElementById('closed-host').attachShadow({mode:'closed'});
+c.innerHTML='<label for="ci">Closed Name</label><input id="ci" type="text"><button id="cbtn">Closed Next</button>';
+c.getElementById('cbtn').onclick=function(){log('CLOSED NEXT clicked')};
+c.getElementById('ci').addEventListener('input',function(e){log('closed input: '+e.target.value)});
+customElements.define('x-slot-el',class extends HTMLElement{constructor(){super();var r=this.attachShadow({mode:'open'});r.innerHTML='<div style="border:1px solid #888">custom element: <slot></slot></div>';}});
+document.getElementById('slot-in').addEventListener('input',function(e){log('slotted input: '+e.target.value)});
+var b=document.getElementById('banner-host').attachShadow({mode:'open'});
+b.innerHTML='<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:flex-end;justify-content:center"><div style="background:#fff;padding:20px;margin:20px"><p>We use cookies (Usercentrics-style)</p><button id="deny">Deny</button> <button id="acc">Accept all</button></div></div>';
+b.getElementById('deny').onclick=function(){log('BANNER Deny clicked');document.getElementById('banner-host').remove()};
+b.getElementById('acc').onclick=function(){log('BANNER Accept all clicked');document.getElementById('banner-host').remove()};
+document.addEventListener('click',function(e){var t=e.composedPath()[0];log('doc click real target: '+(t.id||t.tagName)+' "'+(t.textContent||'').slice(0,20)+'"')},true);
+</script></body></html>

@@ -1,0 +1,11 @@
+# read_page filter=all (shadow.html), before click
+heading "Shadow probe" [ref_3]
+textbox "Slotted Light Input" [ref_1] type="text"
+button "Page Next" [ref_2]
+
+Viewport: 1978x1118
+# after left_click ref_2 (tool reply: "Clicked on element ref_2")
+heading "Shadow probe" [ref_3]
+textbox "Slotted Light Input" [ref_1] type="text"
+button "Page Next" [ref_2]
+generic "doc click real target: DIV \"We use cookies (User\"" [ref_4]

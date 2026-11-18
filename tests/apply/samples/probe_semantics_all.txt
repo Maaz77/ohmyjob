@@ -1,0 +1,28 @@
+heading "Semantics probe" [ref_20]
+generic "Apply A" [ref_1]
+generic "Apply B" [ref_21]
+generic "Apply C" [ref_2]
+link "Apply D" [ref_3]
+generic "(icon link no name)" [ref_22]
+ link [ref_4] href="/apply"
+button [ref_5]
+button "Add" [ref_6]
+button "Add2" [ref_7]
+label "QQQQ...(100 Q)" [ref_23]
+textbox "QQQQ...(100 Q)" [ref_8] type="text"
+generic "Do you need sponsorship?" [ref_24]
+label "Yes" [ref_25]
+ radio "yes" [ref_9] type="radio"
+label [ref_26]
+ radio "no" [ref_10] type="radio"
+table [ref_27]
+ generic "Skill" [ref_28]
+ generic "Python" [ref_29]
+ radio "1" [ref_11] type="radio"
+ radio "2" [ref_12] type="radio"
+ radio "3" [ref_13] type="radio"
+ generic "SQL" [ref_30]
+ radio "1" [ref_14] ...
+ generic "Java" [ref_31]
+ radio "1" [ref_17] ...
+# Source: label is 157 Q + "for the UNITED KINGDOM?" = 180 chars; printed exactly 100 Q, tail lost.

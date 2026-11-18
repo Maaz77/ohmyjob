@@ -32,6 +32,40 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(L.final_controls(refs, filled=True), ["Easy Apply"])  # an Apply word is final after a fill
         self.assertEqual(L.page_url(text, 101), "https://www.linkedin.com/jobs/view/1/")
 
+    def test_field_marks_are_stripped_and_the_name_rules_see_the_label(self):
+        text = ('button "[x] Yes" [ref_1] aria-pressed="true"\nbutton "[req] [invalid] Next" [ref_2]\n'
+                'button "[disabled] Submit application" [ref_3]\ntextbox "[req] Search jobs = python" [ref_4]\n'
+                'label "Question" [ref_5]\n radio "[x] Question / A" [ref_6]\n')
+        refs = L.parse_refs(text)
+        self.assertEqual([refs[r]["name"] for r in ("ref_1", "ref_2", "ref_3")], ["Yes", "Next", "Submit application"])
+        self.assertEqual((refs["ref_4"]["name"], refs["ref_4"]["value"]), ("Search jobs", "python"))
+        self.assertTrue(L.is_search_field(refs["ref_4"]))
+        self.assertEqual(L.final_controls(refs, filled=False), ["Submit application"])
+        self.assertEqual(L.line_name(text.splitlines()[0]), "Yes")
+        self.assertEqual(L.question_labels(text), {"ref_6": "Question"})
+        self.assertFalse(L.looks_like_form({"ref_4": refs["ref_4"]}))
+
+    def test_values_split_off_labels_markers_and_marks_only_names(self):
+        text = ('textbox "[req] Phone = 555" [ref_1] type="text"\ntextbox "Search jobs = python" [ref_2]\n'
+                'textbox "Zip = 1" [ref_3]\ntextbox "City = x" [ref_4]\nlink "[AA alert] Submit failed" [ref_5]\n'
+                'checkbox "[x]" [ref_6]\nbutton "Submitted by = bob" [ref_7]\n')
+        refs = L.parse_refs(text)
+        self.assertEqual((refs["ref_1"]["name"], refs["ref_1"]["value"]), ("Phone", "555"))
+        self.assertNotIn("value", refs["ref_7"])  # only text-type names carry a value
+        self.assertEqual(refs["ref_6"]["name"], "")  # a mark can end the name
+        self.assertTrue(refs["ref_5"]["marker"])
+        self.assertEqual(L.final_controls(refs, filled=True), [])  # the banner is no control
+        self.assertFalse(L.looks_like_form({r: refs[r] for r in ("ref_2", "ref_3", "ref_4")}))
+        # three ordinary fields whose values hold search words: a form only because the value is split off
+        shaped = L.parse_refs('textbox "Name = search jobs" [ref_1]\ntextbox "City = filter" [ref_2]\ntextbox "Job = search" [ref_3]\n')
+        self.assertTrue(L.looks_like_form(shaped))
+        self.assertFalse(L.is_search_field(shaped["ref_1"]))
+        # a radio's label part, and a nameless label that takes the label part of the next line
+        q = L.question_labels('label [ref_1]\n textbox "Phone = Yes" [ref_2]\nlabel "Q?" [ref_3]\n radio "Q? / Yes" [ref_4]\n')
+        self.assertEqual(q, {"ref_2": "Phone", "ref_4": "Q?"})
+        self.assertNotIn("555", L.without_values(text))
+        self.assertIn("Submitted by = bob", L.without_values(text))
+
     def test_form_page(self):
         text = sample("constructed_form_page.txt")
         refs = L.parse_refs(text)

@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P2 frames</title></head><body>
+<h1>Frames probe</h1>
+<pre id="log"></pre>
+<p>1 same-origin</p><iframe src="frame_form.html" width="400" height="300" title="same-origin frame"></iframe>
+<p>2 srcdoc</p><iframe width="400" height="300" title="srcdoc frame" srcdoc="<form onsubmit='return false'><label for=sd>Srcdoc Name</label> <input id=sd type=text><button type=button onclick=&quot;document.getElementById('sl').textContent+='SRCDOC NEXT clicked\n'&quot;>Srcdoc Next</button></form><pre id=sl></pre>"></iframe>
+<p>3 about:blank + contenteditable (TinyMCE style)</p><iframe id="ed" width="400" height="300" title="rich text frame"></iframe>
+<p>4 cross-origin 8732</p><iframe src="http://127.0.0.1:8732/frame_form.html" width="400" height="300" title="cross-origin frame"></iframe>
+<p>5 nested cross-origin(8732) -> 8731</p><iframe src="http://127.0.0.1:8732/frame_nested.html" width="400" height="400" title="nested frame"></iframe>
+<script src="common.js"></script>
+<script>
+var d=document.getElementById('ed').contentDocument;d.open();d.write('<html><body contenteditable="true" style="min-height:200px">Rich body</body></html>');d.close();
+d.body.addEventListener('input',function(){log('editor body: '+d.body.innerText)});
+</script></body></html>

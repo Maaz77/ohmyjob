@@ -229,13 +229,19 @@ def _profile_values() -> list[str]:
     return values
 
 
+# The helper extension names a text field "<label> = <value>" in a page read: the label stays in a trace, the value goes.
+QUOTED_VALUE_RE = re.compile(r'("(?:[^"\\\n]|\\.)*? = )(?:[^"\\\n]|\\.)*(?=")')
+
+
 def redact_text(text: str) -> str:
-    """No email address and no line that holds a value of the `# Resume` header of Profile.md.
+    """No email address, no value of a quoted "<label> = <value>" name, and no line that holds a value of the `# Resume`
+    header of Profile.md.
 
     A line with such a value is dropped whole, not masked: the rest of that line is the candidate's data too."""
     values = _profile_values()
     kept = [line for line in (text or "").splitlines() if not any(value in line for value in values)]
     out = "\n".join(kept) if "\n" in (text or "") else ("".join(kept))
+    out = QUOTED_VALUE_RE.sub(r"\1<value>", out)
     return L.EMAIL_RE.sub("<email>", out)
 
 
@@ -438,7 +444,7 @@ def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str
         signin = signin_info(run_dir, tab, state)
         step = (signin or {}).get("step")
         entry_tab = (state.get("tabs") or {}).get(L.tab_key(tab)) or {}
-        in_snapshot = any(X.GOOGLE.find(item.get("name") or "")
+        in_snapshot = any(X.GOOGLE.find(item.get("name") or "") and not item.get("marker")
                           for item in L.snapshot_refs(run_dir, tab).values())
         google = {"count": entry_tab.get("google_count", 0), "named": entry_tab.get("google_named", 0),
                   "in_snapshot": in_snapshot}

@@ -1,0 +1,5 @@
+# read_page filter=interactive max_chars=90000 (shadow.html)
+textbox "Slotted Light Input" [ref_1] type="text"
+button "Page Next" [ref_2]
+
+Viewport: 1978x1118

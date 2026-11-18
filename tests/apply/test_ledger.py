@@ -150,6 +150,10 @@ class TestRedaction(unittest.TestCase):
     def test_an_email_address_never_reaches_a_trace(self):
         self.assertEqual(ledger.redact_text("write to alex@example.com now"), "write to <email> now")
 
+    def test_a_field_value_in_a_page_name_never_reaches_a_trace(self):
+        out = ledger.redact_text('textbox "[req] Phone = 555 0100" [ref_3]\nradio "Q / Yes" [ref_4]')
+        self.assertEqual(out, 'textbox "[req] Phone = <value>" [ref_3]\nradio "Q / Yes" [ref_4]')
+
     def test_a_profile_header_value_never_reaches_a_trace(self):
         profile = T.FIXTURE / "Profile.md"
         name = next((line.split(":", 1)[1].strip() for line in profile.read_text(encoding="utf-8").splitlines()

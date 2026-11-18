@@ -1,0 +1,20 @@
+<!doctype html><title>Fields</title>
+<!-- Controls whose state read_page does not print: the extension writes it into their aria-label. -->
+<fieldset><legend>Do you need sponsorship?</legend>
+  <label><input type="radio" id="yes" name="s" value="y" required> Yes</label>
+  <label><input type="radio" id="no" name="s" value="n" checked> No</label>
+</fieldset>
+<label><input type="checkbox" id="agree"> I agree to the terms</label>
+<label for="email">Email</label><input id="email" type="email" required value="a@b.co">
+<input id="pw" type="password" value="hunter2" aria-label="Password">
+<button id="submit" disabled>Submit application</button>
+<button id="toggle" aria-pressed="true">Remote</button>
+<table>
+  <tr><th></th><th>Poor</th><th>Good</th></tr>
+  <tr><td>Teamwork</td><td><input type="radio" id="m1" name="t"></td><td><input type="radio" id="m2" name="t"></td></tr>
+</table>
+<div role="option" id="opt" aria-selected="true">Berlin</div>
+<div role="checkbox" id="sw" aria-checked="false" aria-label="Alerts"></div>
+<div role="combobox" id="country" aria-label="Country" tabindex="0">  Italy </div>
+<div role="combobox" id="wrap" aria-label="Region"><span>Italy</span><ul role="listbox"><li role="option">France</li><li role="option">Spain</li></ul></div>
+<button role="combobox" id="trigger" aria-label="City"><span data-placeholder>Select a city</span></button>

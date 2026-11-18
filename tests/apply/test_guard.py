@@ -891,6 +891,13 @@ class TestFillLabels(T.Base):
                                                          ("Gender", "Prefer not to say"), ("Military service?", "No")])
         self.assertFalse(any(p[2] for p in self.pairs()))
 
+    def test_a_value_in_a_field_name_never_becomes_the_label(self):
+        self.post("read_page", {"tabId": self.tab, "filter": "interactive"},
+                  'textbox "[req] Nickname = Alexander" [ref_14] type="text"\n', W, "A1")
+        self.fill("ref_14", "Alexander")
+        self.assertEqual(self.pairs(), [("Nickname", "Alexander", True)])
+        self.assertNotIn("Alexander", (self.run_dir() / "guard.log").read_text().replace('"value": "Alexander"', ""))
+
     def test_an_option_click_is_a_fill_of_the_clicked_dropdown(self):
         self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.FULL, W, "A1")
         self.post("read_page", {"tabId": self.tab, "filter": "interactive"}, self.INTERACTIVE, W, "A1")
@@ -1301,6 +1308,47 @@ class TestClickGuardHoles(T.Base):
         url = {"tabId": t2, "url": "https://careers.example.com/apply"}
         self.assertDenied(self.guard(C + "navigate", url, W, "A1"), "use only your own tab")
         self.assertAllowed(self.guard(C + "navigate", url, W, "A2"))
+
+    def test_field_marks_are_stripped_and_text_and_choice_names_skip_the_word_rules(self):
+        """The extension names fields "[x] Yes", "<label> = <value>", "<question> / <option>" (spec field-marks 5)."""
+        self.boot()
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click('button "[x] Yes" [ref_1] aria-pressed="true"\n'))  # SAFE after the strip: no judge
+        self.assertEqual(len(self.judge_calls()), before)
+        self.assertDenied(self.try_click('button "[disabled] Submit application" [ref_1]\n'), "final control")
+        for filled in (False, True):
+            self.edit_tab(filled=filled, filled_host="jobs.example.com")
+            self.assertAllowed(self.try_click('radio "Do you want us to delete your data after 6 months? / Yes" [ref_1]\n'))
+            self.assertAllowed(self.try_click('radio "How did you hear about us? / Google" [ref_1]\n'))
+            self.assertAllowed(self.try_click('checkbox "Allow analytics cookies" [ref_1]\n'))
+            self.assertAllowed(self.try_click('dialog "We use cookies" [ref_9]\n checkbox "[x] Allow analytics cookies" [ref_1]\n'))
+            self.assertAllowed(self.try_click('textbox "[req] Confirm email = a@b.c" [ref_1]\n'))
+            self.assertAllowed(self.try_click('textbox "Position you are applying for = Engineer" [ref_1]\n'))
+        self.assertNotIn("jobs.example.com", self.state().get("signin_hosts", {}))  # "/ Google" took no lease
+
+    def test_a_click_on_a_marker_of_the_extension_is_refused(self):
+        self.boot()
+        for name in ("[AA alert] File name is too long", "[AA frame]", "[AA frame: no address]"):
+            page = f'link "{name}" [ref_1]\n'
+            self.assertDenied(self.try_click(page), "marker of the helper extension")
+            self.read(page)
+            self.assertDenied(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_1", "value": "x"}, W, "A1"), "marker")
+            self.assertDenied(self.guard(C + "file_upload", {"tabId": 101, "ref": "ref_1", "paths": ["/tmp/x.pdf"]}, W, "A1"), "marker")
+            self.assertDenied(self.guard(C + "computer", {"tabId": 101, "action": "hover", "ref": "ref_1"}, W, "A1"), "marker")
+            # a caller that is not an ohmyjob agent: the same refusal
+            self.assertDenied(self.guard(C + "computer", {"tabId": 101, "action": "left_click", "ref": "ref_1"}), "marker")
+
+    def test_an_option_keeps_the_delete_rule_and_a_text_click_on_an_oauth_page_is_refused(self):
+        self.boot()
+        self.assertDenied(self.try_click('listbox [ref_9]\n option "Withdraw application" [ref_1]\n'), "withdraws")
+        url = "https://provider.example.com/oauth/authorize?x=1"
+        self.boot(url)
+        self.assertDenied(self.try_click('textbox "Email" [ref_1]\n', url=url), "sign-in permission")
+
+    def test_an_option_with_a_final_word_is_allowed_on_a_filled_tab(self):
+        self.boot(filled=True)
+        for name in ("Acknowledge/Confirm", "Done"):
+            self.assertAllowed(self.try_click('listbox [ref_9]\n option "%s" [ref_1]\n' % name))
 
 
 if __name__ == "__main__":

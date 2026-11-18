@@ -1,0 +1,20 @@
+# occlusion.html read_page filter=interactive (inert and aria-hidden controls are listed; overlay-covered Target too):
+button "Target" [ref_1]
+button "Overlay" [ref_2]
+button "Half" [ref_3]
+button "Next" [ref_4]
+option "Female" [ref_5]
+option "Male" [ref_6]
+button "Inert" [ref_7]
+button "Hidden" [ref_8]
+# every left_click by ref replied "Clicked on element ref_N" (no error). Page log (capture listener = real event target):
+REAL TARGET: cover "Overlay cove"      <- click ref_1 (Target, covered by fixed div); Target never received it, no "Target clicked"
+REAL TARGET: spot "dot"                <- click ref_3 (Half, small element over its center); no "Half clicked"
+REAL TARGET: oF "Female"
+Female clicked                         <- click ref_4 (Next, under an open list): the list item got the click
+REAL TARGET: BODY "Sticky heade"       <- click ref_7 (Inert): landed on BODY, no "Inert clicked"
+REAL TARGET: hid "Hidden"
+Hidden clicked                         <- click ref_8 (aria-hidden=true region): worked
+# scroll_to ref_13 then left_click ref_13:
+REAL TARGET: below "Below Header"
+Below Header clicked

@@ -1,0 +1,5 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P10 dialogs</title></head><body><h1>Dialogs probe</h1>
+<button id="up" onclick="log('before alert');alert('File name is too long');log('after alert')">Upload</button>
+<label>Name <input id="n" type="text"></label>
+<pre id="log"></pre><script src="common.js"></script>
+<script>document.getElementById('n').addEventListener('input',function(){window.onbeforeunload=function(e){e.preventDefault();e.returnValue='';return ''}})</script></body></html>

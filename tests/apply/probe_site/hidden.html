@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P11 hidden</title></head><body><h1>Hidden tab probe</h1>
+<div id="box" style="width:50px;height:50px;background:#09f;opacity:0"></div>
+<div id="rz" style="width:50px;height:50px;background:#9c0"></div>
+<div id="lazy"></div>
+<pre id="log"></pre><script src="common.js"></script>
+<script>
+var c={raf:0,timeout:0,io:0,ro:0},t0=Date.now();
+function loop(){c.raf++;requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function tick(){c.timeout++;setTimeout(tick,100)}tick();
+var box=document.getElementById('box');
+new IntersectionObserver(function(es){c.io++;if(es.some(function(e){return e.isIntersecting})&&!document.getElementById('lazyin')){var d=document.createElement('div');d.id='lazyin';d.textContent='LAZY SECTION INSERTED';document.getElementById('lazy').appendChild(d)}}).observe(box);
+new ResizeObserver(function(){c.ro++}).observe(document.getElementById('rz'));
+setTimeout(function(){box.style.opacity=1;box.style.marginTop='900px';document.getElementById('rz').style.width='120px';c.revealed=1},3000);
+var lg=document.getElementById('log');
+setInterval(function(){lg.textContent='t='+Math.round((Date.now()-t0)/1000)+'s raf='+c.raf+' timeout='+c.timeout+' io='+c.io+' ro='+c.ro+' revealed='+(c.revealed||0)+' lazy='+(document.getElementById('lazyin')?'yes':'no')+' vis='+document.visibilityState},1000);
+</script></body></html>

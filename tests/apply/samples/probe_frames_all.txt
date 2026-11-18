@@ -1,0 +1,32 @@
+# read_page filter=interactive (frames.html): output was EMPTY (only "Viewport: 1978x1118")
+# read_page filter=all
+heading "Frames probe" [ref_1]
+generic "1 same-origin" [ref_2]
+generic "same-origin frame" [ref_3]
+generic "2 srcdoc" [ref_4]
+generic "srcdoc frame" [ref_5]
+generic "3 about:blank + contenteditable (TinyMCE style)" [ref_6]
+generic "rich text frame" [ref_7]
+generic "4 cross-origin 8732" [ref_8]
+generic "cross-origin frame" [ref_9]
+generic "5 nested cross-origin(8732) -> 8731" [ref_10]
+generic "nested frame" [ref_11]
+
+Viewport: 1978x1118
+# read_page all ref_id=ref_3 -> only: generic "same-origin frame" [ref_3]
+# find "Frame Next button":
+6 elements share words with the query:
+ref_3 generic "same-origin frame"
+ref_5 generic "srcdoc frame"
+ref_7 generic "rich text frame"
+ref_9 generic "cross-origin frame" (off-screen)
+ref_11 generic "nested frame" (off-screen)
+ref_1 heading "Frames probe"
+# get_page_text:
+Frames probe
+1 same-origin
+2 srcdoc
+3 about:blank + contenteditable (TinyMCE style)
+4 cross-origin 8732
+5 nested cross-origin(8732) -> 8731
+# screenshot shows all frame contents rendered (Frame Name input, Frame Next, Srcdoc Next, "Rich body")

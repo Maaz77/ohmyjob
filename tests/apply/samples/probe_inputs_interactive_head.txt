@@ -1,0 +1,27 @@
+# inputs.html read_page filter=interactive (select options 2..249 elided here; the real output listed all 251 options inline)
+textbox "Tracked Input" [ref_1] type="text"
+textbox "Plain Input" [ref_2] type="text"
+textbox "Rich Box" [ref_3]
+textbox "Text Area" [ref_4]
+combobox "Country 1" [ref_5]
+ option "Country 1" (selected)
+ ... (Country 2 .. Country 250) ...
+ option "Italy"
+combobox "City Combo" [ref_6] type="text"
+checkbox "Custom Checkbox" [ref_7]
+textbox "Date Input" [ref_8] type="date"
+textbox "Range Input" [ref_9] type="range"
+# NOT in interactive: (g) real checkbox (opacity 0), (k) all four hidden fields, (f) listbox options.
+# filter=all additionally prints (G) and (K):
+ label "I agree to the privacy notice" [ref_279]
+  checkbox "on" [ref_280] type="checkbox"
+(k) hidden fields:
+ textbox "Website" [ref_287] type="text"          (display:none)
+ textbox "Vis Hidden" [ref_288] type="text"       (visibility:hidden)
+ textbox "Offscreen Field" [ref_289] type="text"  (left:-9999px)
+ textbox "[value redacted]" [ref_290] type="hidden"
+listbox "City list" [ref_272]  (display:none until clicked)
+ option "Berlin" [ref_273] / "Paris" [ref_274] / "Rome" [ref_275] / "Oslo" [ref_276] / "Lima" [ref_277]
+# In "all" each <option> of the 251-option select is printed TWICE (as option, then again as generic "Country N" ref_20..ref_270).
+# The page's <pre id=log> prints as ONE generic node whose name is cut at 100 chars:
+generic "(a) framework saw change: tracked-val (b) focus value=plain-val (b) change value=plain-val (b) input" [ref_291]

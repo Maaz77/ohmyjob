@@ -1,0 +1,9 @@
+# toast.html: left_click ref_2 (Save) -> "Clicked on element ref_2"; read_page filter=all immediately after:
+heading "Toast probe" [ref_3]
+label "Name" [ref_4]
+ textbox [ref_1] type="text"
+button "Save" [ref_2]
+generic "toast shown" [ref_5]
+alert "Please fill in all required fields" [ref_6]
+# after computer wait 5 s, read_page filter=all:
+generic "toast shown toast removed" [ref_5]      (alert gone)

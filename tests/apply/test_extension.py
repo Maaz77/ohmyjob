@@ -372,7 +372,7 @@ class TestPopupsAsTabs(unittest.TestCase):
 
     def test_a_frame_of_another_site_carries_its_address(self):
         """read_page cannot see into a frame of another site, so the extension puts a link to the frame's own address
-        beside it. A frame too small to hold a form, and a frame of the same site, are left alone."""
+        beside it, a frame of the same site included. A frame too small to hold a form is left alone."""
         with sync_playwright() as p:
             ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
             try:
@@ -385,9 +385,10 @@ class TestPopupsAsTabs(unittest.TestCase):
                                      "}))")
                 self.assertEqual(marks["board"], "http://localhost:8001/other.html")
                 self.assertIsNone(marks["pixel"])
-                self.assertIsNone(marks["same"])
+                # read_page reads no frame, a frame of the same site included
+                self.assertEqual(marks["same"], "http://127.0.0.1:8001/no-google.html")
                 # the link is read_page's only way to the address, and it must not be written twice
-                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 1)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 2)
                 self.assertEqual(job.evaluate("document.querySelector('a[data-aa-frame]').textContent"), "[AA frame]")
             finally:
                 ctx.close()
@@ -443,7 +444,7 @@ class TestPopupsAsTabs(unittest.TestCase):
                 sw.evaluate(f"async () => chrome.scripting.executeScript("
                             f"{{target: {{tabId: {job_id}, allFrames: true}}, files: ['bridge.js']}})")
                 time.sleep(1.0)
-                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 1)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 2)
                 self.assertEqual(len(re.findall(r"\[AA g=", job.title())), 1)
             finally:
                 ctx.close()
@@ -461,6 +462,224 @@ class TestPopupsAsTabs(unittest.TestCase):
                 self.assertTrue(child.title().startswith(f"[AA from {job_id}] "), child.title())
                 self.assertNotIn("[AA g=", child.title())
                 self.assertNotIn("[AA g=", home.title())
+            finally:
+                ctx.close()
+
+    def job_on(self, p, path):
+        """start_run, with the job tab already on a page of the test site."""
+        ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")
+        job = [page for page in ctx.pages if page is not home][0]
+        job.goto("http://127.0.0.1:8001/" + path)
+        time.sleep(1.0)
+        return ctx, sw, home, home_id, job, job_id, gid
+
+    LABELS = ("Object.fromEntries([...document.querySelectorAll('[id]')].map("
+              "e => [e.id, e.getAttribute('aria-label')]))")
+
+    def test_field_marks_and_names(self):
+        """read_page prints no state and names a textbox by its value: the extension writes both into aria-label."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "fields.html")
+            try:
+                labels = job.evaluate(self.LABELS)
+                self.assertEqual(labels["yes"], "[req] Do you need sponsorship? / Yes")
+                self.assertEqual(labels["no"], "[x] [req] Do you need sponsorship? / No")
+                self.assertEqual(labels["agree"], "I agree to the terms")  # an improved name is kept even with no mark
+                self.assertEqual(labels["email"], "[req] Email = a@b.co")
+                self.assertEqual(labels["pw"], "Password")  # never the value of a password
+                # never on a pressable control: a late pass would leave a stale name that the guard trusts
+                self.assertIsNone(labels["submit"])
+                self.assertIsNone(labels["toggle"])
+                self.assertEqual(labels["m1"], "Teamwork / Poor")
+                self.assertEqual(labels["m2"], "Teamwork / Good")
+                self.assertEqual(labels["opt"], "[x] Berlin")
+                self.assertEqual(labels["sw"], "Alerts")
+                self.assertEqual(labels["country"], "Country = Italy")  # a role-based text control: its text is the value
+                self.assertEqual(labels["wrap"], "Region = Italy")  # not its own open listbox
+                self.assertEqual(labels["trigger"], "City")  # a placeholder is no answer: no " = value"
+            finally:
+                ctx.close()
+
+    def test_marks_follow_a_click_and_give_the_site_label_back(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "fields.html")
+            try:
+                job.check("#agree")
+                job.evaluate("document.getElementById('sw').setAttribute('aria-checked', 'true')")
+                time.sleep(0.5)
+                labels = job.evaluate(self.LABELS)
+                self.assertEqual(labels["agree"], "[x] I agree to the terms")
+                self.assertEqual(labels["sw"], "[x] Alerts")
+                job.uncheck("#agree")
+                job.evaluate("document.getElementById('sw').setAttribute('aria-checked', 'false')")
+                time.sleep(0.5)
+                labels = job.evaluate(self.LABELS)
+                self.assertEqual(labels["agree"], "I agree to the terms")
+                self.assertEqual(labels["sw"], "Alerts")
+                self.assertEqual(job.evaluate("document.getElementById('sw').hasAttribute('data-aa-label')"), False)
+            finally:
+                ctx.close()
+
+    def test_a_frame_without_an_address_gets_a_tag(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "srcdoc-frame.html")
+            try:
+                tag = job.evaluate("(() => { const b = document.getElementById('doc').previousElementSibling;"
+                                   "return [b.dataset.aaFrame, b.getAttribute('aria-label'), b.hasAttribute('href')]; })()")
+                self.assertEqual(tag, ["none", "[AA frame: no address]", False])
+            finally:
+                ctx.close()
+
+    def test_dialogs_are_answered_in_a_run_tab(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "dialogs.html")
+            try:
+                seen = []
+                job.on("dialog", lambda d: (seen.append(d.type), d.accept()))
+                job.evaluate("alert('File name is too long')")
+                self.assertIs(job.evaluate("confirm('Sure?')"), False)
+                self.assertIsNone(job.evaluate("prompt('Name?')"))
+                banner = job.evaluate("(() => { const a = document.querySelector('a[data-aa-dialog]');"
+                                      "return [a.getAttribute('aria-label'), a.hasAttribute('href'), getComputedStyle(a).pointerEvents]; })()")
+                self.assertEqual(banner, ["[AA prompt: answered Cancel] Name?", False, "none"])
+                job.evaluate("alert('File name is too long')")
+                self.assertEqual(job.evaluate("document.querySelector('a[data-aa-dialog]').getAttribute('aria-label')"),
+                                 "[AA alert] File name is too long")
+                # "Leave site?" never shows: the page's beforeunload listener does not run
+                # a real click is a later step: the banner of the last one goes
+                job.mouse.click(5, 300)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-dialog]').length"), 0)
+                job.click("#away")
+                job.wait_for_url("**/other.html")
+                self.assertEqual(seen, [])
+                self.assertIsNone(job.evaluate("sessionStorage.getItem('ranBeforeUnload')"), "the page's listener was stopped")
+            finally:
+                ctx.close()
+
+    def test_dialogs_are_native_outside_a_run_group(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "dialogs.html")
+            try:
+                other = ctx.new_page()
+                seen = []
+                other.on("dialog", lambda d: (seen.append((d.type, d.message)), d.accept()))
+                other.goto("http://127.0.0.1:8001/dialogs.html")
+                time.sleep(0.5)
+                self.assertIn("[native code]", other.evaluate("window.alert.toString()"))
+                other.evaluate("alert('hi')")
+                self.assertIs(other.evaluate("confirm('Sure?')"), True)
+                self.assertEqual(seen, [("alert", "hi"), ("confirm", "Sure?")])
+            finally:
+                ctx.close()
+
+    def group_plan(self, title, job_id):
+        return "https://www.linkedin.com/robots.txt?aa-groups#aa-groups=" + quote(
+            json.dumps({title: [job_id]}, separators=(",", ":")), safe="")
+
+    def test_a_grouped_tab_has_native_dialogs_and_an_adopted_one_is_marked_again(self):
+        """End of a run: the moved tab drops the attribute, so its own Submit is never cancelled by a shimmed confirm.
+        /continue-applying then adopts it back: the bridge's observers are installed already, yet it must be marked."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "fields.html")
+            try:
+                self.assertEqual(job.evaluate(self.LABELS)["opt"], "[x] Berlin")
+                job.evaluate("alert('File name is too long')")
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-dialog]').length"), 1)
+                home.goto(self.group_plan("Needs Attention", job_id))
+                time.sleep(1.2)
+                self.assertTrue(home.title().startswith("[AA grouped 1]"), home.title())
+                self.assertFalse(job.evaluate("document.documentElement.hasAttribute('data-aa-popups-as-tabs')"))
+                # leaving the run takes the dialog banner and the labels away
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-dialog]').length"), 0)
+                self.assertIsNone(job.evaluate(self.LABELS)["opt"])
+                self.assertIn("[native code]", job.evaluate("window.alert.toString()"))
+                seen = []
+                job.on("dialog", lambda d: (seen.append(d.type), d.accept()))
+                self.assertIs(job.evaluate("confirm('Submit?')"), True)
+                self.assertEqual(seen, ["confirm"])
+                # the candidate ticks a box while the tab is parked: no pass runs there
+                job.check("#agree")
+                time.sleep(0.5)
+                plan = quote(json.dumps([job_id], separators=(",", ":")), safe="")
+                home.goto("https://www.linkedin.com/robots.txt?aa-adopt#aa-adopt=" + plan)
+                time.sleep(1.5)
+                self.assertTrue(home.title().startswith("[AA adopted 1]"), home.title())
+                self.assertTrue(job.evaluate("document.documentElement.hasAttribute('data-aa-popups-as-tabs')"))
+                self.assertEqual(job.evaluate(self.LABELS)["agree"], "[x] I agree to the terms")
+                self.assertEqual(job.evaluate(self.LABELS)["opt"], "[x] Berlin")
+                self.assertIs(job.evaluate("confirm('Submit?')"), False)
+            finally:
+                ctx.close()
+
+    def test_a_no_address_tag_turns_into_a_link(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "srcdoc-frame.html")
+            try:
+                job.evaluate("document.getElementById('doc').contentWindow.location.replace('http://localhost:8001/other.html')")
+                time.sleep(1.5)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 1)
+                link = job.evaluate("(() => { const b = document.getElementById('doc').previousElementSibling;"
+                                    "return [b.dataset.aaFrame, b.getAttribute('href')]; })()")
+                self.assertEqual(link, ["1", "http://localhost:8001/other.html"])
+            finally:
+                ctx.close()
+
+    def test_frames_drop_the_attribute_after_grouping(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "framed-form.html")
+            try:
+                attr = "document.documentElement.hasAttribute('data-aa-popups-as-tabs')"
+                board = [f for f in job.frames if f.url.endswith("/other.html")][0]
+                self.assertTrue(board.evaluate(attr))
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                self.assertFalse(job.evaluate(attr))
+                self.assertFalse(board.evaluate(attr))
+            finally:
+                ctx.close()
+
+    def test_a_tab_taken_out_of_the_run_group_leaves_the_run(self):
+        """The candidate takes a pop-up tab out of its group: it must not be put back into its opener's group."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "job.html")
+            try:
+                with ctx.expect_page() as info:
+                    job.click("#pop")
+                child = info.value
+                child.wait_for_load_state()
+                time.sleep(1.0)
+                attr = "document.documentElement.hasAttribute('data-aa-popups-as-tabs')"
+                self.assertTrue(child.evaluate(attr))
+                child_id = sw.evaluate("async () => (await chrome.tabs.query({})).map(t => t.id).sort((a, b) => b - a)[0]")
+                sw.evaluate(f"async () => chrome.tabs.ungroup([{child_id}])")
+                time.sleep(1.5)
+                self.assertEqual(sw.evaluate(f"async () => (await chrome.tabs.get({child_id})).groupId"), -1)
+                self.assertFalse(child.evaluate(attr))
+            finally:
+                ctx.close()
+
+    def test_a_dialog_function_the_site_replaced_is_kept(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "fields.html")
+            try:
+                job.evaluate("window.__mine = window.alert = function () { return 'mine'; }")
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                self.assertTrue(job.evaluate("window.alert === window.__mine"))
+                # the other two were ours and are native again
+                self.assertIn("[native code]", job.evaluate("window.confirm.toString()"))
+            finally:
+                ctx.close()
+
+    def test_a_frame_written_by_the_page_has_no_address(self):
+        """document.open on an about:blank frame gives it the page's own address: a link to it would be a loop."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "written-frame.html")
+            try:
+                tag = job.evaluate("(() => { const b = document.getElementById('doc').previousElementSibling;"
+                                   "return [b.dataset.aaFrame, b.hasAttribute('href')]; })()")
+                self.assertEqual(tag, ["none", False])
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 1)
             finally:
                 ctx.close()
 

@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P4 semantics</title></head><body><h1>Semantics probe</h1>
+<div id="a" onclick="log('Apply A clicked')" style="border:1px solid">Apply A</div>
+<div id="b" style="cursor:pointer;border:1px solid">Apply B</div>
+<span id="c" tabindex="0" onclick="log('Apply C clicked')">Apply C</span>
+<a id="d" onclick="log('Apply D clicked')" style="cursor:pointer">Apply D</a>
+<p><a id="e" href="/apply"><svg width="20" height="20"><circle cx="10" cy="10" r="8"/></svg></a> (icon link no name)</p>
+<p><button id="f" onclick="log('svg title Next clicked')"><svg width="20" height="20"><title>Next</title><path d="M2 2L18 10L2 18z"/></svg></button></p>
+<p><button id="g" title="Add" onclick="log('title Add clicked')">+</button> <button id="g2" title="Add2" onclick="log('title-only')"></button></p>
+<p><label for="longq">QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQfor the UNITED KINGDOM?</label><input id="longq" type="text"></p>
+<fieldset><legend>Do you need sponsorship?</legend><label><input type="radio" name="sp" value="yes"> Yes</label> <label><input type="radio" name="sp" value="no"> No</label></fieldset>
+<table border="1"><tr><th>Skill</th><th>1</th><th>2</th><th>3</th></tr>
+<tr><td>Python</td><td><input type="radio" name="py" value="1"></td><td><input type="radio" name="py" value="2"></td><td><input type="radio" name="py" value="3"></td></tr>
+<tr><td>SQL</td><td><input type="radio" name="sql" value="1"></td><td><input type="radio" name="sql" value="2"></td><td><input type="radio" name="sql" value="3"></td></tr>
+<tr><td>Java</td><td><input type="radio" name="java" value="1"></td><td><input type="radio" name="java" value="2"></td><td><input type="radio" name="java" value="3"></td></tr></table>
+<pre id="log"></pre><script src="common.js"></script>
+<script>document.getElementById('b').addEventListener('click',function(){log('Apply B clicked')})</script></body></html>

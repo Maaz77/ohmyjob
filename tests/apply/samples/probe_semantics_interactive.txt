@@ -1,0 +1,19 @@
+generic "Apply A" [ref_1]
+generic "Apply C" [ref_2]
+link "Apply D" [ref_3]
+link [ref_4] href="/apply"
+button [ref_5]
+button "Add" [ref_6]
+button "Add2" [ref_7]
+textbox "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ" [ref_8] type="text"
+radio "yes" [ref_9] type="radio"
+radio "no" [ref_10] type="radio"
+radio "1" [ref_11] type="radio"
+radio "2" [ref_12] type="radio"
+radio "3" [ref_13] type="radio"
+radio "1" [ref_14] type="radio"
+radio "2" [ref_15] type="radio"
+radio "3" [ref_16] type="radio"
+radio "1" [ref_17] type="radio"
+radio "2" [ref_18] type="radio"
+radio "3" [ref_19] type="radio"

@@ -1,0 +1,45 @@
+# Live check of helper extension 1.10.0 in Chrome with Claude in Chrome (2026-11-18).
+# Run group registered by https://www.linkedin.com/robots.txt?aa-live#aa-popups-as-tabs (tab title "[AA on 1.10.0]").
+# Pages from tests/apply/probe_site served on 127.0.0.1:8731/8732, opened in the same tab group.
+
+## state.html, filter "interactive"
+radio "[x] Radio Checked" [ref_1] type="radio"
+radio "Radio Other" [ref_2] type="radio"
+checkbox "[x] Checkbox Checked" [ref_3] type="checkbox"
+button "Pressed Button" [ref_4]
+checkbox "[x] ARIA Checkbox Checked" [ref_5]
+textbox "Scripted Value" [ref_6] type="text"
+textbox "[req] Required Input" [ref_7] type="text"
+textbox "[req] Aria Required" [ref_8] type="text"
+textbox "[invalid] Aria Invalid" [ref_9] type="text"
+textbox "[disabled] Disabled Input" [ref_10] type="text"
+textbox "[disabled] Aria Disabled" [ref_11] type="text"
+textbox "Readonly Input = ro" [ref_12] type="text"
+combobox "B" [ref_13]
+combobox "Combo Collapsed" [ref_14] type="text"
+button "Disabled Button" [ref_15]
+# Note: "Scripted Value" was set by a script with no event and no DOM change, so the pass has not seen it yet.
+
+## semantics.html, filter "interactive" (radios)
+radio "Do you need sponsorship? / Yes" [ref_9] type="radio"
+radio "Do you need sponsorship? / No" [ref_10] type="radio"
+radio "Python / 1" [ref_11] type="radio"
+radio "SQL / 2" [ref_15] type="radio"
+radio "Java / 3" [ref_19] type="radio"
+
+## frames.html, filter "all", after 5 s
+link "[AA frame]" [ref_3] href="http://127.0.0.1:8731/frame_form.html"      (same-origin frame)
+link "[AA frame: no address]" [ref_6]                                       (srcdoc frame)
+link "[AA frame]" [ref_9] href="http://127.0.0.1:8731/frames.html"          (about:blank frame written by document.open: BUG, links to the page itself)
+link "[AA frame]" [ref_12] href="http://127.0.0.1:8732/frame_form.html"     (cross-origin frame; appeared after its load, not yet at 2 s)
+link "[AA frame]" [ref_15] href="http://127.0.0.1:8732/frame_nested.html"   (nested: first hop)
+
+## inputs.html, after form_input "hello" and a click on the ARIA checkbox
+textbox "Plain Input = hello" [ref_7] type="text"
+checkbox "[x] Custom Checkbox" [ref_279]
+# find: checkbox "I agree to the privacy notice" (hidden)  <- the styled checkbox now has its label (was "on")
+
+## dialogs.html
+# left_click "Upload" (calls alert): returned at once (1.9.0: CDP timeout after 30 s, then 45 s "Page still loading").
+link "[AA alert] File name is too long" [ref_3]
+# form_input in the field (the page then sets a beforeunload handler), navigate away: succeeded, no "Leave site?" block.

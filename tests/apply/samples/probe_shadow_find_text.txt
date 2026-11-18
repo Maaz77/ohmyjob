@@ -1,0 +1,13 @@
+# find "Shadow Next button"
+1 element shares words with the query, then other controls of the kind asked for or on screen:
+ref_3 heading "Shadow probe"
+ref_2 button "Page Next"
+ref_1 textbox "Slotted Light Input"
+# get_page_text
+Title: P1 shadow
+URL: http://127.0.0.1:8731/shadow.html
+Source element: <body>
+---
+Shadow probe
+Page Next
+# form_input ref_1 "hello": Set text value to "hello" (previous: "")

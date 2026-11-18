@@ -1,0 +1,34 @@
+# state.html read_page filter=all (interactive shows same controls without label wrapper lines)
+heading "State probe" [ref_16]
+label "Radio Checked" [ref_17]
+ radio "on" [ref_1] type="radio"          <- this one is checked
+label "Radio Other" [ref_18]
+ radio "on" [ref_2] type="radio"
+label "Checkbox Checked" [ref_19]
+ checkbox "on" [ref_3] type="checkbox"    <- checked
+button "Pressed Button" [ref_4]           <- aria-pressed=true
+checkbox "ARIA Checkbox Checked" [ref_5]  <- aria-checked=true
+listbox "Fruit list" [ref_20]
+ option "Apple" [ref_21]                  <- aria-selected=true
+ option "Pear" [ref_22]
+label "Scripted Value" [ref_23]
+ textbox "prefilled" [ref_6] type="text"  <- value set by script
+label "Required Input" [ref_24]
+ textbox [ref_7] type="text"              <- required
+label "Aria Required" [ref_25]
+ textbox [ref_8] type="text"
+label "Aria Invalid" [ref_26]
+ textbox [ref_9] type="text"              <- aria-invalid=true
+label "Disabled Input" [ref_27]
+ textbox [ref_10] type="text"             <- disabled
+label "Aria Disabled" [ref_28]
+ textbox [ref_11] type="text"
+label "Readonly Input" [ref_29]
+ textbox "ro" [ref_12] type="text"        <- readonly, value ro
+label "Native Select" [ref_30]
+ combobox "B" [ref_13]
+  option "A"
+  option "B" (selected)
+  option "C"
+combobox "Combo Collapsed" [ref_14] type="text"   <- aria-expanded=false
+button "Disabled Button" [ref_15]         <- disabled

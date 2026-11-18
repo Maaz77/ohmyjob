@@ -1117,8 +1117,9 @@ class NeedJudge(Exception):
 #                     button "Submit form" [ref_435] type="submit"
 #                     link "Go to company site" [ref_26] href="https://..."
 #                     textbox [ref_1]                (no label: no name)
-#   read_page never shows "required", and does not show values or checked states.
-#   After a fill, an input without a label shows its value as its name.
+#   read_page never shows "required", values or checked states itself. In a run tab the helper extension puts them into
+#   the name: "[x] [req] [disabled] [invalid] " marks on boxes and fields, and "<label> = <value>" on text fields
+#   (parse_refs strips the marks and splits the value off). After a fill, an input without a label shows its value as its name.
 #   Tab Context block (end of most results):
 #     - Executed on tabId: 1690899341
 #     • tabId 1690899341: "<title>" ("<url>")
@@ -1130,6 +1131,38 @@ ELEMENT_RE = re.compile(
 ATTR_RE = re.compile(r'([A-Za-z][\w-]*)="((?:[^"\\]|\\.)*)"')
 EXECUTED_RE = re.compile(r"Executed on tabId:\s*(\d+)")
 TAB_LINE_RE = re.compile(r'^\s*•\s*tabId\s+(\d+):\s*(.*)\s\("([^"]*)"\)\s*$')
+
+
+# The helper extension prefixes the aria-label of form controls with state marks ("[x] ", "[req] ", "[disabled] ",
+# "[invalid] ", in that order), and a text field's name is "<label> = <value>". Names are stripped of the marks where
+# they are read from a page line, so every rule that compares a name (SAFE, CMP, the final words) sees the page's own
+# name; parse_refs also splits a text field's value off its label (`value`), so a value never counts as a label.
+# The worker's compacted view keeps the marks.
+MARKS_RE = re.compile(r"^(?:\[(?:x|req|disabled|invalid)\](?: |$))+")  # read_page trims a name, so a mark can end it
+
+
+def _name(value: str) -> str:
+    return MARKS_RE.sub("", _unescape(value))
+
+
+def _label(role: str, name: str) -> tuple[str, Optional[str]]:
+    """(name, value): a text-type name "<label> = <value>" split at the first " = " (the value stays out of every rule)."""
+    if role in TYPE_ROLES and " = " in name:
+        label, _, value = name.partition(" = ")
+        return label, value
+    return name, None
+
+
+def without_values(text: str) -> str:
+    """A page with the value part of every text field's name cut off, for a scan of the page's own words (a typed value
+    such as "Submitted by" must not look like a message of the page)."""
+    out = []
+    for raw in text.splitlines():
+        match = ELEMENT_RE.match(raw.rstrip())
+        if match and match.group("name") and match.group("role").lower() in TYPE_ROLES and " = " in match.group("name"):
+            raw = raw.replace(match.group("name"), match.group("name").partition(" = ")[0], 1)
+        out.append(raw)
+    return "\n".join(out)
 
 
 def _unescape(value: str) -> str:
@@ -1144,12 +1177,13 @@ def parse_refs(text: str) -> dict[str, dict]:
         if not match:
             continue
         attrs = {k: _unescape(v) for k, v in ATTR_RE.findall(match.group("attrs") or "")}
-        refs[match.group("ref")] = {
-            "role": match.group("role").lower(),
-            "name": _unescape(match.group("name") or ""),
-            "attrs": attrs,
-            "line": raw.strip()[:400],
-        }
+        role = match.group("role").lower()
+        name, value = _label(role, _name(match.group("name") or ""))
+        refs[match.group("ref")] = {"role": role, "name": name, "attrs": attrs, "line": raw.strip()[:400]}
+        if value is not None:
+            refs[match.group("ref")]["value"] = value
+        if name.startswith("[AA "):
+            refs[match.group("ref")]["marker"] = True  # a marker of the helper extension: no control of the page
     return refs
 
 
@@ -1165,7 +1199,8 @@ def question_labels(text: str) -> dict[str, str]:
         match = ELEMENT_RE.match(raw.rstrip())
         if not match:
             continue
-        role, name, ref = match.group("role").lower(), _unescape(match.group("name") or ""), match.group("ref")
+        role, ref = match.group("role").lower(), match.group("ref")
+        name = _label(role, _name(match.group("name") or ""))[0]
         if role == "label":
             indent = len(match.group("indent"))
             nxt = lines[i + 1] if i + 1 < len(lines) else ""
@@ -1180,7 +1215,7 @@ def question_labels(text: str) -> dict[str, str]:
                 out[ref], used = pending, True
                 if role in TYPE_ROLES:
                     pending = ""
-            last = name
+            last = name.rsplit(" / ", 1)[-1] if role in TICK_ROLES else name  # a radio reads "Question / Option"
     return out
 
 
@@ -1204,11 +1239,11 @@ def context_names(text: str, ref: str, span: int = 2) -> str:
     for j in sorted(picked):
         match = ELEMENT_RE.match(lines[j].rstrip())
         if match and match.group("name"):
-            names.append(_unescape(match.group("name")))
+            names.append(_label(match.group("role").lower(), _name(match.group("name")))[0])
         else:
             quoted = re.match(r'^\s*[A-Za-z][\w-]*\s+"((?:[^"\\]|\\.)*)"', lines[j])
             if quoted:
-                names.append(_unescape(quoted.group(1)))
+                names.append(_name(quoted.group(1)))
     return " | ".join(names)
 
 
@@ -1216,9 +1251,9 @@ def line_name(line: str) -> str:
     """The quoted name of a read_page line, or ''."""
     match = ELEMENT_RE.match(line.rstrip())
     if match:
-        return _unescape(match.group("name") or "")
+        return _label(match.group("role").lower(), _name(match.group("name") or ""))[0]
     quoted = re.match(r'^\s*[A-Za-z][\w-]*\s+"((?:[^"\\]|\\.)*)"', line)
-    return _unescape(quoted.group(1)) if quoted else ""
+    return _name(quoted.group(1)) if quoted else ""
 
 
 def ancestor_names(text: str, ref: str) -> str:
@@ -1365,6 +1400,8 @@ def final_controls(refs: dict, filled: bool) -> list[str]:
     names = []
     for item in refs.values():
         name = item.get("name") or ""
+        if item.get("marker"):
+            continue  # an [AA alert] banner can quote the page ("Submit failed"); it is no button
         if item.get("role") in CLICKABLE_ROLES - CHOICE_ROLES and (X.FINAL.find(name) or (filled and X.APPLY.find(name))):
             names.append(name)
     return names
@@ -1381,9 +1418,9 @@ def check_result(run_dir: Path, state: dict, job: dict, result: Optional[dict]) 
             return "CLOSED", [result["blocker"]]
         return "BLOCKED", [result.get("blocker") or "blocked"]
     tab_state = state.get("tabs", {}).get(tab_key(job["tab"]), {})
-    if X.SUBMITTED.find(snapshot_text(run_dir, job["tab"])):
+    if X.SUBMITTED.find(without_values(snapshot_text(run_dir, job["tab"]))):
         return "ALARM", ["The last page snapshot shows a submission message. Check this job now."]
-    # read_page shows no "required" marks and no values, so empty fields cannot be checked here.
+    # The values of the fields are split off the names (parse_refs) and never reach this verdict, so empty fields cannot be checked here.
     # What can be checked: the worker either reached the step with the final button, or it says why not.
     refs = snapshot_refs(run_dir, job["tab"])
     finals = final_controls(refs, True)

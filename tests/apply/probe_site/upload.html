@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P8 upload</title></head><body><h1>Upload probe</h1>
+<p>1 visible: <input id="f1" type="file" name="visible"></p>
+<p>2 hidden behind label: <label for="f2" style="border:1px solid;padding:4px">Attach</label><input id="f2" type="file" name="hiddenlabel" style="display:none"></p>
+<p>3 opacity0 over styled button: <span style="position:relative;display:inline-block"><span style="border:1px solid;padding:4px;background:#eee">Choose resume</span><input id="f3" type="file" name="opacity0" style="position:absolute;inset:0;width:100%;height:100%;opacity:0"></span></p>
+<pre id="log"></pre><script src="common.js"></script>
+<script>
+function wire(id){var e=document.getElementById(id);e.addEventListener('change',function(){log(id+' change files.length='+e.files.length+' first='+(e.files[0]&&e.files[0].name))})}
+['f1','f2','f3'].forEach(wire);
+setTimeout(function(){var i=document.createElement('input');i.type='file';i.id='f4';document.body.appendChild(i);wire('f4');log('f4 appended at 1s')},1000);
+</script></body></html>

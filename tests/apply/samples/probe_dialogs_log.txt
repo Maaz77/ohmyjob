@@ -1,0 +1,14 @@
+# dialogs.html. Upload button calls alert("File name is too long").
+computer left_click ref_1 (Upload) -> ERROR after ~30 s:
+Error clicking: CDP sendCommand "Input.dispatchMouseEvent" timed out after 30000ms on tab 1690902565. The renderer may be frozen or unresponsive.
+read_page interactive (next call) -> ERROR after ~45 s:
+Failed to read page: Page still loading (executeScript waited 45000ms for document_idle). The previous action may have triggered navigation — try again in a moment.
+form_input ref_2 "abc" -> ERROR:
+Failed to execute form input: the page gave no answer. It may still be loading or navigating, or a dialog it opened may be waiting. ... If form_input fails the same way, the person using this browser may need to answer a dialog.
+navigate (same tab) to http://127.0.0.1:8731/depth.html -> "Navigated to http://127.0.0.1:8731/depth.html"  (succeeded; the alert was gone, next read_page returned the Depth fields)
+
+# beforeunload: fresh load, form_input ref_2 "abc" -> Set text value to "abc" (previous: "")
+navigate to depth.html -> ERROR:
+Navigation was blocked by a "Leave site?" dialog — the page at http://127.0.0.1:8731/dialogs.html has unsaved changes. The page is still open and unchanged. Either address the unsaved state first, or retry with force: true to discard it and navigate anyway.
+(passing force:true through the tool wrapper in this session gave the same error: the param is not in this session's schema)
+read_page afterwards works: textbox "abc" [ref_2] type="text"   (Viewport changed 1978x1118 -> 1978x1062)

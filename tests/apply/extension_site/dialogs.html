@@ -1,0 +1,7 @@
+<!doctype html><title>Dialogs</title>
+<!-- Dialogs and a "Leave site?" prompt: a run tab answers them itself, any other tab shows them. -->
+<script>
+  window.__dialogs = [];
+  addEventListener("beforeunload", (e) => { sessionStorage.setItem("ranBeforeUnload", "1"); e.preventDefault(); e.returnValue = "stay"; });
+</script>
+<a id="away" href="/other.html">away</a>

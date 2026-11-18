@@ -6,5 +6,5 @@ hosts:
 - Step 1 (My information) has "Upload from PC" and a file input. Upload the resume there first (`file_upload` on the file input ref).
 - The step 1 page can hang ("Page still loading", a 45 s executeScript timeout on read_page, form_input and file_upload). It hangs right after `file_upload` reports success, and it can also hang before any upload.
 - Fail fast on that hang: right after a `file_upload`, report `UPLOAD_HANG` at once. With no upload yet, reload at most twice, then report `LOAD_FAIL`. Do not wait or poll.
-- Keep the PDF name short: a long name can raise an alert "File name is too long" before the hang. A short name alone is not a proven fix.
+- Keep the PDF name short: a long name can raise an alert "File name is too long" before the hang (it now shows as `[AA alert]` text in the page). A short name alone is not a proven fix.
 - After a hung upload, step 1 stays empty (name, address, email, phone). A resumed run starts again at step 1.

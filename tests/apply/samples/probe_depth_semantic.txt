@@ -1,0 +1,15 @@
+# depth2.html: inputs nested in N <div role=group aria-label=gK>. 
+# read_page filter=interactive default depth AND depth=100: all 6 inputs listed (SemDepth 10,14,16,20,30,45)
+# read_page filter=all default depth: cut at 16 group levels; inputs 16/20/30/45 MISSING. Output (truncated here to first 2 blocks + tail):
+group "g0" [ref_7]
+ group "g1" [ref_8]
+  ... (g2..g8)
+         group "g9" [ref_16]
+          textbox "SemDepth 10" [ref_1] type="text"
+group "g0" [ref_17]
+ ...
+              textbox "SemDepth 14" [ref_2] type="text"
+group "g0" [ref_31]   <- SemDepth 16 tree: stops after "group g15" [ref_46], textbox missing
+ ... group "g14" [ref_45]
+               group "g15" [ref_46]
+(same for 20, 30, 45: each stops at g15)

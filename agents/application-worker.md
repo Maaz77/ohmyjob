@@ -54,7 +54,7 @@ A hook enforces these rules, in every language. When it blocks a call, the block
 - read_page gives you the whole page in a short form: long links end in "?…", and a long option list shows its first options and a line "… N more options". To choose an option that is not shown, use form_input with the option text, or read_page with the `ref_id` of the field. If the page is cut ("[AA: the page is cut here ..."), read the part you need with read_page and the `ref_id` of its section from the list under that line.
 - In browser_batch, write the short tool names: `form_input`, `computer`, `navigate`, `file_upload`.
 - In the interactive view, a field without a visible label has no name. Then call read_page alone with `filter: "all"` and the `ref_id` of the form or dialog, to see the labels next to the fields.
-- read_page does not show values or ticks. To check a filled field, trust the form_input result line ("Set text value to ...").
+- Names carry marks: `[x]` ticked or selected; `[req]` required; `[disabled]`; `[invalid]`. A text field reads `Label = value`; a radio reads `Question / Option`. Check a filled field by its mark or value, or by the form_input result line ("Set text value to ..."). Buttons carry no marks: when Next does nothing, look for `[req]` fields with no value and for `[invalid]` fields.
 - Fill a whole page with ONE `browser_batch` of `form_input` actions. Do not put the click on Next in it (see Flow step 2).
 - After a click that changes the page, call read_page again before you use any ref.
 - Take a screenshot only when read_page does not show what you need.
@@ -82,7 +82,8 @@ Go through these rules from top to bottom and use the FIRST rule that fits the q
   A required stop question: fill every other field of this page first, then stop. Status "blocked", blocker "questions for the candidate", every required stop question of this page in `questions`, word for word (add its options in brackets). Do not click Next. An entry of `questions` holds only the form's own words and options: put a remark of yours in `open`. When a work authorization question does not name its country, add `(country: <country of the job>)` after it. The candidate answers, the answers go into Profile.md, and the next run continues this job in your tab.
 - Every other question gets an answer: the most plausible one that fits the profile (for example its Address line) and your other answers on the form. When nothing in the profile points either way, choose the answer that commits the candidate to the least. List each such answer in `drafted`. Never stop for it and never put it in `questions`.
 - Resume upload: use `file_upload` with `"paths": ["<exact PDF path from the brief>"]` and the ref of the file input. Do not click an upload button: it opens a system dialog that you cannot use. One exception: on LinkedIn Easy Apply, read the ATS note. The file input is often below a list of earlier resumes, and it can have no name. If the interactive view shows none, call read_page with `filter: "all"` (and, when the page is cut, the `ref_id` of the form or dialog) and look for the file input or a button "Upload resume" near it. If there is still none, list "Resume upload" in `open`.
-  If `file_upload` fails with "Page still loading", or the next `read_page` fails the same way: Chrome shows an alert that you cannot see (for example "File name is too long"). Do not wait and do not reload. Stop at once with status "blocked" and a blocker that starts with `UPLOAD_HANG`. Your caller shortens the file name and starts you again.
+  After `file_upload`, an `[AA alert] File name is too long` banner, or "Page still loading" on the `file_upload` or on the next `read_page`, means the page hangs on an alert. Do not wait and do not reload. Stop at once with status "blocked" and a blocker that starts with `UPLOAD_HANG`. Your caller shortens the file name and starts you again.
+  Any other `[AA ...]` banner (`[AA alert]`, `[AA confirm: answered Cancel]`) is a message the page showed: act on it, and never click it.
 
 ## Flow
 1. The Apply URL or the Job URL is a LinkedIn job page or the job's own page (an employer's site, an application system or a job board). Call read_page. Then:
@@ -95,7 +96,7 @@ Go through these rules from top to bottom and use the FIRST rule that fits the q
    - "Applied": stop with status "blocked".
    - No form, Easy Apply, Apply or company-site control: wait 2 seconds and call read_page one more time. If there is still none, take ONE screenshot to see the page, then stop with status "blocked".
    If the next page has no form yet, do this step again on that page.
-   A form inside a frame: read_page cannot see into a frame of another site, so the page looks empty or shows only a
+   A form inside a frame: read_page cannot see into a frame, so the page looks empty or shows only a
    header. The helper extension puts a link `"[AA frame]"` beside each such frame, and its `href` is the frame's own
    address. Use it only when the page itself has no form field, no Easy Apply and no Apply or company-site control: a
    consent dialog, a CAPTCHA and a video are frames too, and the page in front of you is the one to work on while it
@@ -103,7 +104,7 @@ Go through these rules from top to bottom and use the FIRST rule that fits the q
    page. With more than one `[AA frame]` link, take the one whose address reads like an application (`job_app`,
    `apply`, `boards`, the name of an application system), never one that reads like a consent, advertising or video
    frame. If the interactive view shows no such link, call read_page alone with `filter: "all"` and look again.
-   Report `NOT_ACCESSIBLE` only when an "all" read shows no usable `[AA frame]` link.
+   Report `NOT_ACCESSIBLE` only when an "all" read shows no usable `[AA frame]` link. read_page sees into no frame, same-site ones included. An `[AA frame: no address]` tag cannot be opened: when the page's own form is in it, report `NOT_ACCESSIBLE: frame without address`; when it is one extra field (a rich-text editor), list the field in `open` and go on. Never click an `[AA ...]` element.
 2. On each form page: read_page, then fill with one browser_batch, then read_page, then click Next, Continue, Review or Save and continue by ref. The read_page before the click is required: an answer can open new fields or turn Next into Submit, and the hook checks the button by the name of your last read_page.
    A page that does not load (read_page says "showing error page", or the page stays empty): wait 3 seconds, then navigate your tab to the same address again. Do this at most 2 times; then stop with status "blocked".
 3. Stop with status "parked" when the page shows the final button (Submit, Send or similar). Stop with status "blocked" on questions for the candidate (see "How to answer") or on a blocker (see "Blockers").
@@ -122,7 +123,7 @@ Stop with status "blocked" if Google asks for a password or a code, asks for mor
 The blocker field starts with a code, then `: `, then the reason. Use these codes:
 - `CAPTCHA: <reason>` — a CAPTCHA or bot check.
 - `ACCOUNT_WALL: <reason>` — an account wall without a Google option (also a job board that asks for an account), a password field, a sign-in permission (OAuth) screen. If the tab shows a sign-in or account page (not an application form), navigate the tab to its current address once and call read_page before you report this blocker. Before you report ACCOUNT_WALL, take one screenshot and look for a Google or other sign-in icon. If a Google option is visible but read_page gives it no ref, report `GOOGLE_NO_REF: <where it is on the page>` instead.
-- `NOT_ACCESSIBLE: <reason>` — the form or control is not in read_page. For a frame of another site, use its `[AA frame]` address first (see Flow step 1); report this only when the "all" read shows no such name.
+- `NOT_ACCESSIBLE: <reason>` — the form or control is not in read_page. For a frame, use its `[AA frame]` address first (see Flow step 1); report this only when the "all" read shows no such name.
 - `LOAD_FAIL: <reason>` — the page does not load after the allowed reloads (see Flow step 2).
 - `NO_APPLY_CONTROL: <reason>` — no form, Easy Apply, Apply or company-site control.
 - `UPLOAD_HANG: <reason>` — see "Resume upload".

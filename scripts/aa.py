@@ -1120,7 +1120,7 @@ def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
 
 def fills_check(run_dir: Path, profile: str, pairs: list) -> dict:
     """Is each filled value supported by Profile.md? Never raises: any error comes back as {"error": ...}, and fills_gate
-    then blocks the job (FILL_REVIEW). Returns {"verdict", "unsupported": n, "labels": [...], "unlabelled": n} (no values) or {"error": ...}.
+    then blocks the job (FILL_REVIEW). Returns {"verdict", "unsupported": n, "labels": [...], "unlabelled": n} (no values: the labels are the field labels that parse_refs split off the "<label> = <value>" names) or {"error": ...}.
     `pairs`: (label, value) or (label, value, fallback); `unlabelled` counts the fallback ones."""
     try:
         result, error = J.ask(run_dir, "fills", {"profile": profile, "fills": [p[:2] for p in pairs]}, model="sonnet")

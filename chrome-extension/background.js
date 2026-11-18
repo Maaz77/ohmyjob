@@ -27,6 +27,10 @@ const SOURCE = "aaSource:";
 chrome.webNavigation.onCreatedNavigationTarget.addListener((d) =>
   chrome.storage.session.set({ [SOURCE + d.tabId]: d.sourceTabId })
 );
+// A tab that changes group (the candidate moves it out of its run group, or back in) learns of it at once.
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.groupId !== undefined) chrome.tabs.sendMessage(tabId, { type: "aa-recheck" }).catch(() => {});
+});
 chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(SOURCE + tabId));
 
 async function sourceTab(tabId) {
@@ -67,6 +71,12 @@ async function makeGroups(href, tab) {
       const groupId = found.length
         ? await chrome.tabs.group({ groupId: found[0].id, tabIds })
         : await chrome.tabs.group({ tabIds, createProperties: { windowId: tab.windowId } });
+      // out of the run group: the bridge drops the attribute and its labels, so native dialogs come back in the
+      // parked tab. The current bridge goes in first, as in adoptTabs: a tab can still run an old copy.
+      for (const id of tabIds) {
+        await injectBridge(id);
+        chrome.tabs.sendMessage(id, { type: "aa-recheck" }).catch(() => {});
+      }
       await chrome.tabGroups.update(groupId, { title, color: COLORS[title], collapsed: false });
       moved += tabIds.length;
     } catch (e) {
@@ -171,7 +181,7 @@ async function check(msg, tab) {
   const hasOpener = source !== null;
 
   // A tab that a run tab opened, but outside the group: put it in the opener's group.
-  if (groupId === -1 && hasOpener) {
+  if (groupId === -1 && hasOpener && !msg.recheck) {
     try {
       const opener = await chrome.tabs.get(source);
       if (opener && groups.includes(opener.groupId)) {
@@ -190,8 +200,10 @@ async function check(msg, tab) {
     else if (hasOpener) tag = `[AA from ${source}] `;
   }
   // A new tab can join its group, or get its webNavigation source, a moment after it opens: the bridge asks again.
-  const waiting = msg.top && !hasOpener && typeof tab.openerTabId === "number";
-  return { enabled, tag, retry: (!enabled && groupId === -1 && hasOpener) || waiting };
+  // Only while it is in no group: a tab parked in another group will not join one, and a retry would keep the bridge
+  // from learning that it left the run (a tab with an openerTabId would wait forever).
+  const waiting = msg.top && !hasOpener && groupId === -1 && typeof tab.openerTabId === "number";
+  return { enabled, tag, retry: !msg.recheck && ((!enabled && groupId === -1 && hasOpener) || waiting) };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

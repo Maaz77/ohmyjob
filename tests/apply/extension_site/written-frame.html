@@ -1,0 +1,7 @@
+<!doctype html><title>Apply</title>
+<!-- An about:blank frame that the page fills with document.open/write: it reports this page's own address. -->
+<iframe id="doc" width="600" height="400"></iframe>
+<script>
+  const d = document.getElementById("doc").contentDocument;
+  d.open(); d.write("<p>editor</p>"); d.close();
+</script>

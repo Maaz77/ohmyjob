@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P5 state</title></head><body><h1>State probe</h1>
+<label><input type="radio" name="r" checked> Radio Checked</label> <label><input type="radio" name="r"> Radio Other</label><br>
+<label><input type="checkbox" checked> Checkbox Checked</label><br>
+<button aria-pressed="true">Pressed Button</button><br>
+<div role="checkbox" aria-checked="true" tabindex="0">ARIA Checkbox Checked</div>
+<div role="listbox" aria-label="Fruit list"><div role="option" aria-selected="true">Apple</div><div role="option" aria-selected="false">Pear</div></div>
+<label>Scripted Value <input id="sv" type="text"></label><br>
+<label>Required Input <input type="text" required></label><br>
+<label>Aria Required <input type="text" aria-required="true"></label><br>
+<label>Aria Invalid <input type="text" aria-invalid="true"></label><br>
+<label>Disabled Input <input type="text" disabled></label><br>
+<label>Aria Disabled <input type="text" aria-disabled="true"></label><br>
+<label>Readonly Input <input type="text" readonly value="ro"></label><br>
+<label>Native Select <select><option>A</option><option selected>B</option><option>C</option></select></label><br>
+<input type="text" role="combobox" aria-label="Combo Collapsed" aria-expanded="false" aria-controls="x"><br>
+<button disabled>Disabled Button</button>
+<pre id="log"></pre><script src="common.js"></script>
+<script>setTimeout(function(){document.getElementById('sv').value='prefilled'},300)</script></body></html>

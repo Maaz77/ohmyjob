@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="utf-8"><title>frame form</title></head><body style="margin:8px">
+<form onsubmit="return false"><label for="fi">Frame Name</label> <input id="fi" type="text">
+<button id="fb" type="button" onclick="document.getElementById('flog').textContent+='FRAME NEXT clicked ('+location.origin+')\n'">Frame Next</button></form>
+<pre id="flog"></pre>
+<script>document.getElementById('fi').addEventListener('input',function(e){document.getElementById('flog').textContent+='frame input: '+e.target.value+'\n'})</script>
+</body></html>

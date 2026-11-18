@@ -1,0 +1,19 @@
+# upload.html read_page filter=interactive (after 1 s; f4 appended by script is already there):
+button [ref_1] type="file"          (f1 visible)
+button [ref_2] type="file"          (f4 appended at 1 s, no name)
+# filter=all:
+generic "1 visible:" [ref_4]
+ button [ref_1] type="file"
+generic "2 hidden behind label:" [ref_5]
+ label "Attach" [ref_6]
+ button "Attach" [ref_7] type="file"       (f2 display:none: ONLY in all)
+generic "3 opacity0 over styled button:" [ref_8]
+ generic "Choose resume" [ref_9]
+ button [ref_10] type="file"               (f3 opacity:0: ONLY in all)
+generic "f4 appended at 1s" [ref_11]
+button [ref_2] type="file"
+# file_upload dummy.pdf on ref_1, ref_7, ref_10, ref_2: each replied "Uploaded 1 file(s) to file input: dummy.pdf (0 KB total)". Page log:
+f1 change files.length=1 first=dummy.pdf
+f2 change files.length=1 first=dummy.pdf
+f3 change files.length=1 first=dummy.pdf
+f4 change files.length=1 first=dummy.pdf

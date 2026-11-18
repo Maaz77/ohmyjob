@@ -1,0 +1,4 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P9 toast</title></head><body><h1>Toast probe</h1>
+<label>Name <input type="text" required></label>
+<button id="save" onclick="var t=document.createElement('div');t.setAttribute('role','alert');t.textContent='Please fill in all required fields';document.body.appendChild(t);log('toast shown');setTimeout(function(){t.remove();log('toast removed')},3000)">Save</button>
+<pre id="log"></pre><script src="common.js"></script></body></html>

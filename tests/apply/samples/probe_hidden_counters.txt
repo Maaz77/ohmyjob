@@ -1,0 +1,10 @@
+# hidden.html. Tab A loaded; tab B created at once (tabs_create_mcp) and navigated to depth.html. computer wait 10 s x2 on B, then read_page A filter=all:
+generic "t=26s raf=1214 timeout=196 io=1 ro=2 revealed=1 lazy=yes vis=visible"
+# after a screenshot of B (scale 0.2) + more time, read A again:
+generic "t=38s raf=1924 timeout=313 io=1 ro=2 revealed=1 lazy=yes vis=visible"
+# tabs_context_mcp: {"selectedTabId":1690902558 ...}  (A stays "selected")
+# B then navigated to hidden.html (B is the tab created second, never screenshotted-first), wait 20 s on A, read B:
+generic "t=21s raf=1211 timeout=190 io=1 ro=2 revealed=1 lazy=yes vis=visible"
+# read A at the same time:
+generic "t=70s raf=3845 timeout=609 io=1 ro=2 revealed=1 lazy=yes vis=visible"
+# rAF ~58/s in both tabs, IO and RO fired, lazy section inserted; document.visibilityState was 'visible' in BOTH tabs at once.

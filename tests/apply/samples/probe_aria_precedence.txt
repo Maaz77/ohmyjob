@@ -1,0 +1,35 @@
+# read_page on tests/apply/probe_site/aria_precedence.html (Claude in Chrome, 2026-11-18), filter "interactive"
+textbox "[req] Email address = v@example.test" [ref_1]
+textbox "[req] [invalid] Empty labelled" [ref_2]
+textbox "Wrapped city = Milan" [ref_3]
+textbox "Plain labelled, no aria" [ref_4]
+radio "[x] Do you need sponsorship? / Yes" [ref_5] type="radio"
+radio "Do you need sponsorship? / No" [ref_6] type="radio"
+checkbox "[x] [req] I agree to the privacy notice" [ref_7] type="checkbox"
+combobox "Italy" [ref_8]
+ option "France"
+ option "Italy" (selected)
+button "[x] Yes" [ref_9]
+button "[disabled] Next" [ref_10]
+checkbox "[x] Custom box" [ref_11]
+link "[AA frame: no address]" [ref_12]
+button "Under banner" [ref_13]
+
+# filter "all" adds, among others:
+label "Plain labelled, no aria" [ref_18]
+textbox "Plain labelled, no aria" [ref_4]
+alert "[AA alert] File name is too long" [ref_26]
+
+# left_click ref_13 ("Under banner", under the pointer-events:none banner) -> page log: "under clicked"
+
+# Findings:
+# - aria-label wins over a textbox value, a radio value, a checkbox "on", a button text and a role=checkbox text.
+# - An input with <label for> is named by the label; its value (plainvalue) is NOT printed.
+# - A <select> ignores aria-label: it is named by its selected option ("Italy").
+# - An <a> without href shows in the interactive view (as a link); role=alert shows only in "all".
+# - A pointer-events:none banner lets a ref click through to the control beneath it.
+
+# Second run (labelledby case added), filter "interactive", extra lines:
+textbox "[req] Arialabel text" [ref_14]
+checkbox "[x] Choice arialabel" [ref_15] type="checkbox"
+# - aria-label wins over aria-labelledby in read_page (both a textbox and a checkbox).

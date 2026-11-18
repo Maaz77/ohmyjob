@@ -310,6 +310,17 @@ def element(ctx: Ctx, tab: Any, ref: Optional[str]) -> dict:
 BOX_ROLES = {"checkbox", "switch", "menuitemcheckbox"}
 
 
+def marker_problem(item: dict) -> Optional[str]:
+    """Why a call on this ref is refused when it is a marker of the helper extension ("[AA frame]" link, "[AA frame: no
+    address]" tag, "[AA alert]" banner), or None. The dialog banner is pointer-events:none, so a click on its ref lands,
+    unchecked, on whatever sits beneath it."""
+    name = item.get("name") or ""
+    if name.startswith("[AA "):
+        return (f"'{name}' is a marker of the helper extension, not a control of the page. Do not click it. For an "
+                "[AA frame] link, navigate your tab to its href.")
+    return None
+
+
 def check_signin_lease(ctx: Ctx, tab: Any) -> None:
     """One Google sign-in at a time per host: the first tab takes the lease, the next one waits and then reloads.
 
@@ -342,9 +353,9 @@ def check_signin_lease(ctx: Ctx, tab: Any) -> None:
 
 
 def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
-    snapshot = L.snapshot_text(ctx.run_dir, tab)
     name = item.get("name") or ""
     role = item.get("role") or ""
+    snapshot = L.snapshot_text(ctx.run_dir, tab)
     attrs = item.get("attrs") or {}
     # read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
     # button whose text sits in a span (Vuetify and friends) arrives here without a name, or with only part of it
@@ -366,6 +377,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # a checkbox, a radio button or an option never sends a form. A consent dialog builds its toggles as
     # `button ... type="checkbox"`, so the type counts as well as the role.
     choice = role in L.CHOICE_ROLES or attrs.get("type") in ("checkbox", "radio")
+    # a tick (no option): only a tick skips rules 2 and 10 to 13, because an option in an action list can still be
+    # "Withdraw application". Rules 1, 3, 7 and 9 keep the wider `choice` ("Acknowledge/Confirm" is an option).
+    tick = role in L.TICK_ROLES or attrs.get("type") in ("checkbox", "radio")
     context = L.context_names(snapshot, ref)
     consent = X.CONSENT.find(name)
     # A cookie or consent dialog is judged before the word lists below: its save button often carries a final word
@@ -379,8 +393,13 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # a page of an OAuth server (its address without the query) asks for a sign-in permission: no click but a choice
     if not choice and L.OAUTH_URL_RE.search(re.split(r"[?#]", ctx.url(tab) or "")[0]):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
+    # A click into a text field sends nothing, so a label such as "Confirm email" or "Delete reason" must not trip the
+    # final, delete or sign-up words. Only rule 1 (an OAuth server's page) comes before it; the other click rules (known
+    # ref, fresh read, note, Google page, sign-in tab) ran before this check.
+    if role in L.TYPE_ROLES:
+        return
     if banner:
-        if X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or ""):
+        if not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
             raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
         if choice:
             return  # a toggle of the dialog: the worker turns the options off, and no tick sends anything
@@ -411,12 +430,14 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if filled and not choice and X.APPLY.find(scan):
         raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. If the "
                    "form is filled up to this button, stop here with status 'parked'; else fill the form first.")
-    if consent and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
+    # A tick never sends or grants anything by itself (a label such as "Allow ..." or "... delete your data ... / Yes"
+    # is an answer), so the permission, delete, sign-up and Google rules below skip it.
+    if consent and not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
-    if X.DELETE.find(name):
+    if not tick and X.DELETE.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
-    google = X.GOOGLE.find(name)
-    if X.SIGNUP.find(name) and not google:
+    google = None if tick else X.GOOGLE.find(name)
+    if not tick and X.SIGNUP.find(name) and not google:
         raise Deny(f"'{name}' creates an account with an email and a password. Not allowed. Use a Google option if the "
                    "page has one, else stop with status 'blocked'.")
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
@@ -533,7 +554,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             url = full.pop()
             if L.url_problem(url) or not re.match(r"^https?://", url, re.I):
                 raise Deny("Navigate only to http or https addresses.")
-        if (ctx.entry(tab) or {}).get("sticky") and X.SUBMITTED.find(L.snapshot_text(ctx.run_dir, tab)):
+        if (ctx.entry(tab) or {}).get("sticky") and X.SUBMITTED.find(L.without_values(L.snapshot_text(ctx.run_dir, tab))):
             # /continue-applying: the candidate may have sent this application by hand and left the tab open
             raise Deny("This page says the application was sent. Do not start it again: stop with status 'blocked', "
                        "blocker 'already submitted'.")
@@ -563,6 +584,9 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
     if short == "file_upload":
         if google:
             raise Deny("No uploads on Google pages.")
+        problem = marker_problem(ctx.refs(tab).get(ti.get("ref") or "") or {})
+        if problem:
+            raise Deny(problem)
         expected = ctx.pdf_for(tab)
         paths = ti.get("paths") or ([ti["file_path"]] if ti.get("file_path") else [])
         if not expected or len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
@@ -578,6 +602,9 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             raise Deny("Do not type or fill on Google pages. If Google asks for a password or a code, stop with status 'blocked'.")
         ref = ti.get("ref")
         item = element(ctx, tab, ref)
+        problem = marker_problem(item)
+        if problem:
+            raise Deny(problem)
         role = item.get("role") or ""
         if role in L.CLICKABLE_ROLES and role not in L.TICK_ROLES:
             raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
@@ -596,6 +623,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if not isinstance(scale, (int, float)) or scale > 0.5:
                 return {**ti, "scale": 0.5}
             return None
+        if action == "hover" and ti.get("ref"):
+            problem = marker_problem(ctx.refs(tab).get(ti["ref"]) or {})
+            if problem:
+                raise Deny(problem)
         if action in SAFE_COMPUTER:
             return None
         if action == "key":
@@ -633,6 +664,9 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if not isinstance(note, str) or not note.strip():
                 raise Deny("Write action_summary on every click: a few English words that say what the click does.")
             item = element(ctx, tab, ti.get("ref"))
+            problem = marker_problem(item)
+            if problem:
+                raise Deny(problem)
             role = item.get("role") or ""
             if action in ("double_click", "triple_click") and role not in L.TYPE_ROLES:
                 raise Deny("Use left_click: a double or triple click presses a button more than once.")
@@ -729,7 +763,9 @@ def foreign_click_problem(run_dir: Optional[Path], ti: dict) -> Optional[str]:
                 "its ref.")
     for item in items:
         name = item.get("name") or ""
-        if item.get("role") not in L.CHOICE_ROLES and X.FINAL.find(name):
+        if marker_problem(item):
+            return marker_problem(item)
+        if item.get("role") not in L.CHOICE_ROLES and not item.get("marker") and X.FINAL.find(name):
             return f"'{name}' is a final control. The candidate submits applications personally."
     return None
 
@@ -802,6 +838,8 @@ class ForeignCall:
                        "the ref of the field.")
         for item in items:
             role, attrs = item.get("role") or "", item.get("attrs") or {}
+            if marker_problem(item):
+                raise Deny(marker_problem(item))
             if short == "form_input" and role in L.CLICKABLE_ROLES and role not in L.TICK_ROLES:
                 raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
             if short == "file_upload" and (attrs.get("type") or "").lower() != "file":
@@ -844,6 +882,9 @@ class ForeignCall:
         if action == "hover":
             if not ti.get("ref"):
                 raise Deny("Hover only by a ref from read_page.")
+            for item in L.known_items(self.run_dir, ti.get("tabId"), str(ti.get("ref"))):
+                if marker_problem(item):
+                    raise Deny(marker_problem(item))
         elif action == "left_click":
             if key in self.stale:
                 raise Deny("The page may have changed earlier in this call. Read the page again, then click by ref.")

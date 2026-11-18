@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>P7 occlusion</title>
+<style>#hdr{position:sticky;top:0;height:120px;background:#ddd;z-index:50;border-bottom:1px solid}
+#cover{position:fixed;top:140px;left:0;width:260px;height:60px;background:rgba(255,200,200,.95);z-index:60;padding:4px}
+#spot{position:absolute;width:30px;height:20px;background:#f90;z-index:5}
+.wrap{position:relative;display:inline-block}
+#dd{position:absolute;top:0;left:0;width:150px;background:#fff;border:1px solid #333;z-index:70}
+.fill{height:700px}</style></head><body>
+<div id="hdr">Sticky header 120px</div>
+<div style="height:230px;position:relative">
+ <button id="target" style="position:absolute;top:20px;left:10px;width:200px;height:50px" onclick="log('Target clicked')">Target</button>
+ <div id="cover"><button id="overlay" onclick="log('Overlay clicked')">Overlay</button> covering Target</div>
+ <button id="half" style="position:absolute;top:100px;left:10px;width:200px;height:50px" onclick="log('Half clicked')">Half</button>
+ <div id="spot" style="top:115px;left:95px">dot</div>
+</div>
+<div class="wrap" style="height:100px;width:220px;position:relative">
+ <button id="next" onclick="log('Next clicked')" style="margin-top:5px">Next</button>
+ <div id="dd" role="listbox" aria-label="Gender list"><div role="option" id="oF" onclick="log('Female clicked')" style="padding:6px">Female</div><div role="option" id="oM" onclick="log('Male clicked')" style="padding:6px">Male</div></div>
+</div>
+<div id="inertbox" inert><button id="inert" onclick="log('Inert clicked')">Inert</button></div>
+<div aria-hidden="true"><button id="hid" onclick="log('Hidden clicked')">Hidden</button></div>
+<div class="fill"></div>
+<button id="below" onclick="log('Below Header clicked')">Below Header</button>
+<div class="fill"></div>
+<pre id="log"></pre><script src="common.js"></script>
+<script>document.addEventListener('click',function(e){log('REAL TARGET: '+(e.target.id||e.target.tagName)+' "'+(e.target.textContent||'').trim().slice(0,12)+'"')},true)</script>
+</body></html>

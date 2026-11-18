@@ -1,0 +1,8 @@
+# depth.html (plain div nesting). read_page interactive default depth, depth=60, depth=100 ALL identical:
+textbox "Depth 10" [ref_1] type="text" placeholder="Depth 10"
+textbox "Depth 14" [ref_2] type="text" placeholder="Depth 14"
+textbox "Depth 16" [ref_3] type="text" placeholder="Depth 16"
+textbox "Depth 20" [ref_4] type="text" placeholder="Depth 20"
+textbox "Depth 30" [ref_5] type="text" placeholder="Depth 30"
+textbox "Depth 45" [ref_6] type="text" placeholder="Depth 45"
+button "Deep Next" [ref_7]

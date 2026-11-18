@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>aria precedence</title>
+<!-- Does read_page take aria-label over a value, a radio value, a wrapping label and a select's option? (spec 1.10.0) -->
+<h1>ARIA precedence</h1>
+<label for="t1">Email address</label> <input id="t1" value="v@example.test" aria-label="[req] Email address = v@example.test">
+<label for="t2">Empty labelled</label> <input id="t2" aria-label="[req] [invalid] Empty labelled">
+<label>Wrapped city <input id="t3" value="Milan" aria-label="Wrapped city = Milan"></label>
+<label for="t4">Plain labelled, no aria</label> <input id="t4" value="plainvalue">
+<fieldset><legend>Do you need sponsorship?</legend>
+  <label><input type="radio" name="sp" value="yes" checked aria-label="[x] Do you need sponsorship? / Yes"> Yes</label>
+  <label><input type="radio" name="sp" value="no" aria-label="Do you need sponsorship? / No"> No</label>
+</fieldset>
+<label><input type="checkbox" checked aria-label="[x] [req] I agree to the privacy notice"> I agree to the privacy notice</label>
+<label for="s1">Country</label>
+<select id="s1" aria-label="[req] Country = Italy"><option>France</option><option selected>Italy</option></select>
+<button aria-pressed="true" aria-label="[x] Yes">Yes</button>
+<button disabled aria-label="[disabled] Next">Next</button>
+<div role="checkbox" aria-checked="true" tabindex="0" aria-label="[x] Custom box">Custom box</div>
+<iframe srcdoc="<p>inside</p>" style="width:300px;height:300px"></iframe>
+<a data-aa-frame="none" aria-label="[AA frame: no address]" style="position:absolute;width:1px;height:1px;overflow:hidden">[AA frame: no address]</a>
+<button id="under" style="position:fixed;top:2px;left:2px">Under banner</button>
+<div data-aa-dialog role="alert" aria-label="[AA alert] File name is too long"
+     style="position:fixed;top:0;left:0;right:0;z-index:2147483647;pointer-events:none;background:#fff3cd;font:12px sans-serif;padding:6px">[AA alert] File name is too long (ohmyjob run tab: dialogs are answered Cancel; move the tab out of its group to answer them yourself)</div>
+<!-- aria-labelledby against aria-label: which one does read_page print? -->
+<span id="lb1">Labelledby text</span>
+<input id="t5" aria-labelledby="lb1" aria-label="[req] Arialabel text" value="x1">
+<span id="lb2">Choice labelledby</span>
+<input type="checkbox" aria-labelledby="lb2" aria-label="[x] Choice arialabel" checked>
+<pre id="log"></pre>
+<script>
+  document.getElementById("under").addEventListener("click", () => {
+    document.getElementById("log").textContent += "under clicked\n";
+  });
+</script>

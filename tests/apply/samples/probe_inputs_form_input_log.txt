@@ -1,0 +1,33 @@
+# form_input replies
+(a) tracked  ref_1 "tracked-val" -> Set text value to "tracked-val" (previous: "")
+(b) plain    ref_2 "plain-val"   -> Set text value to "plain-val" (previous: "")
+(c) div role=textbox contenteditable ref_3 -> ERROR: Element type "DIV" is not a supported form input
+(d) textarea -> Set textarea value to "area-val"
+(e) select "Italy" -> Selected option "Italy" in dropdown (previous: "Country 1")
+(f) combobox "Paris" -> Set text value to "Paris" (previous: "")
+(g) real hidden checkbox ref_280 true -> Checkbox checked (previous: unchecked)
+(h) div role=checkbox ref_7 true -> ERROR: Element type "DIV" is not a supported form input
+(i) date -> Set date to "2024-05-17"
+(j) range -> Set range to 7 (previous: 2)
+(k1) display:none  -> Set text value to "spam1" (previous: "")
+(k2) visibility:hidden -> Set text value to "spam2"
+(k3) left:-9999px -> Set text value to "spam3"
+(k4) type=hidden -> Set hidden value to "[redacted]" (previous: "[redacted]")
+# page log after form_input (get_page_text):
+(a) framework saw change: tracked-val
+(b) focus value=plain-val
+(b) change value=plain-val
+(b) input value=plain-val
+(b) blur value=plain-val
+(d) change: area-val / (d) input: area-val
+(e) change: Italy / (e) input: Italy
+(f) change event: Paris / (f) input event: Paris      <- NO "committed", list never opened
+(g) click on real input / (g) label click target=ag / (g) change checked=true
+(i) change+input 2024-05-17 ; (j) change+input 7
+(k) k1/k2/k3 change+input fired for spam1/spam2/spam3
+# then left_click + type:
+(b) focus / keydown X / input plain-valX / keydown Y / input plain-valXY / change / blur
+(c) focus / input: R / RI / RIC / RICH / blur
+(h) toggled true   (left_click ref_7)
+(g) click on real input / label click target=ag / change checked=false   (left_click on hidden real input ref_280 toggled it off)
+(f) list opened / committed Rome   (left_click ref_6 then left_click ref_275)
