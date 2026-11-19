@@ -1,0 +1,991 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>ohmyjob Capability Brief</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a sticky section index beside one reading column. Each subsystem uses the same skeleton:
+   what it does, needs/produces, capabilities, decision tables (condition -> outcome), limits. */
+:root{
+  --bg:#f2f4f3; --surface:#ffffff; --soft:#e8edeb; --line:#d6dddb;
+  --ink:#141a1d; --muted:#56616a; --accent:#0a6a5c; --accent-soft:#d8ece8;
+  --stop:#b3431b; --stop-soft:#f6e3db; --you:#8a6200; --you-soft:#f5ead0;
+  --haiku:#2b6a9a; --sonnet:#7a4d9e; --opus:#9c4f22;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1214; --surface:#151b1e; --soft:#1c2427; --line:#2a3337;
+  --ink:#e4e9ea; --muted:#9aa6ac; --accent:#45b9a6; --accent-soft:#163a35;
+  --stop:#f08a5d; --stop-soft:#3a2219; --you:#e1b34d; --you-soft:#3a3018;
+  --haiku:#7db4e0; --sonnet:#c29be3; --opus:#e59a6a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1214; --surface:#151b1e; --soft:#1c2427; --line:#2a3337;
+  --ink:#e4e9ea; --muted:#9aa6ac; --accent:#45b9a6; --accent-soft:#163a35;
+  --stop:#f08a5d; --stop-soft:#3a2219; --you:#e1b34d; --you-soft:#3a3018;
+  --haiku:#7db4e0; --sonnet:#c29be3; --opus:#e59a6a; color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--f-body);-webkit-font-smoothing:antialiased}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 72px}
+.layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:48px}
+main{min-width:0;max-width:940px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;font:500 14px/1.35 var(--f-display)}
+nav.toc p{font:600 11px var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+nav.toc a{display:flex;gap:8px;padding:5px 8px;border-radius:6px;color:var(--ink);text-decoration:none}
+nav.toc a span{color:var(--muted);font-family:var(--f-mono);font-size:12px;min-width:30px}
+nav.toc a:hover,nav.toc a[aria-current="true"]{background:var(--accent-soft);color:var(--accent)}
+@media (max-width:1000px){
+  .layout{grid-template-columns:minmax(0,1fr);gap:24px}
+  nav.toc{position:static}
+  nav.toc ol{display:flex;flex-wrap:wrap;gap:6px}
+  nav.toc a{border:1px solid var(--line);background:var(--surface)}
+  nav.toc a span{min-width:0}
+}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;margin:0}
+h1{font-weight:700;font-size:clamp(44px,7vw,72px);line-height:.95;letter-spacing:-.01em}
+h2{font-weight:700;font-size:clamp(26px,3.2vw,32px);line-height:1.1}
+h3{font-weight:600;font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);margin:28px 0 10px}
+h4{font-weight:600;font-size:16px;margin:0 0 6px}
+p{margin:0 0 12px}
+ul,ol{margin:0;padding-left:20px}
+li{margin:0 0 6px}
+li::marker{color:var(--muted)}
+code{font:13px/1.45 var(--f-mono);background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+b,strong{font-weight:600}
+.eyebrow{font:600 12px var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
+.hero{padding-block:8px 36px;border-bottom:1px solid var(--line)}
+.lede{font-size:19px;line-height:1.5;max-width:44em;margin:18px 0 22px}
+.facts{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:0 0 18px}
+.facts div{background:var(--surface);padding:14px 16px}
+.facts dt{font:700 30px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.facts dd{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.35}
+.facts .zero dt{color:var(--stop)}
+@media (max-width:900px){.facts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:520px){.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.basis{font-size:13px;color:var(--muted);max-width:60em;margin:0}
+section{padding-block:44px 8px;border-bottom:1px solid var(--line);scroll-margin-top:12px}
+section:last-of-type{border-bottom:0}
+.kicker{font:600 12px var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:0 0 6px}
+.cmds{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 8px}
+.cmds code{background:var(--surface);border:1px solid var(--line);padding:3px 8px}
+.runs{font-size:14px;color:var(--muted);margin:0 0 14px}
+.what{font-size:16.5px;max-width:46em}
+.m{display:inline-block;font:600 11px/1 var(--f-display);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px 3px;border-radius:999px;border:1px solid currentColor;vertical-align:1px;white-space:nowrap}
+.m-h{color:var(--haiku)} .m-s{color:var(--sonnet)} .m-o{color:var(--opus)} .m-x{color:var(--muted)}
+.s{display:inline-flex;align-items:center;gap:6px;font:500 13px/1.2 var(--f-body);white-space:nowrap}
+.s::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.s.att::before{background:var(--you)} .s.bad::before{background:var(--stop)} .s.end::before{background:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+@media (max-width:760px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.grid2>div{min-width:0}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.box h3{margin-top:0}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0 0 8px}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.45}
+th{font:600 11.5px/1.3 var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;background:var(--soft);border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.n{font-family:var(--f-mono);font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+td.k{font-weight:600;white-space:nowrap}
+.caps li{margin-bottom:8px}
+.limits{list-style:none;padding:0;display:grid;gap:8px}
+.limits li{position:relative;padding-left:22px;margin:0}
+.limits li::before{content:"";position:absolute;left:4px;top:.62em;width:9px;height:2px;background:var(--stop)}
+.pipe{list-style:none;padding:0;margin:20px 0 10px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.pipe li{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.pipe .num{font:600 11px var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.pipe b{font:700 18px/1.15 var(--f-display)}
+.pipe code{font-size:12px;background:none;padding:0;color:var(--muted)}
+.pipe .who{font-size:13px;color:var(--muted);line-height:1.35}
+.pipe .out{margin-top:auto;display:flex;flex-direction:column;gap:3px;padding-top:6px;border-top:1px dashed var(--line)}
+.pipe li.you{background:var(--you-soft);border-style:dashed;border-color:var(--you)}
+.pipe li.you .num{color:var(--you)}
+@media (max-width:860px){.pipe{grid-template-columns:minmax(0,1fr)}}
+.loops{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 8px}
+.loops div{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;font-size:14px}
+@media (max-width:760px){.loops{grid-template-columns:minmax(0,1fr)}}
+.layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:8px 0 6px}
+.layers div{border-top:3px solid var(--accent);padding-top:10px;font-size:14px}
+.layers div:nth-child(2){border-color:var(--haiku)} .layers div:nth-child(3){border-color:var(--stop)}
+@media (max-width:760px){.layers{grid-template-columns:minmax(0,1fr)}}
+.steps{padding-left:22px}
+.steps li{margin-bottom:8px}
+.note{font-size:13.5px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px}
+.chips button{font:500 13px var(--f-body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer}
+.chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.tag{display:inline-block;font:600 11px/1 var(--f-display);letter-spacing:.07em;text-transform:uppercase;padding:4px 7px 3px;border-radius:4px;white-space:nowrap}
+.tag.speed{background:var(--accent-soft);color:var(--accent)} .tag.cost{background:var(--you-soft);color:var(--you)}
+#eng td:nth-child(2){white-space:nowrap;color:var(--muted);font-size:13px}
+footer{padding-top:28px;font-size:13px;color:var(--muted)}
+.fsm{margin:0 0 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
+.fsm-scroll{overflow-x:auto}
+.fsm svg{display:block;width:100%;min-width:820px;height:auto}
+.fsm .box{fill:none;stroke:var(--muted);stroke-opacity:.55;stroke-width:1.5;stroke-dasharray:7 6}
+.fsm .boxlabel{font:600 12px var(--f-display);letter-spacing:.12em;fill:var(--muted)}
+.fsm .st{fill:var(--surface);stroke-width:2.2}
+.fsm .st.a{stroke:var(--accent)} .fsm .st.y{stroke:var(--you)} .fsm .st.r{stroke:var(--stop)}
+.fsm .st.f{fill:var(--soft);stroke:var(--muted)}
+.fsm .ring{fill:none;stroke:var(--muted);stroke-width:1.4}
+.fsm .start{fill:var(--ink)}
+.fsm .name{font:600 14.5px var(--f-display);fill:var(--ink);text-anchor:middle}
+.fsm .e{fill:none;stroke-width:1.7}
+.fsm .e.a{stroke:var(--accent)} .fsm .e.y{stroke:var(--you)} .fsm .e.g{stroke:var(--muted)}
+.fsm .ah.a{fill:var(--accent)} .fsm .ah.y{fill:var(--you)} .fsm .ah.g{fill:var(--muted)}
+.fsm .lbl{font:500 12.5px var(--f-body);fill:var(--ink);text-anchor:middle;paint-order:stroke;stroke:var(--surface);stroke-width:4px;stroke-linejoin:round}
+.fsm .lbl.start{text-anchor:start} .fsm .lbl.end{text-anchor:end}
+.fsm-legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--line)}
+.fsm-legend span{display:inline-flex;align-items:center;gap:7px}
+.fsm-legend .ln{display:inline-block;width:22px;height:2px;background:var(--muted)}
+.fsm-legend .ln.a{background:var(--accent)} .fsm-legend .ln.y{background:var(--you)}
+.fsm-legend .dbl{display:inline-block;width:14px;height:14px;border-radius:50%;border:1.5px solid var(--muted);box-shadow:inset 0 0 0 2px var(--surface),inset 0 0 0 3.5px var(--muted)}
+.fsm-legend .dash{display:inline-block;width:22px;height:12px;border:1.5px dashed var(--muted);border-radius:4px}
+</style>
+
+<div class="wrap">
+<div class="layout">
+<nav class="toc" aria-label="Sections">
+  <p>Contents</p>
+  <ol>
+    <li><a href="#round"><span>01</span>How a round works</a></li>
+    <li><a href="#foundation"><span>02</span>Shared foundation</a></li>
+    <li><a href="#finder"><span>S1</span>Job Posting Finder</a></li>
+    <li><a href="#prep"><span>S2</span>Screening &amp; Tailoring</a></li>
+    <li><a href="#apply"><span>S3</span>Application Browser Agent</a></li>
+    <li><a href="#reconcile"><span>S4</span>Reconcile</a></li>
+    <li><a href="#retro"><span>L1</span>Retrospective</a></li>
+    <li><a href="#dream"><span>L2</span>Dream</a></li>
+    <li><a href="#engineering"><span>03</span>Speed &amp; cost engineering</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <p class="eyebrow">Claude Code plugin · version 0.2.0 · MIT licence</p>
+  <h1>ohmyjob</h1>
+  <p class="lede">Runs a job search up to the last click. It searches job boards, drops postings that do not fit, writes a tailored resume PDF for every real match (or reuses a ready-made one the candidate supplied) and fills each application in the candidate's own Chrome. It stops before the final button. The candidate presses every Submit.</p>
+  <dl class="facts">
+    <div><dt>10</dt><dd>job boards searched</dd></div>
+    <div><dt>7</dt><dd>agents on Haiku, Sonnet and Opus</dd></div>
+    <div><dt>49</dt><dd>workers in parallel by default</dd></div>
+    <div><dt>62</dt><dd>languages in the never-submit word lists</dd></div>
+    <div><dt>16</dt><dd>slash commands</dd></div>
+    <div class="zero"><dt>0</dt><dd>Submit buttons it may press: hooks refuse any control named like one</dd></div>
+  </dl>
+  <p class="basis">Compiled from the source code (working tree of 17 November 2026), not from the project docs. Where the two disagree, this page follows the code.</p>
+</header>
+
+<!-- ============================== ROUND ============================== -->
+<section id="round">
+  <p class="kicker">Overview</p>
+  <h2>How a round works</h2>
+  <p class="what">Work happens in rounds. Each stage is one command, and the candidate checks the result before starting the next. Two optional loops feed what was learned back into earlier stages.</p>
+  <ol class="pipe">
+    <li><span class="num">Stage 1</span><b>Find</b><code>/ohmyjob:find-jobs</code><span class="who">Script, no AI model calls</span><span class="out"><span class="s">Found</span></span></li>
+    <li><span class="num">Stage 2</span><b>Screen &amp; tailor</b><code>/ohmyjob:prep-jobs</code><span class="who">Haiku screens, Sonnet tailors, LuaLaTeX builds</span><span class="out"><span class="s end">Skipped-LowFit</span><span class="s">Resume Built</span></span></li>
+    <li><span class="num">Stage 3</span><b>Fill</b><code>/ohmyjob:apply-jobs</code><span class="who">One Haiku worker per Chrome tab</span><span class="out"><span class="s att">Pending Review</span><span class="s att">Needs Attention</span></span></li>
+    <li class="you"><span class="num">The candidate</span><b>Review &amp; submit</b><span class="who">Unblocks tabs, then <code>/ohmyjob:continue-applying</code>. Reviews each parked form and presses Submit. Moves back or deletes folders of jobs not sent.</span></li>
+    <li><span class="num">Stage 4</span><b>Reconcile</b><code>/ohmyjob:reconcile</code><span class="who">Script, no AI model calls</span><span class="out"><span class="s end">Submitted</span><span class="s end">Deleted</span></span></li>
+  </ol>
+  <div class="loops">
+    <div><b>Loop 1 · Retrospective</b> <code>/ohmyjob:retro</code><br>The candidate's verdict on skipped jobs becomes edits of the Fit Preferences that stage 2 screens against.</div>
+    <div><b>Loop 2 · Dream</b> <code>/ohmyjob:dream</code><br>Traces of past application runs become per-site notes that stage 3 workers read when they reach that site.</div>
+  </div>
+
+  <h3>Three layers</h3>
+  <div class="layers">
+    <div><h4>Agents decide</h4>Claude subagents judge and act. A master runs one stage and starts one worker per job (or per site). Each worker reads one brief and returns one JSON report.</div>
+    <div><h4>Scripts keep the books</h4>Deterministic Python behind one command, <code>ohmyjob</code>: queues, briefs, report checks, job notes, folder moves, tracker rows, cost. Agents never write the tracker themselves.</div>
+    <div><h4>Hooks enforce</h4>Run on every Chrome, file, shell and agent-start call in the job-search folder, whoever makes it, and cannot be skipped by a model. They allow, refuse or rewrite a call, and record what the scripts need.</div>
+  </div>
+
+  <h3>Agent roster</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Agent</th><th>Model</th><th>Effort</th><th>Turn cap</th><th>Job</th></tr></thead>
+    <tbody>
+      <tr><td class="k">prep-master</td><td><span class="m m-h">Haiku</span></td><td>high</td><td class="n">3000</td><td>Loops on <code>ohmyjob prep next</code> and starts the workers it prints. Has no file access.</td></tr>
+      <tr><td class="k">screen-worker</td><td><span class="m m-h">Haiku</span></td><td>max</td><td class="n">8</td><td>Scores one job within 17 minutes. Reads only its brief and the resume catalog.</td></tr>
+      <tr><td class="k">resume-worker</td><td><span class="m m-s">Sonnet</span></td><td>high</td><td class="n">100</td><td>Tailors one resume and builds its PDF. 17 minutes, 4 builds.</td></tr>
+      <tr><td class="k">application-master</td><td><span class="m m-h">Haiku</span></td><td>medium</td><td class="n">3000</td><td>Opens tabs and runs the <code>ohmyjob apply</code> steps. Tab handling only.</td></tr>
+      <tr><td class="k">application-worker</td><td><span class="m m-h">Haiku</span> <span class="m m-s">Sonnet</span></td><td>max</td><td class="n">160</td><td>Fills one application in one tab and parks it before the final button. Sonnet takes over once when Haiku is stuck.</td></tr>
+      <tr><td class="k">dream-master</td><td><span class="m m-o">Opus</span></td><td>low</td><td class="n">500</td><td>Runs the <code>ohmyjob dream</code> steps and starts one worker per site. Reads no file.</td></tr>
+      <tr><td class="k">dream-host-worker</td><td><span class="m m-s">Sonnet</span></td><td>high</td><td class="n">60</td><td>Rewrites one site note from redacted evidence.</td></tr>
+      <tr><td class="k">Judge calls</td><td><span class="m m-h">Haiku</span> <span class="m m-s">Sonnet</span></td><td>—</td><td class="n">—</td><td>One-shot <code>claude -p</code> calls with no tools. Haiku decides button names no word list can. Sonnet checks filled values at the end of an apply run.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Job status life cycle</h3>
+  <figure class="fsm">
+    <div class="fsm-scroll">
+      <svg viewBox="0 0 1100 700" role="img" aria-labelledby="fsm-t fsm-d">
+        <title id="fsm-t">Job status state machine</title>
+        <desc id="fsm-d">Nine tracker statuses. find-jobs and add-job create Found rows; a company on the exclude list is created as Deleted. Found moves to Matched, Resume Built or Skipped-LowFit, or to Deleted when prep start finds the posting closed, a duplicate or without a folder. Matched moves to Resume Built or Resume Failed, or to Deleted when the resume worker refuses the posting. Resume Failed returns to Resume Built through build-job-resumes. Resume Built moves to Pending Review or Needs Attention, or to Deleted when apply finds the posting closed. Needs Attention moves to Pending Review, stays, or goes to Deleted when continue-applying finds the posting closed. Reconcile moves Pending Review and Needs Attention to Submitted. Any open status becomes Deleted when its folder is deleted, or Submitted when its folder is moved to Submitted by hand. Skipped-LowFit, Submitted and Deleted are final.</desc>
+        <defs>
+          <marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="ah a" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="ah-y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="ah y" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="ah-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="ah g" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <rect class="box" x="100" y="40" width="810" height="460" rx="28"/>
+        <text class="boxlabel" x="124" y="68">OPEN STATES</text>
+
+        <path class="e g" d="M49,260 Q86,248 123,260" marker-end="url(#ah-g)"/>
+        <path class="e g" d="M873,662 Q812,670 750,651" marker-end="url(#ah-g)"/>
+        <path class="e a" d="M202,228 Q265,178 356,176" marker-end="url(#ah-a)"/>
+        <path class="e a" d="M182,217 Q400,-40 614,216" marker-end="url(#ah-a)"/>
+        <path class="e a" d="M170,305 Q190,437 170,569" marker-end="url(#ah-a)"/>
+        <path class="e a" d="M196,297 Q260,660 650,647" marker-end="url(#ah-a)"/>
+        <path class="e a" d="M441,179 Q520,190 587,240" marker-end="url(#ah-a)"/>
+        <path class="e a" d="M400,205 Q382,264 400,323" marker-end="url(#ah-a)"/>
+        <path class="e a" d="M374,197 Q240,520 654,618" marker-end="url(#ah-a)"/>
+        <path class="e g" d="M437,344 Q540,345 594,290" marker-end="url(#ah-g)"/>
+        <path class="e y" d="M667,234 Q720,170 785,162" marker-end="url(#ah-y)"/>
+        <path class="e y" d="M667,286 Q720,350 785,358" marker-end="url(#ah-y)"/>
+        <path class="e y" d="M634,305 Q655,460 693,590" marker-end="url(#ah-y)"/>
+        <path class="e y" d="M830,325 Q812,261 830,197" marker-end="url(#ah-y)"/>
+        <path class="e y" d="M815,412 C790,470 870,470 846,414" marker-end="url(#ah-y)"/>
+        <path class="e y" d="M796,399 Q760,520 736,604" marker-end="url(#ah-y)"/>
+        <path class="e g" d="M872,165 Q945,165 994,224" marker-end="url(#ah-g)"/>
+        <path class="e g" d="M872,355 Q945,350 994,296" marker-end="url(#ah-g)"/>
+        <path class="e g" d="M910,470 Q1025,470 1028,311" marker-end="url(#ah-g)"/>
+        <path class="e g" d="M620,500 Q640,565 669,600" marker-end="url(#ah-g)"/>
+
+        <circle class="start" cx="40" cy="260" r="7"/>
+        <circle class="start" cx="880" cy="662" r="7"/>
+        <circle class="st a" cx="170" cy="260" r="44"/>
+        <circle class="st a" cx="400" cy="160" r="44"/>
+        <circle class="st r" cx="400" cy="370" r="44"/>
+        <circle class="st a" cx="630" cy="260" r="44"/>
+        <circle class="st y" cx="830" cy="150" r="44"/>
+        <circle class="st y" cx="830" cy="370" r="44"/>
+        <circle class="st f" cx="170" cy="620" r="48"/><circle class="ring" cx="170" cy="620" r="42"/>
+        <circle class="st f" cx="700" cy="640" r="48"/><circle class="ring" cx="700" cy="640" r="42"/>
+        <circle class="st f" cx="1030" cy="260" r="48"/><circle class="ring" cx="1030" cy="260" r="42"/>
+
+        <text class="name" x="170" y="265">Found</text>
+        <text class="name" x="400" y="165">Matched</text>
+        <text class="name" x="400" y="365">Resume</text><text class="name" x="400" y="382">Failed</text>
+        <text class="name" x="630" y="255">Resume</text><text class="name" x="630" y="272">Built</text>
+        <text class="name" x="830" y="145">Pending</text><text class="name" x="830" y="162">Review</text>
+        <text class="name" x="830" y="365">Needs</text><text class="name" x="830" y="382">Attention</text>
+        <text class="name" x="170" y="615">Skipped-</text><text class="name" x="170" y="632">LowFit</text>
+        <text class="name" x="700" y="645">Deleted</text>
+        <text class="name" x="1030" y="265">Submitted</text>
+
+        <text class="lbl" x="44" y="232">find-jobs</text><text class="lbl" x="44" y="246">add-job</text>
+        <text class="lbl" x="812" y="634">find-jobs: excluded</text><text class="lbl" x="812" y="648">company</text>
+        <text class="lbl" x="292" y="215">score 6+ (agency 8+)</text><text class="lbl" x="292" y="229">on a role resume</text>
+        <text class="lbl" x="400" y="74">ready-made PDF matched</text>
+        <text class="lbl end" x="158" y="514">low score · junk</text><text class="lbl end" x="158" y="528">agency below 8</text><text class="lbl end" x="158" y="542">dealbreaker</text><text class="lbl end" x="158" y="556">work-authorization</text><text class="lbl end" x="158" y="570">or language block</text>
+        <text class="lbl" x="420" y="664">prep start: closed,</text><text class="lbl" x="420" y="678">duplicate or no folder</text>
+        <text class="lbl" x="522" y="170">tailored</text><text class="lbl" x="522" y="184">PDF built</text>
+        <text class="lbl start" x="412" y="258">build failed, or</text><text class="lbl start" x="412" y="272">a reported time-out</text>
+        <text class="lbl start" x="402" y="466">refused by the</text><text class="lbl start" x="402" y="480">resume worker</text>
+        <text class="lbl" x="522" y="374">build-job-resumes</text><text class="lbl" x="522" y="388">after a hand fix</text>
+        <text class="lbl" x="700" y="158">apply:</text><text class="lbl" x="700" y="172">form parked</text>
+        <text class="lbl" x="744" y="302">apply: blocked or</text><text class="lbl" x="744" y="316">a check failed</text>
+        <text class="lbl start" x="668" y="410">apply:</text><text class="lbl start" x="668" y="424">posting closed</text>
+        <text class="lbl start" x="842" y="256">continue:</text><text class="lbl start" x="842" y="270">parked</text>
+        <text class="lbl" x="850" y="478">continue:</text><text class="lbl" x="850" y="492">still blocked</text>
+        <text class="lbl start" x="762" y="556">continue:</text><text class="lbl start" x="762" y="570">posting closed</text>
+        <text class="lbl" x="946" y="248">reconcile:</text><text class="lbl" x="946" y="262">treated</text><text class="lbl" x="946" y="276">as sent</text>
+        <text class="lbl" x="1000" y="500">by hand: folder</text><text class="lbl" x="1000" y="514">moved to Submitted/</text>
+        <text class="lbl end" x="612" y="540">reconcile:</text><text class="lbl end" x="612" y="554">folder deleted</text>
+      </svg>
+    </div>
+    <figcaption class="fsm-legend">
+      <span><i class="ln a"></i>prep-jobs</span>
+      <span><i class="ln y"></i>apply-jobs, continue-applying</span>
+      <span><i class="ln"></i>find-jobs, reconcile or the candidate</span>
+      <span><i class="dbl"></i>final state</span>
+      <span><i class="dash"></i>open states: an edge leaving the box applies to each of them</span>
+    </figcaption>
+  </figure>
+  <p class="note">The tracker refuses any other move between its nine statuses. The prep-start checks (closed, duplicate, no folder) apply to Matched rows too, and prep start gives a job folder without a row a new Found row. Reconcile marks any open row Submitted whose folder sits in Submitted/, Pending-Review/ or Needs-Attention/. In prep, a worker that sends no report leaves its job where it was; in apply, its job goes to Needs Attention. undo-find-jobs removes a day's rows that are still Found or Deleted.</p>
+</section>
+
+<!-- ============================== FOUNDATION ============================== -->
+<section id="foundation">
+  <p class="kicker">Platform</p>
+  <h2>Shared foundation</h2>
+  <p class="what">What every subsystem stands on: setup, the workspace folder, the tracker spreadsheet, the hooks, the mock-data guard and cost accounting.</p>
+  <div class="cmds"><code>/ohmyjob:setup</code><code>/ohmyjob:help</code><code>/ohmyjob:usage</code></div>
+
+  <div class="grid2">
+    <div class="box">
+      <h3>Requirements</h3>
+      <ul>
+        <li>macOS or Linux. Windows is not supported (the scripts are bash-only), and WSL cannot drive the browser.</li>
+        <li>Claude Code 2.1.306 or newer (setup refuses older).</li>
+        <li>A direct Anthropic plan (Pro, Max, Team or Enterprise). An API key turns Claude in Chrome off.</li>
+        <li>Chrome, Edge or Brave with Claude in Chrome, plus the bundled helper extension. Only stage 3 needs a browser.</li>
+        <li>Recommended start: <code>claude --model claude-haiku-5-5 --setting-sources project,local --strict-mcp-config --chrome</code> in the job-search folder. Hooks load only from the folder Claude starts in.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Setup</h3>
+      <ul>
+        <li>Safe to run again: never overwrites a user file and never writes real user data. New files hold a mock persona, "Alex Example".</li>
+        <li>Checks the Claude Code version, the plugin scope and Chrome (a Chrome failure is only a warning). Asks before installing anything.</li>
+        <li>Installs into the plugin's own data folder only: virtualenv, uv's own Python, uv if missing, TinyTeX if no system LuaLaTeX builds the template, font caches and the extension. Nothing goes on PATH, in <code>~/.local</code> or in <code>~/.cache</code>.</li>
+        <li>Merges <code>.claude/settings.json</code>: allows <code>Bash(ohmyjob *)</code>, denies the Chrome JavaScript tool, raises the subagent cap to at least 50, turns auto-memory and claude.ai connectors off. The user's own values win, except two numeric minimums, and the allow and deny entries are added to the user's lists.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Workspace</h3>
+      <ul>
+        <li><code>ohmyjob.json</code>: search settings. Unknown keys and bad values are refused, naming the key.</li>
+        <li><code>Profile.md</code>: Fit Preferences (three fields), the master Resume, numbered Follow Up Questions, optional Work Authorization (one line per country) and Languages.</li>
+        <li><code>Default_Resume_Files/</code>: one yaml plus PDF per role, or ready-made PDFs.</li>
+        <li>One folder per job, moving <code>Applications/</code> → <code>Pending-Review/</code> or <code>Needs-Attention/</code> → <code>Submitted/</code>. Each holds <code>job.md</code>, the tailored yaml and the PDF.</li>
+        <li><code>ats/</code> site notes, <code>Worker_Limits.json</code>, <code>Dream_Report.md</code> and <code>.ohmyjob/</code> (run state, traces, logs, backups).</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Tracker</h3>
+      <ul>
+        <li><code>Job_Tracker.xlsx</code>, one row per job: Job URL, Status, Company, Job Title, Date Found, Location, Source, Match Score, Notes.</li>
+        <li>Atomic save. Refused while Excel or LibreOffice has the file open, or if the file changed on disk since it was loaded. Nothing is half-written.</li>
+        <li>Cells are stored as text, so a scraped <code>=…</code> never becomes a formula.</li>
+        <li>Enforces the status life cycle above.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Hooks</h3>
+      <ul>
+        <li>Five hooks: <b>guard</b> before Chrome, Read, Edit, Write, Bash and Agent calls; <b>handback</b> and <b>capture</b> check a worker's report; <b>snapshot</b> saves each page a Chrome call returns; <b>report</b> prints the run's cost report once.</li>
+        <li>Identifies the caller only from the call's parsed agent type, tool name and folder, never from text the model wrote.</li>
+        <li>Fails closed: a crashing guard blocks the call. Without the plugin's environment, every ohmyjob agent call and every agent's Chrome call is refused; the main session only gets a notice, so setup can still run.</li>
+        <li>An agent's own tool list is not trusted: the guard itself checks which agents a master may start and which commands it may run.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Mock-data guard</h3>
+      <ul>
+        <li>The template files carry the marker <code>OHMYJOB-TEMPLATE</code>.</li>
+        <li>find-jobs and add-job refuse while <code>ohmyjob.json</code> or <code>Profile.md</code> holds it. prep-jobs, apply-jobs, continue-applying and retro refuse while <code>Profile.md</code> holds it.</li>
+        <li>Each refusal is one <code>FATAL:</code> line naming the file. Template resumes are never used for a job.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Cost accounting</h3>
+      <ul>
+        <li>Every prep and apply run ends with its estimated cost in API-equivalent dollars: per job screened, per resume and per application, plus overhead. The estimate can run slightly low.</li>
+        <li>Summed from Claude Code's own transcripts of the master, every worker and every judge call, priced per model. A model with no price is named, not hidden.</li>
+        <li>Saved to a file so a hook prints it even if a model drops it, and logged per run. <code>/ohmyjob:usage</code> shows every run and the totals.</li>
+        <li>The main session and the master's last turn are not counted.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Hard rules and data</h3>
+      <ul>
+        <li>Final buttons: every Chrome call passes a hook that refuses any control named like one.</li>
+        <li>No account sign-ups and no passwords: hooks refuse sign-up buttons and any typing on Google pages; elsewhere "never type a password" is an instruction to the worker.</li>
+        <li>No invented resume facts: the tailoring worker may use only the candidate's own material, and a script checks that frozen fields did not change.</li>
+        <li>Searches go to the boards; applications go to employers through the candidate's own Chrome; working text goes to Anthropic under the user's plan. Setup downloads its tools, prep and apply fetch posting pages to check they are still open, and add-job fetches the pages it is given. Everything else stays in the local folder.</li>
+        <li>Page and posting text is treated as data, never as instructions.</li>
+        <li>Release check: a PII gate scans the repository for the owner's personal terms. CI validates the plugin and runs the tests, a real LaTeX build and browser tests of the extension.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== FINDER ============================== -->
+<section id="finder">
+  <p class="kicker">Subsystem 1 · Stage 1</p>
+  <h2>Job Posting Finder</h2>
+  <div class="cmds"><code>/ohmyjob:find-jobs [verbose] [--dry-run] [--git-snapshot]</code><code>/ohmyjob:add-job &lt;url&gt; …</code><code>/ohmyjob:undo-find-jobs [YYYY-MM-DD | 'YYYY-MM-DD HH:MM']</code></div>
+  <p class="runs">Runs as a script launched from the main session. The script calls no AI model; the session only relays its report.</p>
+  <p class="what">Searches the chosen boards for each search term, filters and de-duplicates on the candidate's machine, and records every new posting as a tracker row at Found plus a job folder holding <code>job.md</code>.</p>
+
+  <div class="grid2">
+    <div>
+      <h3>Needs</h3>
+      <ul>
+        <li><code>search</code> settings: <code>sources</code> (default LinkedIn), <code>search_query</code> (required), <code>location</code>, <code>country</code> (required for Indeed and Glassdoor; 62 countries), <code>recency_days</code> (default 1; 0 means no limit), <code>results_per_term</code> (default 30), <code>employment_types</code> (default full-time, part-time, contract), <code>exclude_companies</code>, <code>exclude_seniority_level</code>, <code>filter_title_terms</code>, <code>title_filter</code> (strict or off), <code>languages</code> (word-form languages for title matching, default English), <code>uk_sponsor_only</code> (freehire).</li>
+        <li>Optional <code># Languages</code> section in <code>Profile.md</code>.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Produces</h3>
+      <ul>
+        <li><code>Applications/&lt;id&gt;_&lt;Company&gt;_&lt;Title&gt;/job.md</code>: overview (title, company, job and apply URL, board, dates, location, employment type), full description, empty sections for the screener.</li>
+        <li>A tracker row at Found. An excluded company gets a Deleted row with a note and no folder.</li>
+        <li>A report: new jobs by board; added, already tracked, auto-excluded and scraped counts; drops per reason; results per board.</li>
+        <li>Exit code 0 when clean, 2 when any board or term failed, 1 when fatal.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Capabilities</h3>
+  <ul class="caps">
+    <li><b>Ten boards.</b> LinkedIn, Indeed, ZipRecruiter, Glassdoor, Google Jobs, Bayt, Naukri, BDJobs and HelloWork through JobSpy 1.4.1 (pinned), plus freehire.me's keyless API. Boards run in the user's order, and that order also decides which board keeps a job listed twice.</li>
+    <li><b>Only five things reach a JobSpy board:</b> search term, location, country, result count and recency. Google gets a generated query such as "data analyst jobs near Berlin since yesterday". Every other filter runs locally.</li>
+    <li><b>freehire:</b> searched by country code (taken from location, else country; skipped with a warning when neither names one) with a title-phrase query, in pages of 100 up to 10,000 results. Recency and the exclusion of aggregator feeds (Adzuna, Jobleads, WhatJobs) run on the server. Optional UK licensed-sponsor filter. One retry on rate limits and server errors, honouring Retry-After up to 30 s. Warns when the API ignores a filter, and on zero results reports the 7-day, 30-day and all-time counts to explain why.</li>
+    <li><b>LinkedIn pacing:</b> a random 1.0–2.5 s pause before every detail page. When more than half of a board's detail pages fail (and at least 3), the report says to search less.</li>
+    <li><b>Failure isolation per search term:</b> a failing term or board is reported as ERROR and the rest still run. A failing search ends the run only when every board failed and nothing came back.</li>
+    <li><b>One job id everywhere:</b> a LinkedIn job keeps its numeric id. Any other address becomes "9" plus 14 digits hashed from host, path and query. Tracking parameters are stripped when a posting is collected: utm_* plus 22 named ones such as gclid and fbclid (LinkedIn addresses lose 8 more). The finder, the folders and reconcile all use this rule.</li>
+    <li><b>Title matching</b> (strict): every word of a search term must meet a title word by accent-folded form or dictionary word form, in any order, with built-in aliases (Sr. = senior, ops = operations, developer → engineer). With <code>off</code>, every title passes but the other filters still run.</li>
+    <li><b>Run options:</b> <code>verbose</code> streams board, term and filter events live. <code>--dry-run</code> searches but writes nothing. <code>--git-snapshot</code> commits the tracker and <code>Applications/</code> first (skipped outside a git repository or when <code>.gitignore</code> excludes them).</li>
+    <li><b>Unattended runs:</b> runs in the background and asks nothing, so it also works from a scheduled <code>claude -p</code>.</li>
+    <li><b>Add by hand:</b> add-job fetches each address with Python's standard library (no Chrome, no JavaScript; 20 s and 3 MB caps), reads the page's schema.org JobPosting data, and writes the same folder and Found row with Source "Added by hand (site)". Search filters do not apply. An excluded company only gets a warning.</li>
+    <li><b>Undo:</b> undo-find-jobs removes the rows of the newest Date Found day (add-job rows included), or of a date or minute given, that are still Found or Deleted, plus their <code>Applications/</code> folders. It shows a dry run, asks, copies the tracker to <code>.ohmyjob/backup/</code>, and applies only with the plan digest of that dry run.</li>
+  </ul>
+
+  <h3>Drop filters, in order (first hit wins)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Reason in report</th><th>Drops a posting when</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td class="k">Unusable</td><td>It has no title or no usable job id.</td></tr>
+      <tr><td class="n">2</td><td class="k">Already tracked</td><td>Its id is in the tracker (any status, any age) or has a folder in any of the four job folders.</td></tr>
+      <tr><td class="n">3</td><td class="k">Duplicate job id</td><td>The same id was already kept in this run.</td></tr>
+      <tr><td class="n">4</td><td class="k">LinkedIn failed</td><td>Its detail page did not load. It is not recorded, so the next run tries again.</td></tr>
+      <tr><td class="n">5</td><td class="k">Job type</td><td>Its own employment-type field is not in <code>employment_types</code>. Postings with no type pass.</td></tr>
+      <tr><td class="n">6</td><td class="k">Posting language</td><td>freehire labels it in a language the <code># Languages</code> section does not list. Unlabelled postings, other boards and a profile without the section never drop.</td></tr>
+      <tr><td class="n">7</td><td class="k">Job level</td><td>An <code>exclude_seniority_level</code> phrase appears as whole words in the title, or equals the board's own seniority label exactly ("senior" does not drop "Mid-Senior level").</td></tr>
+      <tr><td class="n">8</td><td class="k">Filter terms</td><td>A <code>filter_title_terms</code> phrase appears in the title.</td></tr>
+      <tr><td class="n">9</td><td class="k">Job title</td><td>Strict matching finds no search term in the title.</td></tr>
+      <tr><td class="n">10</td><td class="k">Junk</td><td>Scam signals: "$$", "!!", emoji or symbols in the title; contact by Telegram or WhatsApp; upfront or training fees; a kit to buy; check deposits; pay in crypto or gift cards; commission-only, "be your own boss" or "unlimited earning potential"; applications to a free-mail address.</td></tr>
+      <tr><td class="n">11</td><td class="k">Duplicate title</td><td>The same title, company and city was kept earlier in this run under another id.</td></tr>
+      <tr><td class="n">12</td><td class="k">Twin of tracker</td><td>Same company (legal suffixes ignored), title (gender marks such as m/w/d ignored) and city as a tracker row that is Submitted, Pending Review, Needs Attention, Deleted or Skipped-LowFit (any age), or any row found in the last max(30, recency_days) days (any age when recency_days is 0).</td></tr>
+      <tr><td class="n">13</td><td class="k">Twin of earlier</td><td>Same company, title and city as a job from a board earlier in <code>sources</code>.</td></tr>
+      <tr><td class="n">—</td><td class="k">Auto-excluded</td><td>A survivor whose company name starts with an <code>exclude_companies</code> entry (token similarity of 88% or more) is recorded as Deleted, without a folder.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>add-job outcomes</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Situation</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Not an http or https address</td><td>Unreadable. Nothing is fetched.</td></tr>
+      <tr><td>Id already in the tracker or a job folder</td><td>Already known, naming the existing row and its status. Checked before any fetch.</td></tr>
+      <tr><td>HTTP error, sign-in redirect, not a web page, under 30 words, or a sign-in, script or cookie wall</td><td>Unreadable. Nothing is created.</td></tr>
+      <tr><td>Company or title missing from the JobPosting data</td><td>Needs input. Never guessed from the page title.</td></tr>
+      <tr><td>Same company, title and city as any tracker row</td><td>Already known (twin).</td></tr>
+      <tr><td>Otherwise</td><td>Added at Found.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Limits</h3>
+  <ul class="limits">
+    <li>Only the ten boards. Career pages come in through add-job, which cannot render JavaScript or log in; a page that answers with a sign-in redirect or wall, as LinkedIn job pages often do, is refused.</li>
+    <li><code>results_per_term</code> counts before local filtering, so a strict filter can leave few jobs from many results.</li>
+    <li>freehire is searched by country only (the city is never sent or checked), ignores <code>results_per_term</code>, stops at 10,000 results per term and always drops internships.</li>
+    <li>The posting-language filter covers freehire labels only, and a label names the language an ad is written in, not the language the job needs. Stage 2 judges the rest.</li>
+    <li>Junk patterns are English. Vague or thin postings are left to the screener.</li>
+    <li>Title matching needs scripts with spaces between words (no segmentation for Chinese or Japanese). The software-flavoured aliases cannot be switched off.</li>
+    <li><code>exclude_companies</code> is fuzzy and can over-match short names: "Meta" also matches "Metal".</li>
+    <li>Within one board, reposts under different ids are caught only when title, company and city match exactly.</li>
+    <li>LinkedIn pages that fail to load are not retried within the same run.</li>
+    <li>Undo knows a run only by its Date Found prefix, removes every same-date Deleted row, and cannot restore deleted folders.</li>
+  </ul>
+</section>
+
+<!-- ============================== PREP ============================== -->
+<section id="prep">
+  <p class="kicker">Subsystem 2 · Stage 2</p>
+  <h2>Screening &amp; Resume Tailoring</h2>
+  <div class="cmds"><code>/ohmyjob:prep-jobs [job-id …]</code><code>/ohmyjob:build-resumes [file.yaml]</code><code>/ohmyjob:build-job-resumes &lt;names&gt;</code><code>/ohmyjob:master-resume</code><code>/ohmyjob:edit-template &lt;request&gt;</code></div>
+  <p class="runs">Runs as a forked <span class="m m-h">Haiku</span> prep-master, <span class="m m-h">Haiku</span> screen-workers and <span class="m m-s">Sonnet</span> resume-workers, with scripts and LuaLaTeX.</p>
+  <p class="what">Scores every Found job against the candidate's own profile, drops weak or impossible matches with the reason written to the tracker, and builds a tailored PDF with the exact page count for each match. Screening and tailoring share one queue: a match starts its resume worker while other jobs are still being screened.</p>
+
+  <div class="grid2">
+    <div>
+      <h3>Needs</h3>
+      <ul>
+        <li>A filled-in <code>Profile.md</code> without the template marker. The screener leans on its Fit Preferences (Seniority / experience level, What I'm looking for, Dealbreakers), Resume and Follow Up Questions; Work Authorization and Languages are optional.</li>
+        <li>At least one usable resume in <code>Default_Resume_Files/</code>: a role yaml with its built PDF (tailorable) or a PDF alone (ready-made). Template files and PDFs of the mock persona are never used.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Produces</h3>
+      <ul>
+        <li>Skipped-LowFit with the reason in Notes (folder deleted), or Matched, then Resume Built, Resume Failed or Deleted.</li>
+        <li>In each kept folder: <code>&lt;First&gt;_&lt;Company&gt;_&lt;Title&gt;.yaml</code> and <code>.pdf</code> (name cut at 50 characters), and notes in <code>job.md</code> on what changed and why, the gaps the material could not cover, and what was cut to fit.</li>
+        <li>An end report: closed, duplicate and refused jobs listed one by one, low-fit skips counted, work-authorization and language block counts, and the API-equivalent cost per job screened and per resume.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Before any model runs</h3>
+  <ul class="caps">
+    <li><b>Row and folder pairing</b> by job id, for Found and Matched rows: a row without a folder becomes Deleted; a fresh folder without a row gets a Found row. A folder that already holds resume files, or shares its id with another folder, is left alone and reported.</li>
+    <li><b>Duplicate postings</b> (same company and title): keeps the one already at Resume Built, else the one with a stated location, else the lower id. The rest become Deleted.</li>
+    <li><b>Closed-posting check</b> (no model, no Chrome): drops a posting only on positive evidence: LinkedIn's "No longer accepting applications", a Lever 404, a Greenhouse error redirect, or HTTP 410 elsewhere. Errors, timeouts, rate limits and sign-in walls count as open. One request at a time per site, 1–1.5 s apart, a site left alone for the rest of the check after 3 refusals in a row, 6 sites in parallel, a 40 s budget.</li>
+    <li><b>Work-authorization pre-pass:</b> reads English and German postings for "no sponsorship", "right to work", "citizens only", "permanent residency" and named clearances. It takes the one country in the job's Location and compares it with the candidate's line for that country (citizen, then permanent resident, then authorized, then needs sponsorship; a country line beats the EU line). A named clearance blocks only when <code>Profile.md</code> says the candidate holds none. Only when both sides are explicit is the job skipped, with a "Work authorization block:" note quoting both, and no worker is started.</li>
+    <li><b>Resume catalog,</b> built once per run: title, introduction, roles and skills of each role yaml, and the full text (up to 6,000 characters) of each ready-made PDF.</li>
+  </ul>
+
+  <h3>Screening (one Haiku worker per job)</h3>
+  <ul class="caps">
+    <li>Plays a strict senior recruiter in the candidate's field, judging the substance of the work rather than keywords, and scores 0–10. It is told not to inflate scores.</li>
+    <li>Its brief puts Fit Preferences first, then the whole <code>Profile.md</code>, the list of resumes and the posting; the worker reads the resume catalog file once.</li>
+    <li>Picks the single closest resume. A near tie between a role yaml and a ready-made PDF goes to the yaml, because only the yaml gets tailored.</li>
+    <li>Second net for work authorization: requirements the script cannot read (other languages, unusual wording, "must reside in X") are judged against the Work Authorization lines and the Follow Up answers.</li>
+    <li>Language rule: an explicit requirement, or a posting written entirely in a language the Languages list lacks, is a dealbreaker. The list is read as complete. There is no level test.</li>
+  </ul>
+
+  <h3>Tailoring (one Sonnet worker per match)</h3>
+  <ul class="caps">
+    <li>Starts from an exact copy of the matched yaml. Facts may come only from <code>Profile.md</code> and that yaml; nothing is invented, inferred, upgraded or borrowed from the posting.</li>
+    <li>May reorder, reword, merge or split bullets, pull in projects and skills from <code>Profile.md</code>, regroup skill rows, rewrite the summary, and retitle the headline to the posting's title.</li>
+    <li>Only title, introduction, experience, projects and skills may change. Numbers, dates, employers, degrees, credentials, past job titles, contact details, education and section order stay exact, and no rewording may promote a claim.</li>
+    <li>Content is cut only to hold the length. The PDF must match the source PDF's page count exactly. To fit, it tightens wording, then drops the least relevant bullets, then skill items, and only last a whole project. Font and margins never change.</li>
+    <li>A script checks every draft before compiling: same keys and roles; no added seniority word in the title; the introduction opens with the title and is no longer than the source; each role keeps 2–4 bullets unless its source had fewer or more; a changed bullet fits in 124 characters and a changed skill row in 109; no new repository that <code>Profile.md</code> lacks. A failed check does not use up one of the 4 builds.</li>
+    <li>May refuse a job before editing, on three grounds only: the deciding requirements have no support in the candidate's material, the job is another profession, or a dealbreaker applies. A missing tool, a missing industry or a higher title is never a reason.</li>
+  </ul>
+
+  <h3>Decision rules</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Condition</th><th>Status</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>Junk posting, or score 5 or less</td><td><span class="s end">Skipped-LowFit</span></td><td>Reason in Notes; folder deleted.</td></tr>
+      <tr><td>Recruiter or staffing agency scoring below 8 (judged from the name and description together)</td><td><span class="s end">Skipped-LowFit</span></td><td>The agency signal is quoted.</td></tr>
+      <tr><td>Listed dealbreaker or clear seniority mismatch</td><td><span class="s end">Skipped-LowFit</span></td><td>Score capped at 5; the note quotes the preference.</td></tr>
+      <tr><td>Work-authorization or language requirement the profile says cannot be met</td><td><span class="s end">Skipped-LowFit</span></td><td>Note starts "Work authorization block:" or "Language block:".</td></tr>
+      <tr><td>Silent, hedged or "nice to have" requirement, or a country the profile does not list</td><td>unchanged</td><td>Written into the job's Gaps; the score is not lowered.</td></tr>
+      <tr><td>Score 6 or more; closest resume is a ready-made PDF</td><td><span class="s">Resume Built</span></td><td>PDF copied into the folder. No worker.</td></tr>
+      <tr><td>Score 6 or more; closest resume is a role yaml</td><td><span class="s">Matched</span></td><td>Joins the build queue at once.</td></tr>
+      <tr><td>Tailored PDF built with the exact page count</td><td><span class="s">Resume Built</span></td><td>—</td></tr>
+      <tr><td>Build failed, time ran out, or the report was invalid</td><td><span class="s bad">Resume Failed</span></td><td>Reason in Notes. Not retried automatically.</td></tr>
+      <tr><td>Worker refused the posting</td><td><span class="s end">Deleted</span></td><td>Reason in Notes.</td></tr>
+      <tr><td>Posting closed, duplicate, or row without a folder</td><td><span class="s end">Deleted</span></td><td>Dated note.</td></tr>
+      <tr><td>A worker sent no report</td><td>unchanged</td><td>Stays Found or Matched for the next run.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Write order every time: <code>job.md</code>, then the tracker is saved, and only then are folders deleted. A crashed run is harmless: unrecorded jobs stay Found or Matched and the next run picks them up.</p>
+
+  <div class="grid2">
+    <div>
+      <h3>Resume tooling</h3>
+      <ul class="caps">
+        <li><b>Rendering:</b> one complete yaml per resume, through a Jinja LaTeX template and the vendored Awesome-CV class, compiled by LuaLaTeX (no shell escape, 180 s limit) in a separate folder per build. A workspace copy of the template overrides the plugin's.</li>
+        <li><b>build-resumes:</b> a PDF next to every role yaml (never <code>Template*</code>), OK or FAIL per file.</li>
+        <li><b>build-job-resumes:</b> rebuilds a job's tailored yaml after a hand fix and sets the row back to Resume Built. More pages than the source fails.</li>
+        <li><b>master-resume:</b> merges every role yaml (the same job, degree or award across files becomes one entry; bullets and skill items 90% or more similar keep the longer text) plus the text of ready-made PDFs into a draft Resume section. Claude adds the PDF facts. Applying replaces only that section, after a backup.</li>
+        <li><b>edit-template:</b> restyles the resume or CV or adds a section from a plain-language request. It asks when resume or CV is unclear and edits only the workspace copy. When it adds a section, it also adds sample lines to the two template yamls. It always builds both samples to prove they compile; after three failed builds, or when no fix is clear, it resets the copy.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Guard rules for prep agents</h3>
+      <ul class="caps">
+        <li>A worker's first call must read its own brief.</li>
+        <li>A screen worker can read only its brief and the catalog.</li>
+        <li>A resume worker can read its brief, its yaml and its PDF, edit only its yaml, and run only the build of its own job.</li>
+        <li>The master can start only these two worker types and run only fixed <code>ohmyjob prep</code> commands.</li>
+        <li>After 17 minutes, every tool call of a worker is refused. Reports are checked and sent back at most twice.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Limits</h3>
+  <ul class="limits">
+    <li>The work-authorization script reads English and German only, never decides when the job's country is unclear (remote, several countries, a bare city) and never compares clearance levels.</li>
+    <li>Apart from the finder's label-based drop of freehire postings, language requirements are judged only by the Haiku screener, with 8 turns per job. The resume worker treats the screener's notes as a fast first read and reads the posting again.</li>
+    <li>The closed-posting check has evidence rules only for LinkedIn, Lever, Greenhouse and HTTP 410.</li>
+    <li>Duplicate detection ignores location: the same company and title in two cities count as one job.</li>
+    <li>Ready-made PDFs are never tailored.</li>
+    <li>Tailoring cannot add roles or change employers, titles, dates, education, contact details or section order, and can refuse only before editing.</li>
+    <li>Text the resume fonts cannot draw (the code names Chinese, Japanese, Korean and Arabic) fails the build.</li>
+    <li>Resume Failed jobs wait for a hand fix and <code>/ohmyjob:build-job-resumes</code>.</li>
+  </ul>
+</section>
+
+<!-- ============================== APPLY ============================== -->
+<section id="apply">
+  <p class="kicker">Subsystem 3 · Stage 3</p>
+  <h2>Application Browser Agent</h2>
+  <div class="cmds"><code>/ohmyjob:apply-jobs [--selected "&lt;names&gt;" | --top-k-match N]</code><code>/ohmyjob:continue-applying</code></div>
+  <p class="runs">Runs as a forked <span class="m m-h">Haiku</span> application-master, one <span class="m m-h">Haiku</span> application-worker per job (with a one-time <span class="m m-s">Sonnet</span> takeover), judge calls, the hooks and a helper Chrome extension.</p>
+  <p class="what">Opens one tab per job in the candidate's own Chrome, fills each application from <code>Profile.md</code> and the tailored resume, uploads that job's PDF and stops before the final button. Blocked jobs wait in a Chrome tab group for the candidate, then continue where they stopped.</p>
+
+  <div class="grid2">
+    <div>
+      <h3>Needs</h3>
+      <ul>
+        <li>Rows at Resume Built, each with exactly one tracker row, one folder, <code>job.md</code>, a PDF and a job URL. Others are listed as skipped.</li>
+        <li>Chrome, Edge or Brave with Claude in Chrome and the helper extension. Without the helper the run only warns, and Google sign-in pop-ups end in Needs Attention.</li>
+        <li>LinkedIn signed in when any job is on LinkedIn. Google signed in, for "Continue with Google".</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Produces</h3>
+      <ul>
+        <li>Pending Review (folder to <code>Pending-Review/</code>), Needs Attention (folder to <code>Needs-Attention/</code>, tab kept in the "Needs Attention" group) or Deleted (posting closed).</li>
+        <li>A note per job: where it stopped, the final button left for the candidate, filled fields, the uploaded resume, drafted answers to check, consent boxes ticked, open items.</li>
+        <li>The forms' questions, asked once at the end. Answers are saved to <code>Profile.md</code>.</li>
+        <li>Cost per application, a ledger line per job and, for informative runs, a redacted trace for Dream.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Run sequence</h3>
+  <ol class="steps">
+    <li><b>Work-authorization gaps.</b> Before the run, the main session asks for the candidate's status in each job country <code>Profile.md</code> does not cover (citizen, permanent resident, authorized, needs sponsorship) and saves the answers.</li>
+    <li><b>Queue.</b> All Resume Built rows, or <code>--selected</code> folder names (each must match exactly one folder), or the <code>--top-k-match</code> N best Match Scores; not both. The closed-posting check drops closed jobs before any tab opens.</li>
+    <li><b>Preflight.</b> LinkedIn sign-in (a login, authwall or checkpoint page stops the run), the helper's version, a self-test of the button judge (the Italian "Invia candidatura" must be refused) and the watchdog limits.</li>
+    <li><b>Tabs and briefs.</b> One tab and one brief per job: <code>Profile.md</code> without Fit Preferences, the posting, the tailored resume's title and introduction, the PDF path, and the site notes to read on arrival.</li>
+    <li><b>Workers</b> start in free slots (49 by default). First page loads are spaced 4 s apart, so one account is not hit by many tabs at once.</li>
+    <li><b>Finish.</b> Every report is checked, and a Sonnet check reviews the filled values of each parked form. Notes are written, folders moved and the tracker saved once. Tabs move into the "Pending Review", "Needs Attention" and "Deleted" groups; stray tabs close and job tabs stay open.</li>
+    <li><b>End.</b> Cost report, ledger and traces, usage log. The run folder is deleted.</li>
+  </ol>
+
+  <h3>How a worker fills a form</h3>
+  <ul class="caps">
+    <li>Answers only from its brief, and splits stated facts instead of asking: country, city and postcode from the address; first and last name; the dialling code from the phone.</li>
+    <li>Keeps values LinkedIn prefilled. Work-authorization and sponsorship answers follow the country's status line (an EU line covers EU countries) or a Follow Up answer that names the country.</li>
+    <li>Gives every other question the most plausible answer and lists it under "Drafted answers" for review. Open-text answers are 3–5 sentences, at most 120 words, in the question's language. "How did you hear" gets LinkedIn for LinkedIn jobs, otherwise "Job board" or the nearest option; voluntary diversity questions get "Prefer not to say".</li>
+    <li>Stops only for a required question about legal status (work authorization for an uncovered country, citizenship, clearance, criminal record) or a number or credential (years with a skill, degree, licence, certificate, grade, salary) that <code>Profile.md</code> does not answer. It fills every other field on the page first, then reports the questions word for word. Optional ones stay empty and are listed.</li>
+    <li>Never judges fit and never stops because a posting says nothing about sponsorship. Fit was decided in stage 2.</li>
+    <li>Ticks consent and declaration boxes and lists them for the candidate. Picks the most private cookie choice.</li>
+    <li>Signs in with "Continue with Google" where offered, choosing the account with the profile's email when listed, otherwise the only or first signed-in account. Allows basic-profile consent only and never types on Google pages.</li>
+    <li>Uploads only that job's PDF, through the page's file input, never through a system dialog.</li>
+    <li>Handles one-page forms, multi-step dialogs (LinkedIn Easy Apply, Workday), Apply links to company sites, applications that open in a new tab, forms inside frames from another site, error pages (up to 2 reloads), closed postings and "already applied" pages.</li>
+    <li>Saves tokens: reads pages through the interactive filter, fills a whole page in one batch, takes screenshots only when needed.</li>
+  </ul>
+
+  <h3>Report check and outcomes</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Worker result</th><th>Verdict</th><th>Job lands in</th></tr></thead>
+    <tbody>
+      <tr><td>Parked at the final button; filled values check out</td><td class="k">PASS</td><td><span class="s att">Pending Review</span></td></tr>
+      <tr><td>Parked, but a filled value states a legal status or number <code>Profile.md</code> does not support, contradicts the profile, or cannot be checked</td><td class="k">FILL_REVIEW</td><td><span class="s att">Needs Attention</span> (fails closed)</td></tr>
+      <tr><td>Parked, but the page already shows a "submitted" message</td><td class="k">ALARM</td><td><span class="s att">Needs Attention</span>, marked "check this job now"; never continued automatically</td></tr>
+      <tr><td>Stopped at an Apply-like button on a tab that never showed a form or where nothing was done, or at an Apply link that opens another page</td><td class="k">BLOCKED</td><td><span class="s att">Needs Attention</span></td></tr>
+      <tr><td>Parked with nothing filled, uploaded or answered on the tab, and no final button named in its own text</td><td class="k">BLOCKED</td><td><span class="s att">Needs Attention</span>; a Haiku job gets one Sonnet takeover first</td></tr>
+      <tr><td>Blocked with a code: CAPTCHA, account wall, Google option without a usable control, page not readable, load failure, no apply control, upload hang, stalled</td><td class="k">BLOCKED</td><td><span class="s att">Needs Attention</span></td></tr>
+      <tr><td>Questions for the candidate</td><td class="k">BLOCKED</td><td><span class="s att">Needs Attention</span>; questions saved for the end of the run</td></tr>
+      <tr><td>Posting closed</td><td class="k">CLOSED</td><td><span class="s end">Deleted</span>; folder removed</td></tr>
+      <tr><td>Stopped before the final step with nothing listed as open</td><td class="k">sent back</td><td>Worker fixes it in its tab (at most twice), else Needs Attention</td></tr>
+      <tr><td>No report, or still invalid after 2 send-backs</td><td class="k">FAIL</td><td><span class="s att">Needs Attention</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Recovery</h3>
+  <ul class="caps">
+    <li><b>Sonnet takeover,</b> once per job, on the same tab, from the open page: when a Haiku worker stalls, repeats the same refused step, goes idle, ends without a report, runs out of budget, stops before any final control, or reports an account wall that no page of the tab showed (a password field or a one-time-code field seen on any page counts). Not for questions, closed or submitted jobs, fill reviews, real account walls or unclassified blocks.</li>
+    <li><b>Upload-hang retry:</b> a browser alert after an upload (often a too-long file name, shown to the worker as a banner) renames the resume to a short <code>&lt;First&gt;_&lt;Company&gt;.pdf</code>, never over an existing file, and restarts the job once.</li>
+    <li><b>Progress watchdog</b> (<code>Worker_Limits.json</code>, read live, unusable values fall back to defaults): progress means a new page, a first fill, a first choice, an upload or a Google step. A nudge after 15 calls without progress, a stop at 25; a stop after the same refusal 5 times in a row; at most 150 calls; a worker idle for 6 minutes loses its slot, and a late report still counts.</li>
+    <li><b>Sign-in lease:</b> only one tab signs in to a given site with Google at a time. Others wait 15 s and reload; a stale lease expires after 90 s.</li>
+    <li><b>Lost workers:</b> a worker that ended without a report frees its slot at once; one printed but never started is issued again after 60 s.</li>
+  </ul>
+
+  <div class="grid2">
+    <div>
+      <h3>Follow-up questions</h3>
+      <ul class="caps">
+        <li>Collected across all jobs and de-duplicated. Questions <code>Profile.md</code> already answers are dropped.</li>
+        <li>Asked once, after the run, in one message, each with the jobs that asked it. The text is treated as untrusted page content.</li>
+        <li>Answers are appended as numbered lines under Follow Up Questions, so later runs answer them alone. Jobs with every question answered are listed as ready to continue. Skipped questions are dropped at reconcile.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Continue applying</h3>
+      <ul class="caps">
+        <li>Takes every tab in the Chrome group "Needs Attention", including tabs the candidate put there, and loads the current helper script into tabs opened before an extension reload.</li>
+        <li>Tries the tab id from the last note first, but only if that tab still shows a site the job used. Other tabs are matched by the page shown (last noted address, Apply and Job URL, shared path, company in the tab title); only mutual best matches count and ties go to neither, so a Chrome restart that renumbers tabs does no harm.</li>
+        <li>Each worker continues from the open page. The last run's note is history: a step the hook refused then is tried again.</li>
+        <li>A job without a tab is left for reconcile; a tab matching no job stays open in "Needs Attention"; a job whose last run saw a submission message is never continued.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Never-submit enforcement</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Rule</th><th>Applies to</th></tr></thead>
+    <tbody>
+      <tr><td>Final controls (Submit, Send, Confirm, Done, Finish, one-click "Quick apply" and their equivalents) are refused by word lists covering 62 languages and 14 writing systems.</td><td>Every Chrome call: main session and every agent</td></tr>
+      <tr><td>A submit button with no name is refused. A worker is told to read the whole page first and look again.</td><td>Every caller</td></tr>
+      <tr><td>Once a tab shows an application form (a file input, three or more text fields, or a first fill), every Apply button on it is refused.</td><td>Every caller</td></tr>
+      <tr><td>Exception: while the worker has answered nothing on the tab, an Apply link that opens another page passes, so a job page whose search or alert boxes look like a form no longer stops the start of an application. Never for buttons, links to the same page, job boards (as the page or the target), continue-mode tabs or a page with a file input; the click note must say that the click opens a page.</td><td>Application workers</td></tr>
+      <tr><td>A refusal on a tab where the worker answered nothing tells it to stop as blocked, not parked, unless the page is a form filled up to that button.</td><td>Application workers</td></tr>
+      <tr><td>A one-click Apply button on one of 14 named job boards is refused outright, or for a worker judged by the Haiku check.</td><td>Every caller</td></tr>
+      <tr><td>No JavaScript tool, no clicks by screen position, navigation to http and https addresses only. Keys are limited to Tab, Escape, Backspace, Delete, arrows, Home, End, Page keys and Ctrl/Cmd with A, C, V, X, Z or Y, so Enter, Return and Space can never press a focused button.</td><td>Every caller</td></tr>
+      <tr><td>Clicks only on element references from a read of that tab. References from an old page are refused, also after back or forward.</td><td>Every caller</td></tr>
+      <tr><td>One pressable click per page read.</td><td>Main session and other agents</td></tr>
+      <tr><td>The word lists also read the text inside a control, so "Review" over a child "and submit" is refused.</td><td>Application workers</td></tr>
+      <tr><td>A button name no word list can decide goes to a cached Haiku check with no tools. If the check fails or is unavailable, the click is refused.</td><td>Application workers</td></tr>
+      <tr><td>Cookie and consent dialogs are judged first. "Accept all" is refused with a pointer to the most private choice; toggles are allowed, and saving too while the tab has shown no application form; a final word left in the name is still refused.</td><td>Application workers</td></tr>
+      <tr><td>Sign-in permission grants, sign-up buttons and delete or withdraw buttons are refused. On Google account pages a worker may click only its account and one basic-profile consent button; a password, code or extra-access page stops it, and it may not type, fill or upload there.</td><td>Application workers</td></tr>
+      <tr><td>A click whose own action note says it sends the application is refused. After ticking a box or choosing an option, the page must be read again before any button: an answer can rename Next to Submit.</td><td>Application workers</td></tr>
+      <tr><td>Own tab only (plus its sign-in tab); a short action note on every click; the raw typing action only right after clicking a text field; no second click on the same button without a new page read; uploads of the job's own resume only; reads of its brief and site notes only.</td><td>Application workers</td></tr>
+      <tr><td>Tab handling and the sign-in check only; navigation only to addresses the script printed; job tabs can be neither navigated nor closed; may start application workers only.</td><td>Application master</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grid2">
+    <div>
+      <h3>Helper extension</h3>
+      <ul class="caps">
+        <li>Opens sign-in pop-ups as tabs inside the run's tab group, so the worker can drive them.</li>
+        <li>Names icon-only "Continue with Google" controls (app-store badges excluded), and tags each job tab's title with its Google control count and the helper version.</li>
+        <li>Exposes any frame of 200×200 px or larger, from another site or the same one, as a link holding the frame's real address, kept current as it navigates or resizes; the worker opens a form frame as a page of its own. A frame with no address of its own gets a tag, so the worker reports it at once.</li>
+        <li>Marks form fields, because Claude in Chrome shows no field state: <code>[x]</code> ticked or selected, <code>[req]</code> required, <code>[disabled]</code>, <code>[invalid]</code>; a text field reads "Label = value" and a radio "Question / Option". Buttons and links keep their own live names.</li>
+        <li>Answers page dialogs in run tabs: an alert becomes a banner the worker can read, confirm and prompt are answered Cancel (never OK), and "Leave site?" prompts are dropped. When the tab leaves the run, the page gets its own dialogs back.</li>
+        <li>Groups finished tabs into "Pending Review", "Needs Attention" and "Deleted", and for continue mode moves every "Needs Attention" tab back into the run.</li>
+        <li>Apart from that continue-mode pull, changes only tabs in the run's group. Its scripts load on every page but stay inactive elsewhere, and it accepts group commands only from the run's own home tab.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Site knowledge</h3>
+      <ul class="caps">
+        <li>Ships notes for Greenhouse, LinkedIn Easy Apply, Phenom and Workday. Dream adds notes for other sites, and a workspace note replaces the plugin note of the same name.</li>
+        <li>Built-in shortcuts: a Greenhouse form embedded in a company page opens at its direct form address; LinkedIn's safety redirect is rewritten to the company address.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Limits</h3>
+  <ul class="limits">
+    <li>Refuses final buttons by word lists in 62 languages; for names no list knows, application workers ask the Haiku check, and a failed check means no click. A parked form is not a sent application.</li>
+    <li>Never creates an account with a password and never types a password. Sites that demand one end in Needs Attention for the candidate to sign in.</li>
+    <li>CAPTCHAs, bot checks and extra Google permissions (Drive, Gmail, Calendar, contacts) stop the job.</li>
+    <li>LinkedIn must already be signed in. The check reads the page address, not the account.</li>
+    <li>Forms inside frames (from any site, the same one included) work only through the helper's frame link; a frame with no address of its own cannot be opened.</li>
+    <li>A sign-in button inside a small frame from another site (a social-login widget) and forms built from shadow DOM components (SmartRecruiters Easy Apply) cannot be read by Claude in Chrome; the worker stops with a code and the job goes to Needs Attention.</li>
+    <li>Required legal-status and credential questions that <code>Profile.md</code> does not answer stop the job until the candidate answers; optional ones are left empty and listed.</li>
+    <li>Outside the pipeline (the main session or another agent driving Chrome), the guard applies only the core rules: the word lists on a control's own name, the nameless-submit and Apply rules, fresh references and the safe-key list. Consent, Google, sign-up and judge rules apply to application workers only.</li>
+    <li>Passwords are blocked by a hook only on Google pages and through the sign-up refusal; on other sites "never type a password" is an instruction to the worker.</li>
+    <li>A cookie banner whose only way past is "Accept all" stops the job.</li>
+    <li>At most 49 workers at once by default. One run at a time: a new run clears the last run's state.</li>
+  </ul>
+</section>
+
+<!-- ============================== RECONCILE ============================== -->
+<section id="reconcile">
+  <p class="kicker">Subsystem 4 · Stage 4</p>
+  <h2>Reconcile</h2>
+  <div class="cmds"><code>/ohmyjob:reconcile</code></div>
+  <p class="runs">Runs as a script launched from the main session. The script calls no AI model; the session only relays its report.</p>
+  <p class="what">Closes the round. Brings the tracker in line with where each job's folder now sits, archives sent jobs in <code>Submitted/</code>, and clears what should not carry over to the next round.</p>
+
+  <h3>Flow</h3>
+  <ol class="steps">
+    <li>Shows the caveat below and waits for a clear yes that the folders are tidy.</li>
+    <li>Dry run: every row that would change with old and new status and folder move, unmatched folders, the number of questions to drop, the backups to delete and a plan digest.</li>
+    <li>Asks to confirm, then applies bound to that digest. A changed plan is refused and shown again.</li>
+  </ol>
+
+  <h3>Decision rules (open rows: Found, Matched, Resume Built, Resume Failed, Pending Review, Needs Attention)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>The job's folder is in</th><th>Row becomes</th><th>Folder</th></tr></thead>
+    <tbody>
+      <tr><td><code>Pending-Review/</code> or <code>Needs-Attention/</code></td><td><span class="s end">Submitted</span></td><td>Moved to <code>Submitted/</code></td></tr>
+      <tr><td><code>Submitted/</code> (the candidate applied by hand and moved it there)</td><td><span class="s end">Submitted</span></td><td>Stays</td></tr>
+      <tr><td><code>Applications/</code></td><td>unchanged</td><td>Untouched</td></tr>
+      <tr><td>Nowhere (the candidate deleted it)</td><td><span class="s end">Deleted</span></td><td>—</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="caps">
+    <li>A Submitted row whose folder is still in a review folder only gets the folder moved. Deleted, Skipped-LowFit, Submitted and hand-typed statuses are never rewritten.</li>
+    <li>A folder whose id matches no row, an id shared by several rows, or one job with folders in two places is left untouched and reported. Each duplicate open row gets a note with the status of the oldest row sharing its id. Folders without a leading id are ignored.</li>
+    <li><b>Invariant:</b> Submitted rows must equal folders in <code>Submitted/</code> after the plan, or nothing is written.</li>
+    <li>The tracker is saved once, before any folder moves; a move that fails is healed by the next run. A destination that already exists stops the run before any write.</li>
+    <li>On success it deletes the unanswered follow-up questions and the tracker backups of undo-find-jobs.</li>
+    <li>Exit codes: 0 clean; 1 some folders unresolved, the rest applied; 2 invariant failed, nothing written; 3 fatal.</li>
+  </ul>
+
+  <h3>Limits</h3>
+  <ul class="limits">
+    <li>Cannot know whether a form was really submitted: any folder in <code>Pending-Review/</code> or <code>Needs-Attention/</code> counts as sent. The candidate must move unsent folders back to <code>Applications/</code> or delete them first.</li>
+    <li>A job applied to entirely by hand stays open until its folder is moved to <code>Submitted/</code>.</li>
+    <li>Never touches <code>Applications/</code> and does not clean up unresolved folders.</li>
+    <li>Unanswered questions are gone for good. A job that runs again asks again.</li>
+  </ul>
+</section>
+
+<!-- ============================== RETRO ============================== -->
+<section id="retro">
+  <p class="kicker">Subsystem 5 · Loop on stage 2</p>
+  <h2>Retrospective</h2>
+  <div class="cmds"><code>/ohmyjob:retro</code><code>ohmyjob retro reject</code></div>
+  <p class="runs">Runs as a conversation in the main session. During retro, a script is the only writer of <code>Profile.md</code>. No agent.</p>
+  <p class="what">Closes the loop on screening. The candidate marks skipped jobs that should have matched and types standing preferences; the session drafts edits of the three Fit Preferences fields; each edit is accepted or refused one at a time, and the last pass can be undone.</p>
+
+  <h3>Flow</h3>
+  <ol class="steps">
+    <li><b>Review.</b> Lists unreviewed Skipped-LowFit jobs, newest first, 15 at a time: company, title, link, score and the screener's last note, shown as data. Junk skips are left out. Only answered skips count as reviewed, stored by job id so re-sorted or deleted rows keep their marks.</li>
+    <li><b>Own words.</b> Standing preferences ("stop matching consulting roles") are saved as F1, F2 and so on. Marks or words alone are enough.</li>
+    <li><b>Proposals.</b> At most one open proposal per field, each with the current wording (read by the script), the new wording and its evidence. Conflicting evidence is shown, not resolved. Facts about the candidate are pointed to the Resume section instead.</li>
+    <li><b>Decide.</b> Accept or refuse each. <code>Profile.md</code> is backed up before the first accepted edit.</li>
+  </ol>
+
+  <div class="grid2">
+    <div>
+      <h3>A proposal is refused when</h3>
+      <ul>
+        <li>The field is not one of the three.</li>
+        <li>It has no evidence, or evidence not gathered in this pass.</li>
+        <li>Another proposal on that field is still open.</li>
+        <li>Its field and evidence match a refused proposal.</li>
+        <li>The wording is empty, multi-line, over 1,000 characters, unchanged, or holds the template marker.</li>
+        <li>The wording repeats six consecutive words from any tracker note, unless the candidate typed them or the field already says them.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>An accepted edit is written safely</h3>
+      <ul>
+        <li>Re-checks the template marker and that the field still reads as proposed.</li>
+        <li>Replaces only that field's bytes; every other byte and the section structure are verified before writing.</li>
+        <li>Writes atomically.</li>
+        <li>Undo restores <code>Profile.md</code> and the review marks. It refuses if <code>Profile.md</code> changed since retro wrote it, unless forced, and then saves the current copy first.</li>
+        <li>The end of a prep run says when 10 or more skips wait for review.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Limits</h3>
+  <ul class="limits">
+    <li>Edits only the three Fit Preferences fields: never Resume, Follow Up Questions, Work Authorization, Languages, settings or score thresholds. It never revives a skipped job.</li>
+    <li>Treating the screener's reason as data, never as an instruction, is a conversation rule; the script's own check is the six-word copy refusal.</li>
+    <li>The candidate's yes for each edit is a conversation rule: the script accepts any open proposal it is told to.</li>
+    <li>A field that spans several lines becomes one line when edited.</li>
+    <li>Evidence must come from the current pass.</li>
+  </ul>
+</section>
+
+<!-- ============================== DREAM ============================== -->
+<section id="dream">
+  <p class="kicker">Subsystem 6 · Loop on stage 3</p>
+  <h2>Dream</h2>
+  <div class="cmds"><code>/ohmyjob:dream</code><code>ohmyjob dream reject</code></div>
+  <p class="runs">Runs as a forked <span class="m m-o">Opus</span> dream-master (low effort, no file access) and one <span class="m m-s">Sonnet</span> worker per site. Only the candidate can start it.</p>
+  <p class="what">Turns what application runs met on each application system into short site notes. Workers read a site's note the next time they reach that site. A report explains what was learned.</p>
+
+  <div class="grid2">
+    <div>
+      <h3>What is recorded</h3>
+      <ul class="caps">
+        <li>Every apply run writes one ledger line per job that got a tab: outcome, blocker code, turns, tokens, cost, refusals, watchdog counters, sign-in progress and Google controls seen.</li>
+        <li>Informative jobs also get a trace: the actions taken (tool and the worker's own short summary; typed values are not recorded), guard refusals, page lines near sign-in, sign-up, password or final-button words, and the sign-in flow.</li>
+        <li>Redaction: lines holding the profile's name, email, phone, address or location are dropped; email addresses become <code>&lt;email&gt;</code>; filled values keep only field names; drafted answers are dropped. A trace over 20 KB keeps only its first 20 and last 60 actions.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Which jobs teach</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Bin</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Wall</td><td>Stopped by the site or the watchdog, or an account wall the page did not show.</td></tr>
+          <tr><td class="k">Harness</td><td>The plugin's own failure: a guard or judge error, a lost worker, a Google option clicked with no Google page.</td></tr>
+          <tr><td class="k">Costly win</td><td>Parked, but over 2× the site's median turns or cost (with 5 or more earlier wins), else over 60 turns.</td></tr>
+          <tr><td class="k">First win</td><td>Parked on a site no note covers yet.</td></tr>
+          <tr><td class="k">Skip</td><td>Handoffs to the candidate and cheap wins on known sites. No trace.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <h3>A dream pass</h3>
+  <ol class="steps">
+    <li>Takes only ledger lines since the last pass, grouped by site (a note's host patterns, else the host name). Copies the plugin's note into the workspace before editing, and backs up notes, report and watermark.</li>
+    <li>Starts one worker per site in parallel in the shared slots. A worker that has not reported 20 minutes after it started is given up on.</li>
+    <li>A worker is bound to its site by its first read and can write only that one note. It keeps a lesson only with at least two supporting jobs (or a later win), removes lessons later traces contradict, never weakens the application worker's hard rules and treats page text as data.</li>
+    <li>Each changed note is checked: at most 40 lines, one title, a hosts line, no email address, no profile header value. A failing note is put back, or removed if it was new.</li>
+    <li><code>Dream_Report.md</code>: per site, attempts, wall rate, median turns and cost of successful runs, and attempts before and after the note last changed; lessons added (with evidence) and removed; proposals for code changes (listed, never applied); bugs. The end of an apply run says when 10 or more new traces wait.</li>
+  </ol>
+
+  <h3>Limits</h3>
+  <ul class="limits">
+    <li>Learns only from walls, plugin failures, costly wins and first wins. Handoffs teach nothing.</li>
+    <li>Each unknown employer site gets its own note; sites are not grouped by company.</li>
+    <li>Note quality beyond the format checks rests on the worker's instructions. A bad note is reverted, not repaired.</li>
+    <li>Only the last pass can be undone.</li>
+    <li>Some report fields (open items, questions, declarations, button text, uploaded file name, page address) are stored as written, without the email and profile filter.</li>
+  </ul>
+</section>
+
+<!-- ============================== ENGINEERING ============================== -->
+<section id="engineering">
+  <p class="kicker">Cross-cutting</p>
+  <h2>Speed &amp; cost engineering</h2>
+  <p class="what">Every mechanism below is in the code. The repository has no benchmarks, so none are claimed.</p>
+  <div class="chips" role="group" aria-label="Filter mechanisms">
+    <button type="button" data-filter="all" aria-pressed="true">All</button>
+    <button type="button" data-filter="cost" aria-pressed="false">Cost</button>
+    <button type="button" data-filter="speed" aria-pressed="false">Speed</button>
+  </div>
+  <div class="tbl"><table id="eng">
+    <thead><tr><th>Kind</th><th>Where</th><th>Mechanism</th></tr></thead>
+    <tbody>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>All agents</td><td><b>Model tiering.</b> Haiku runs the high-volume work: prep master, screening, application master and workers. Sonnet only tailors resumes, rescues a stuck application once, checks filled values and writes site notes. Opus only coordinates Dream, at low effort.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Stages 1 and 4</td><td><b>No model at all.</b> Finding, filtering, de-duplication, add-job, undo and reconcile are deterministic scripts; the main session only relays their output.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Finder</td><td><b>Filter before any AI.</b> Title, level, type, language, junk, known, duplicate and twin checks drop postings before a screening worker is paid for.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Screening</td><td><b>Script pre-passes skip workers.</b> Duplicate postings, closed postings and explicit work-authorization blocks are settled without starting a worker.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Stages 2 and 3</td><td><b>Closed postings dropped early.</b> The liveness check runs before any worker or Chrome tab exists.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Tailoring</td><td><b>Ready-made PDF path.</b> A match on the candidate's own PDF is copied; no tailoring worker runs.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Tailoring</td><td><b>Refuse before editing.</b> A resume worker rejects a mismatched posting before spending any build.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Tailoring</td><td><b>Script check before compile.</b> Rule breaks are caught without a LaTeX build, and a failed check does not use up one of the 4 builds.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>All agents</td><td><b>Hard caps.</b> Screening 8 turns and 17 minutes; tailoring 100 turns, 17 minutes and 4 builds; applications 160 turns with a 150-call budget; Dream workers 60 turns, and the run stops waiting for one after 20 minutes.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Applications</td><td><b>Progress watchdog.</b> Stops a worker after 25 calls without progress or 5 identical refusals, instead of letting it burn turns.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Applications</td><td><b>Gated Sonnet takeover.</b> Once per job, and only for failure types a stronger model can fix.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>All agents</td><td><b>Lean context.</b> No agent loads CLAUDE.md. Briefs carry only what the job needs: the application brief drops Fit Preferences, carries only the resume's title and introduction, and lists site notes as paths read on demand.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Masters</td><td><b>Masters skip worker output.</b> A hook saves each worker report; where hand-backs are in use, the master receives a one-line receipt instead of the report. The Dream master has no file access at all.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Hooks</td><td><b>Word lists before AI.</b> A final-control word list in 62 languages, smaller cookie, consent, sign-up and delete lists, and 470 known-safe button names settle clicks without a model. Only undecided names reach the Haiku check: one turn, no tools, no MCP servers, no saved session, cached per run, and a failing question is asked at most twice.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Applications</td><td><b>Token-thrifty browsing.</b> Page reads forced to the interactive filter, compacted page text, one batched fill per page, screenshots only when needed and capped at half scale.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Applications</td><td><b>Bounded batches.</b> <code>--selected</code> and <code>--top-k-match</code> limit the most expensive stage.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Dream</td><td><b>Learn only from informative runs.</b> Traces only for walls, plugin failures, a site's first win, and wins over twice the site's own median turns or cost, so routine wins on known sites add no Dream work. Runs only on request, with a hint at 10 new traces.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Retro</td><td><b>No repeated effort.</b> Reviewed skips are never shown again, refused proposals never offered again, junk skips left out.</td></tr>
+      <tr data-kind="cost"><td><span class="tag cost">Cost</span></td><td>Accounting</td><td><b>Cost visibility.</b> Each prep and apply run reports API-equivalent cost per job screened, per resume and per application; every run is logged and every ledger line carries its own cost.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Stages 2, 3, Dream</td><td><b>Shared parallel worker pool.</b> Up to 49 workers at once by default (Claude Code's cap of 50 minus the master), refilled the moment one finishes.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Stage 2</td><td><b>Builds overtake screens.</b> A match starts its resume worker at once, and builds take free slots before new screens.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>All masters</td><td><b>Waiting inside the script.</b> <code>next</code> polls every 3 s for up to 90 s, so a master keeps its turn alive with few model calls.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Applications</td><td><b>Slot recovery.</b> A worker that ends without a report frees its slot at once, an idle one after 6 minutes, and one never started is issued again after 60 s.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Applications</td><td><b>Staggered first page loads.</b> 4 s apart (at most 120 s of waiting) so many tabs do not trip one account's error pages.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Finder</td><td><b>Parallel searching.</b> 2 search terms at a time per JobSpy board and up to 10 on freehire; server-side recency windows and feed exclusion shrink what is downloaded.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Finder</td><td><b>Fail fast, hold briefly.</b> The tracker is opened early to catch errors, released during the long search and reloaded only for a short save.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Finder</td><td><b>Cheap checks first.</b> Id and type checks run before word-form matching; word forms are cached; alias variants are capped at 64.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Liveness</td><td><b>Parallel, polite, bounded.</b> 6 sites at once, one request per site at a time, a 40 s budget.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Resume builds</td><td><b>Parallel LaTeX without collisions.</b> Each build runs in its own folder, outside the run lock, sharing a font cache that setup warms up.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Applications</td><td><b>Compacted pages.</b> A worker sees at most 25,000 characters of an interactive read (40,000 for a full read); option lists are cut to 12 and long links shortened.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Applications</td><td><b>Parallel value check.</b> The end-of-run fills check runs up to 6 jobs at once outside the run lock; judge answers are cached.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Applications</td><td><b>Site shortcuts.</b> Greenhouse forms open at their direct address; LinkedIn's safety redirect is rewritten to the company address.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Hooks</td><td><b>Bash-first router.</b> No Python starts unless a call needs it (the cost-report hook starts it only when a report is waiting); outside a workspace the hook exits at once; the shared workspace module imports only the standard library.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Hooks</td><td><b>Judge and waits outside the lock.</b> The Haiku check and the staggered-start wait run outside the run lock, so other workers never queue behind them.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Extension</td><td><b>Light page helper.</b> Page changes are handled with a 150 ms debounce, frame sizes are watched with ResizeObserver instead of polling, and each page runs one copy of the script.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Tracker</td><td><b>One load, one save.</b> Each batch (record, finish, reconcile) loads the spreadsheet once and saves it once, atomically.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Setup</td><td><b>Skip what is current.</b> The virtualenv re-syncs only when <code>uv.lock</code> changes, and only at prep or apply start; the extension is copied only when it differs.</td></tr>
+      <tr data-kind="speed"><td><span class="tag speed">Speed</span></td><td>Dream</td><td><b>Read only what is new.</b> Each pass reads only ledger lines since the last pass, with one worker per site in parallel.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>ohmyjob 0.2.0. Facts on this page come from the plugin's source: scripts, agent and skill definitions, hooks and the Chrome extension.</footer>
+</main>
+</div>
+</div>
+
+<script>
+(function(){
+  var chips=[].slice.call(document.querySelectorAll('[data-filter]'));
+  var rows=[].slice.call(document.querySelectorAll('#eng tbody tr'));
+  function count(k){return rows.filter(function(r){return k==='all'||r.dataset.kind===k;}).length;}
+  chips.forEach(function(c){
+    c.textContent=c.textContent+' ('+count(c.dataset.filter)+')';
+    c.addEventListener('click',function(){
+      var f=c.dataset.filter;
+      chips.forEach(function(x){x.setAttribute('aria-pressed',x===c?'true':'false');});
+      rows.forEach(function(r){r.hidden=!(f==='all'||r.dataset.kind===f);});
+    });
+  });
+  var links=[].slice.call(document.querySelectorAll('nav.toc a'));
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(a){a.setAttribute('aria-current',a.getAttribute('href')==='#'+e.target.id?'true':'false');});
+        }
+      });
+    },{rootMargin:'-20% 0px -70% 0px'});
+    document.querySelectorAll('main section[id]').forEach(function(s){io.observe(s);});
+  }
+})();
+</script>
+
+</body></html>
