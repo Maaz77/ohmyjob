@@ -692,5 +692,97 @@ class TestPopupsAsTabs(unittest.TestCase):
                 ctx.close()
 
 
+    DEEP = ("(id) => { const find = (root) => { const hit = root.getElementById(id); if (hit) return hit;"
+            "for (const el of root.querySelectorAll('*')) if (el.shadowRoot) { const r = find(el.shadowRoot); if (r) return r; }"
+            "return null; }; return find(document); }")
+    PROXIES = ("() => [...document.querySelectorAll('div[data-aa-shadow] > *')].map(p => { const b = p.getBoundingClientRect();"
+               "const c = getComputedStyle(p); return {tag: p.tagName, type: p.getAttribute('type'), label: p.getAttribute('aria-label'),"
+               "name: p.getAttribute('data-aa-shadow-name'), ph: p.getAttribute('placeholder'), opacity: c.opacity, events: c.pointerEvents,"
+               "x: b.x, y: b.y, w: b.width, h: b.height}; })")
+    # proxy name -> id of the real control
+    REAL = {"First name*": "first", "Email*": "email", "LinkedIn": "linkedin", "City*": "city", "Phone number": "phone",
+            "Country code": "cc", "Next": "next", "": "blank", "Choose a file or drop it here": "file1",
+            "Choose a file or drop it here (2)": "file2", "Cover letter": "cover", "Preferred country": "sel",
+            "I agree to the terms": "agree", "ph:Postal code": "postal", "Berlin": "opt", "Late field": "late"}
+
+    def proxies(self, job):
+        # two proxies have no name (the blank button and the placeholder-only field): the second is keyed "ph:<placeholder>"
+        return {(p["name"] or ("ph:" + p["ph"] if p["ph"] else "")): p for p in job.evaluate(self.PROXIES)}
+
+    def test_shadow_controls_get_light_dom_proxies(self):
+        """read_page does not enter shadow roots: each real control gets a light-DOM proxy that it does list."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "shadow-form.html")
+            try:
+                found = self.proxies(job)
+                self.assertEqual(sorted(found), sorted(self.REAL))
+                kinds = {"First name*": ("INPUT", "text"), "Email*": ("INPUT", "email"), "LinkedIn": ("INPUT", "text"),
+                         "City*": ("INPUT", "text"), "Phone number": ("INPUT", "tel"), "Country code": ("BUTTON", "submit"),
+                         "Next": ("BUTTON", "submit"), "": ("BUTTON", "submit"),
+                         "Choose a file or drop it here": ("INPUT", "file"),
+                         "Choose a file or drop it here (2)": ("INPUT", "file"), "Cover letter": ("TEXTAREA", None),
+                         "Preferred country": ("SELECT", None), "I agree to the terms": ("INPUT", "checkbox"),
+                         "Berlin": ("DIV", None), "ph:Postal code": ("INPUT", "text"), "Late field": ("INPUT", "text")}
+                for name, (tag, type_) in kinds.items():
+                    self.assertEqual((found[name]["tag"], found[name]["type"] if type_ else None), (tag, type_), name)
+                self.assertEqual(job.evaluate("document.querySelectorAll('div[data-aa-shadow] select option').length"), 3)
+                # a nameless control stays nameless, so the guard's nameless-submit refusal still applies
+                self.assertIsNone(found[""]["label"])
+                self.assertEqual(found["Next"]["label"], "Next")
+                # a placeholder-only field: markFields names it from the twin's placeholder; the shadow name stays empty
+                postal = found["ph:Postal code"]
+                self.assertEqual((postal["ph"], postal["label"], postal["name"]), ("Postal code", "Postal code", ""))
+                # the light-DOM button is untouched
+                self.assertIsNone(job.evaluate("document.getElementById('light').getAttribute('aria-label')"))
+                self.assertNotIn("Apply With Indeed", found)
+                # opacity > 0 (read_page drops 0), clicks pass through, and the box lies over the real control
+                for name, proxy in found.items():
+                    self.assertGreater(float(proxy["opacity"]), 0, name)
+                    self.assertEqual(proxy["events"], "none", name)
+                    real = job.evaluate(f"(id) => {{ const r = ({self.DEEP})(id).getBoundingClientRect();"
+                                        "return [r.x, r.y, r.width, r.height]; }", self.REAL[name])
+                    for have, want in zip((proxy["x"], proxy["y"], proxy["w"], proxy["h"]), real):
+                        self.assertAlmostEqual(have, want, delta=2, msg=name)
+            finally:
+                ctx.close()
+
+    def test_shadow_proxies_are_marked_and_forward(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "shadow-form.html")
+            try:
+                self.assertEqual(self.proxies(job)["First name*"]["label"], "[req] First name*")
+                job.evaluate(f"(() => {{ const r = ({self.DEEP})('first'); r.value = 'Ada';"
+                             "r.dispatchEvent(new Event('input', {bubbles: true, composed: true})); })()")
+                time.sleep(0.6)
+                self.assertEqual(self.proxies(job)["First name*"]["label"], "[req] First name* = Ada")
+                # form_input: the proxy takes the value and fires input; the real input must receive it
+                job.evaluate("(() => { const p = [...document.querySelectorAll('div[data-aa-shadow] input')]"
+                             ".find(e => e.dataset.aaShadowName === 'LinkedIn'); p.value = 'in/ada';"
+                             "p.dispatchEvent(new Event('input', {bubbles: true})); })()")
+                self.assertEqual(job.evaluate(f"({self.DEEP})('linkedin').value"), "in/ada")
+                # a click on the checkbox proxy ticks the real checkbox
+                job.evaluate("[...document.querySelectorAll('div[data-aa-shadow] input')]"
+                             ".find(e => e.dataset.aaShadowName === 'I agree to the terms').dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))")
+                self.assertTrue(job.evaluate(f"({self.DEEP})('agree').checked"))
+                # file_upload: the file lands in the real shadow file input
+                job.locator("div[data-aa-shadow] input[type=file]").first.set_input_files(
+                    {"name": "cv.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1"})
+                self.assertEqual(job.evaluate(f"({self.DEEP})('file1').files[0].name"), "cv.pdf")
+                self.assertEqual(job.evaluate(f"({self.DEEP})('file2').files.length"), 0)
+            finally:
+                ctx.close()
+
+    def test_late_shadow_field_and_leaving_the_run(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "shadow-form.html")
+            try:
+                self.assertIn("Late field", self.proxies(job))
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                self.assertEqual(job.evaluate("document.querySelectorAll('div[data-aa-shadow]').length"), 0)
+            finally:
+                ctx.close()
+
+
 if __name__ == "__main__":
     unittest.main()

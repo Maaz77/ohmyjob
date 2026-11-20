@@ -540,11 +540,258 @@
   const STATE_ATTRS = ["aria-checked", "aria-pressed", "aria-selected", "aria-disabled", "aria-invalid",
     "aria-required", "disabled", "required", "checked"];
 
+  // Shadow-DOM proxies. read_page does not enter a shadow root, so a form built from web components (SmartRecruiters'
+  // spl-* elements) is an empty page to the worker. Flattening the shadow DOM would break such a page (thousands of
+  // slots and adopted style sheets), so each real control inside an OPEN shadow root gets a light-DOM twin instead,
+  // laid exactly over it, and the twin is what read_page lists.
+  //
+  // opacity 0.01, not 0: read_page skips an element with opacity 0. pointer-events none: Claude in Chrome clicks a ref
+  // by its screen coordinate, so the click passes the twin and reaches the REAL control, and a candidate can still use
+  // the page by hand. What a coordinate cannot carry (typing, a file) is forwarded by the listeners in makeProxy.
+  //
+  // Only controls within one viewport of the visible area get a twin: read_page lists only the viewport anyway, and a
+  // 245-option country list must not flood it. A name comes from the real control; a nameless one stays nameless, so
+  // the guard's nameless-submit refusal still fires. markFields then marks the twins like any light-DOM control.
+  const INTERACTIVE = 'input, textarea, select, button, a[href], [role="button"], [role="link"], [role="checkbox"], ' +
+    '[role="radio"], [role="switch"], [role="option"], [role="combobox"], [role="textbox"]';
+  const SHADOW_CAP = 200;
+  const SHADOW_STYLE = "position:absolute;margin:0;padding:0;border:0;background:transparent;opacity:0.01;" +
+    "pointer-events:none;z-index:2147483646";
+  const MIRRORED_ARIA = ["aria-checked", "aria-selected", "aria-disabled", "aria-required", "aria-invalid"];
+  let shadowBox = null;               // the one <div data-aa-shadow> that holds every twin
+  let shadowSeen = new WeakSet();     // shadow roots that already have an observer
+  let shadowWatch = null;             // MutationObserver over the shadow roots: the page-level one cannot see into them
+  const twinOf = new WeakMap();       // real control -> its twin
+  const twinInfo = new WeakMap();     // twin -> { real, base }: the real control and the name the guard may have approved
+  const shadowSizes = new WeakMap();  // select twin -> the option list it was built from
+
+  // text across shadow boundaries: an spl-dropdown-item holds its words in a further nested shadow root
+  function deepText(el) {
+    let text = "";
+    const walk = (node) => {
+      for (const child of node.childNodes) {
+        if (text.length > 400) return;  // a host must not hand over the whole form
+        if (child.nodeType === Node.TEXT_NODE) text += child.textContent + " ";
+        else if (child.nodeType === Node.ELEMENT_NODE && !/^(SCRIPT|STYLE|TEMPLATE)$/.test(child.tagName)) {
+          if (child.shadowRoot) walk(child.shadowRoot);
+          walk(child);
+        }
+      }
+    };
+    if (el.shadowRoot) walk(el.shadowRoot);
+    walk(el);
+    return squash(text);
+  }
+
+  // label, aria-label, aria-labelledby, own text, then the text of the shadow host (<spl-button>Next</spl-button>)
+  function shadowName(el) {
+    let name = el.labels && el.labels[0] ? deepText(el.labels[0]) : "";
+    name = name || squash(el.getAttribute("aria-label"));
+    if (!name) {
+      const root = el.getRootNode();
+      const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
+      if (root.getElementById) name = squash(ids.map((id) => { const n = root.getElementById(id); return n ? deepText(n) : ""; }).join(" "));
+    }
+    if (!name && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) name = deepText(el);
+    if (!name && el.getRootNode().host) name = deepText(el.getRootNode().host);
+    name = clip(name, 80);
+    // aa_lib.parse_refs reads a name that starts with "[AA " as a marker of the extension, not a control of the page
+    return name.startsWith("[AA ") ? " " + name : name;
+  }
+
+  // The native setter, so a framework that wraps the value property of the real input sees the change.
+  function setValue(real, value) {
+    const own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(real), "value");
+    if (own && own.set) own.set.call(real, value);
+    else real.value = value;
+  }
+
+  function forward(real, type) {
+    real.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
+  }
+
+  function makeProxy(real) {
+    const tag = real.tagName;
+    let twin;
+    if (tag === "INPUT") {
+      twin = document.createElement("input");
+      twin.type = real.type;  // the property is already normalised: an unknown type is "text"
+    } else if (tag === "TEXTAREA") {
+      twin = document.createElement("textarea");
+    } else if (tag === "SELECT") {
+      twin = document.createElement("select");
+    } else if (tag === "BUTTON") {
+      twin = document.createElement("button");
+      twin.type = real.type;  // "submit" without a type attribute, as in HTML: the guard refuses a nameless submit
+    } else if (tag === "A") {
+      twin = document.createElement("a");
+      twin.setAttribute("href", real.href);
+    } else {
+      twin = document.createElement("div");
+      twin.setAttribute("role", real.getAttribute("role"));
+    }
+    twin.style.cssText = SHADOW_STYLE;
+    twin.addEventListener("input", () => {
+      const t = twin.type;
+      if (t !== "file" && t !== "checkbox" && t !== "radio") setValue(real, twin.value);
+      forward(real, "input");
+    });
+    twin.addEventListener("change", () => {
+      const t = twin.type;
+      if (t === "file") real.files = twin.files;
+      else if (t === "checkbox" || t === "radio") real.checked = twin.checked;
+      else setValue(real, twin.value);
+      forward(real, "change");
+    });
+    twin.addEventListener("click", (event) => {
+      event.preventDefault();
+      // the guard approved the name the worker read: a button that is "Submit" now must not take a click meant for "Next"
+      const info = twinInfo.get(twin);
+      if (!info || shadowName(real) !== info.base) {
+        schedule();
+        return;
+      }
+      real.focus();
+      real.click();
+    });
+    return twin;
+  }
+
+  // Every write is idempotent: required, disabled and checked are watched attributes, so a blind write would loop.
+  function setAttr(el, name, value) {
+    if (value === null) {
+      if (el.hasAttribute(name)) el.removeAttribute(name);
+    } else if (el.getAttribute(name) !== value) {
+      el.setAttribute(name, value);
+    }
+  }
+
+  function mirrorState(real, twin) {
+    const tag = real.tagName;
+    const type = tag === "INPUT" ? real.type : "";
+    if (tag === "SELECT") {
+      const sig = [...real.options].map((o) => o.value + "\u0001" + o.text).join("\u0002");
+      if (shadowSizes.get(twin) !== sig) {
+        shadowSizes.set(twin, sig);
+        twin.replaceChildren(...[...real.options].map((o) => new Option(o.text, o.value)));
+      }
+    }
+    if (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && !/^(file|checkbox|radio|password)$/.test(type))) {
+      if (twin.value !== real.value) twin.value = real.value;
+    }
+    if (type === "checkbox" || type === "radio") {
+      if (twin.checked !== real.checked) twin.checked = real.checked;
+    }
+    // not part of the name (a placeholder is no answer): markFields falls back to it on the twin, as on any light field
+    setAttr(twin, "placeholder", real.getAttribute("placeholder"));
+    setAttr(twin, "required", real.required || real.hasAttribute("required") ? "" : null);
+    setAttr(twin, "disabled", real.disabled || real.hasAttribute("disabled") ? "" : null);
+    for (const attr of MIRRORED_ARIA) setAttr(twin, attr, real.getAttribute(attr));
+  }
+
+  function watchRoot(root) {
+    if (shadowSeen.has(root)) return;
+    shadowSeen.add(root);
+    if (!shadowWatch) shadowWatch = new MutationObserver(schedule);
+    shadowWatch.observe(root, {
+      subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: STATE_ATTRS,
+    });
+  }
+
+  function shadowControls() {
+    const roots = [];
+    const collect = (root) => {
+      for (const el of root.querySelectorAll("*")) {
+        if (el.shadowRoot) {
+          roots.push(el.shadowRoot);
+          collect(el.shadowRoot);
+        }
+      }
+    };
+    collect(document);
+    const found = [];
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    for (const root of roots) {
+      watchRoot(root);
+      for (const el of root.querySelectorAll(INTERACTIVE)) {
+        // ponytail: at most 200 twins per pass, so a pathological page cannot freeze it; raise it or rank by distance
+        if (found.length >= SHADOW_CAP) break;
+        const box = el.getBoundingClientRect();
+        if (!box.width || !box.height) continue;
+        if (box.bottom > -h && box.top < 2 * h && box.right > -w && box.left < 2 * w) found.push([el, box]);
+      }
+    }
+    return found;
+  }
+
+  function shadowProxies() {
+    if (!document.body) return;
+    const found = shadowControls();
+    if (!found.length && !shadowBox) return;
+    if (!shadowBox || !shadowBox.isConnected) {
+      shadowBox = document.createElement("div");
+      shadowBox.setAttribute("data-aa-shadow", "");
+      shadowBox.style.cssText = "position:absolute;left:0;top:0;width:0;height:0";
+      document.body.appendChild(shadowBox);
+    }
+    // relative to the container itself, not to scrollX/scrollY: right even when the body is offset or transformed
+    const origin = shadowBox.getBoundingClientRect();
+    const used = new Map();
+    const keep = [];
+    for (const [real, box] of found) {
+      let twin = twinOf.get(real);
+      if (!twin) {
+        twin = makeProxy(real);
+        twinOf.set(real, twin);
+      }
+      const base = shadowName(real);
+      let name = base;
+      if (base) {
+        const n = (used.get(base) || 0) + 1;
+        used.set(base, n);
+        if (n > 1) name = `${base} (${n})`;
+      }
+      twinInfo.set(twin, { real, base });
+      const s = twin.style;
+      s.left = `${box.x - origin.x}px`;
+      s.top = `${box.y - origin.y}px`;
+      s.width = `${box.width}px`;
+      s.height = `${box.height}px`;
+      mirrorState(real, twin);
+      // aria-label only when the name changed: markFields rewrites it into "[req] <name> = <value>" afterwards
+      if (twin.getAttribute("data-aa-shadow-name") !== name) {
+        twin.setAttribute("data-aa-shadow-name", name);
+        twin.removeAttribute(OURS);
+        twin.removeAttribute(ORIG);
+        if (name) twin.setAttribute("aria-label", name);
+        else twin.removeAttribute("aria-label");
+      }
+      keep.push(twin);
+    }
+    const kept = new Set(keep);
+    for (const child of [...shadowBox.children]) if (!kept.has(child)) child.remove();
+    keep.forEach((twin, i) => {
+      if (shadowBox.children[i] !== twin) shadowBox.insertBefore(twin, shadowBox.children[i] || null);
+    });
+  }
+
+  function dropShadowProxies() {
+    if (shadowBox) shadowBox.remove();
+    shadowBox = null;
+    if (shadowWatch) shadowWatch.disconnect();
+    shadowWatch = null;
+    shadowSeen = new WeakSet();
+  }
+
   function pass() {
     if (!active) return;
     nameGoogleButtons();
     nameFrames();
-    if (isTop) markFields();  // a frame is out of read_page's sight; one that is opened as a tab is a top frame there
+    if (isTop) {
+      shadowProxies();  // before markFields, so the fresh twins are marked in this same pass
+      markFields();
+    }  // a frame is out of read_page's sight; one that is opened as a tab is a top frame there
     updateGoogleTag();
   }
 
@@ -568,6 +815,8 @@
         subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: STATE_ATTRS,
       });
       for (const type of ["change", "input", "click"]) document.addEventListener(type, schedule, true);
+      // which controls are near the viewport depends on the scroll position (scroll does not bubble: capture)
+      if (isTop) window.addEventListener("scroll", schedule, { capture: true, passive: true });
     }
     pass();
   }
@@ -581,6 +830,7 @@
     due = false;
     for (const el of document.querySelectorAll(`[${OURS}]`)) restoreLabel(el);
     for (const banner of document.querySelectorAll("a[data-aa-dialog]")) banner.remove();
+    dropShadowProxies();
     if (document.documentElement) document.documentElement.removeAttribute(ATTR);
   }
 

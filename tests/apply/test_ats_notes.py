@@ -1,6 +1,6 @@
 """The ATS notes: each note's `hosts:` line, the workspace overlay, and the key of a page (aa_lib.ats_notes/ats_key).
 
-The plugin ships four generic notes; the workspace's own ats/ folder holds the notes this user learned, and a note
+The plugin ships five generic notes; the workspace's own ats/ folder holds the notes this user learned, and a note
 there replaces the plugin note with the same stem.
 """
 from __future__ import annotations
@@ -59,6 +59,7 @@ class AtsNotes(unittest.TestCase):
         self.assertEqual(hosts["greenhouse"], ["*.greenhouse.io"])
         self.assertEqual(hosts["linkedin-easy-apply"], ["linkedin.com", "*.linkedin.com"])
         self.assertEqual(hosts["workday"], ["*.myworkdayjobs.com"])
+        self.assertEqual(hosts["smartrecruiters"], ["jobs.smartrecruiters.com", "*.smartrecruiters.com"])
         self.assertEqual(hosts["phenom"], [])  # Phenom sites use the employer's own host
 
     def test_a_workspace_note_replaces_the_plugin_note_of_the_same_stem(self):
