@@ -1,0 +1,46 @@
+<!doctype html><title>Shadow form</title>
+<!-- A SmartRecruiters-style form: every control is inside an OPEN shadow root, so read_page cannot see it. -->
+<style>spl-input, spl-autocomplete, spl-phone, spl-button, spl-blank, spl-postal, spl-file, spl-text, spl-select, spl-check, spl-list, spl-late { display: block; margin: 4px 0 }</style>
+<script>
+const shadow = (host) => host.shadowRoot || host.attachShadow({mode: "open"});
+const attr = (host, n) => host.getAttribute(n);
+const define = (tag, html) => customElements.define(tag, class extends HTMLElement {
+  connectedCallback() { const s = shadow(this); if (!s.firstChild) s.innerHTML = html(this); }
+});
+define("spl-input", (h) => (attr(h, "label") ? `<label for="${attr(h, "iid")}">${attr(h, "label")}</label>` : "") +
+  `<input id="${attr(h, "iid")}" type="${attr(h, "type") || "text"}"${h.hasAttribute("req") ? " required" : ""}>`);
+define("spl-autocomplete", () => `<spl-input label="City*" iid="city" req></spl-input>`);
+define("spl-phone", () => `<button id="cc" aria-label="Country code"></button><input id="phone" type="tel" aria-label="Phone number">`);
+define("spl-button", () => `<button id="next" type="submit"><slot></slot></button>`);
+define("spl-postal", () => `<input id="postal" type="text" placeholder="Postal code">`);
+define("spl-blank", () => `<button id="blank"></button>`);
+define("spl-file", (h) => `<label for="${attr(h, "iid")}">Choose a file or drop it here</label><input id="${attr(h, "iid")}" type="file">`);
+define("spl-text", () => `<label for="cover">Cover letter</label><textarea id="cover"></textarea>`);
+define("spl-select", () => `<label for="sel">Preferred country</label><select id="sel"><option value="a">Alpha</option><option value="b">Beta</option><option value="c">Gamma</option></select>`);
+define("spl-check", () => `<label for="agree">I agree to the terms</label><input id="agree" type="checkbox">`);
+define("spl-item", () => `<span>Berlin</span>`);
+define("spl-list", () => `<div role="option" id="opt"><spl-item></spl-item></div>`);
+customElements.define("spl-late", class extends HTMLElement {
+  constructor() {
+    super();
+    const s = this.attachShadow({mode: "open"});
+    setTimeout(() => { s.innerHTML = `<label for="late">Late field</label><input id="late">`; }, 300);
+  }
+});
+</script>
+<spl-input label="First name*" iid="first" req></spl-input>
+<spl-input label="Email*" iid="email" type="email" req></spl-input>
+<spl-input label="LinkedIn" iid="linkedin"></spl-input>
+<spl-autocomplete></spl-autocomplete>
+<spl-phone></spl-phone>
+<spl-file iid="file1"></spl-file>
+<spl-file iid="file2"></spl-file>
+<spl-text></spl-text>
+<spl-select></spl-select>
+<spl-check></spl-check>
+<spl-list></spl-list>
+<spl-late></spl-late>
+<spl-blank></spl-blank>
+<spl-postal></spl-postal>
+<spl-button>Next</spl-button>
+<button id="light">Apply With Indeed</button>

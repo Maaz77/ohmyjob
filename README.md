@@ -171,7 +171,7 @@ You can drop a job at any time, at any stage, by deleting its folder.
 - **Agents** judge and act: a master runs a stage and starts one worker per job.
 - **Scripts**, behind one command called `ohmyjob`, do all the bookkeeping: queues, tracker rows, folder moves.
 - **Hooks** run on every tool call. They allow, refuse or rewrite it, and an agent cannot skip them.
-- A small **Chrome helper extension** opens sign-in pop-ups as tabs and groups the finished ones.
+- A small **Chrome helper extension** opens sign-in pop-ups as tabs, makes shadow-DOM form fields visible to the browser agent and groups the finished ones.
 - Everything about you lives in the **`ohmyjob/` workspace folder**: settings, profile, resumes, the tracker and one folder per job.
 
 The full design, with diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
