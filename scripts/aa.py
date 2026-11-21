@@ -1063,6 +1063,7 @@ def cmd_finish(args: argparse.Namespace) -> None:
                 if job.get("verdict") == "PASS" and folder in checks:
                     job["verdict"] = "BLOCKED"
                     job["reasons"] = [f"FILL_REVIEW: the fills check could not run ({type(exc).__name__}: {exc})"[:300]]
+            add_description_emails(job, results[folder])
         if todo:
             stop = record_all(state, todo, results)
             for folder in todo:
@@ -1097,6 +1098,20 @@ def fills_gate(run_dir: Path, folder: str, job: dict, result: Optional[dict], ch
         L.log(run_dir, "fills-gate", folder=folder, reason=reason)
     except OSError:
         pass
+
+
+def add_description_emails(job: dict, result: Optional[dict]) -> None:
+    """A NO_APPLY_CONTROL blocker gains the email addresses of the job description (at most 3), so the note and the
+    tracker row carry them. In memory only: result.json is not rewritten. Never raises."""
+    if not isinstance(result, dict) or not str(result.get("blocker") or "").startswith("NO_APPLY_CONTROL"):
+        return
+    try:
+        description = L.job_description((job_folder(job) / "job.md").read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError):  # ValueError: a job.md that is not UTF-8 (finish never raises)
+        return
+    found = list(dict.fromkeys(L.EMAIL_RE.findall(description or "")))[:3]
+    if found:
+        result["blocker"] += f" | addresses in the description: {', '.join(found)}"
 
 
 def job_fills(run_dir: Path, folder: str, tab: Any) -> list:
