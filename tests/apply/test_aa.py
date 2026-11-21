@@ -1873,6 +1873,40 @@ class TestGateAJobThat(FillsGateBase):
         self.assertEqual((job["verdict"], job["reasons"]), ("BLOCKED", ["CAPTCHA: a bot check"]))
 
 
+class TestNoApplyControlAddresses(unittest.TestCase):
+    def run_it(self, description, blocker="NO_APPLY_CONTROL: no control"):
+        import aa
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "f").mkdir()
+            (Path(tmp) / "f" / "job.md").write_text(f"# Job\n\n## 2. Job Description\n{description}\n")
+            orig = aa.L.APPLICATIONS
+            aa.L.APPLICATIONS = Path(tmp)
+            try:
+                result = {"blocker": blocker}
+                aa.add_description_emails({"folder": "f"}, result)
+            finally:
+                aa.L.APPLICATIONS = orig
+        return result["blocker"]
+
+    def test_addresses_in_the_description_are_appended_deduped_and_capped_at_three(self):
+        text = "Mail a@x.com or b@x.com, a@x.com again, c@x.com, d@x.com."
+        self.assertEqual(self.run_it(text),
+                         "NO_APPLY_CONTROL: no control | addresses in the description: a@x.com, b@x.com, c@x.com")
+
+    def test_a_description_without_an_address_leaves_the_blocker_alone(self):
+        self.assertEqual(self.run_it("Apply on our site."), "NO_APPLY_CONTROL: no control")
+
+    def test_a_different_blocker_code_is_left_alone(self):
+        self.assertEqual(self.run_it("Mail a@x.com", blocker="CAPTCHA: a bot check"), "CAPTCHA: a bot check")
+
+    def test_a_missing_result_or_job_md_does_not_raise_or_change_anything(self):
+        import aa
+        aa.add_description_emails({"folder": "f"}, None)
+        result = {"blocker": "NO_APPLY_CONTROL: x"}
+        aa.add_description_emails({"folder": "no-such-folder"}, result)
+        self.assertEqual(result["blocker"], "NO_APPLY_CONTROL: x")
+
+
 class TestGateTheGateNever(FillsGateBase):
     def test_the_gate_never_raises_and_fill_review_is_not_handed_over(self):
         import aa

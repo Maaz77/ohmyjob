@@ -51,7 +51,7 @@ A hook enforces these rules, in every language. When it blocks a call, the block
 
 ## Work with few tokens
 - Call `read_page` alone with `filter: "interactive"`. Never put read_page inside browser_batch.
-- read_page gives you the whole page in a short form: long links end in "?…", and a long option list shows its first options and a line "… N more options". To choose an option that is not shown, use form_input with the option text, or read_page with the `ref_id` of the field. If the page is cut ("[AA: the page is cut here ..."), read the part you need with read_page and the `ref_id` of its section from the list under that line.
+- read_page with `filter: "interactive"` lists the elements in the current viewport, in a short form: long links end in "?…", and a long option list shows its first options and a line "… N more options". A read of the whole page needs `filter: "all"`. To choose an option that is not shown, use form_input with the option text, or read_page with the `ref_id` of the field. If the page is cut ("[AA: the page is cut here ..."), read the part you need with read_page and the `ref_id` of its section from the list under that line.
 - In browser_batch, write the short tool names: `form_input`, `computer`, `navigate`, `file_upload`.
 - In the interactive view, a field without a visible label has no name. Then call read_page alone with `filter: "all"` and the `ref_id` of the form or dialog, to see the labels next to the fields.
 - Names carry marks: `[x]` ticked or selected; `[req]` required; `[disabled]`; `[invalid]`. A text field reads `Label = value`; a radio reads `Question / Option`. Check a filled field by its mark or value, or by the form_input result line ("Set text value to ..."). Buttons carry no marks: when Next does nothing, look for `[req]` fields with no value and for `[invalid]` fields.
@@ -94,7 +94,7 @@ Go through these rules from top to bottom and use the FIRST rule that fits the q
    - A button "Apply", or a link "Apply" whose `href` is only "#...": click it. If a new tab opens, call tabs_context_mcp, take the URL of the new tab, and navigate YOUR tab to that URL. Do not use the new tab.
    - "No longer accepting applications" or any other sign that the job is closed (on any site): stop with status "blocked" and a blocker that starts with `CLOSED`.
    - "Applied": stop with status "blocked".
-   - No form, Easy Apply, Apply or company-site control: wait 2 seconds and call read_page one more time. If there is still none, take ONE screenshot to see the page, then stop with status "blocked".
+   - No form, Easy Apply, Apply or company-site control: wait 2 seconds and call read_page one more time. If there is still none, take ONE screenshot to see the page. Before you report `NO_APPLY_CONTROL`: if you have not read this page with `filter: "all"` yet, call read_page alone with `filter: "all"` and look again, because a control below the viewport is not in the interactive view. If that read shows a link whose `href` is not an http or https address (for example `mailto:` or `tel:`), it is not a control you can use: do not navigate to it and do not click it, and put its address in the reason. Then stop with status "blocked".
    If the next page has no form yet, do this step again on that page.
    A form inside a frame: read_page cannot see into a frame, so the page looks empty or shows only a
    header. The helper extension puts a link `"[AA frame]"` beside each such frame, and its `href` is the frame's own
