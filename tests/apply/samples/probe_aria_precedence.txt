@@ -1,7 +1,7 @@
 # read_page on tests/apply/probe_site/aria_precedence.html (Claude in Chrome, 2026-11-18), filter "interactive"
 textbox "[req] Email address = v@example.test" [ref_1]
 textbox "[req] [invalid] Empty labelled" [ref_2]
-textbox "Wrapped city = Milan" [ref_3]
+textbox "Wrapped city = Dublin" [ref_3]
 textbox "Plain labelled, no aria" [ref_4]
 radio "[x] Do you need sponsorship? / Yes" [ref_5] type="radio"
 radio "Do you need sponsorship? / No" [ref_6] type="radio"
