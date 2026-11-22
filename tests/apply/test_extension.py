@@ -26,9 +26,10 @@ SITE = HERE / "extension_site"
 NO_LNA = ["--disable-features=LocalNetworkAccessChecks"]
 
 try:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
 except ImportError:  # pragma: no cover
     sync_playwright = None
+    PlaywrightTimeout = Exception
 
 
 
@@ -42,7 +43,16 @@ def extension_worker(ctx):
     for worker in ctx.service_workers:
         if _is_ours(worker):
             return worker
-    return ctx.wait_for_event("serviceworker", predicate=_is_ours, timeout=15000)
+    # 60s tolerates a cold Chromium on a loaded CI runner (15s was exceeded in run 44837613885); a healthy
+    # start returns as soon as the event fires, so the ceiling is only reached when no worker registers.
+    try:
+        return ctx.wait_for_event("serviceworker", predicate=_is_ours, timeout=60000)
+    except PlaywrightTimeout as exc:
+        # a worker that registered between the scan above and the listener is invisible to the event
+        for worker in ctx.service_workers:
+            if _is_ours(worker):
+                return worker
+        raise AssertionError("the extension's background.js service worker never registered within 60s") from exc
 
 
 def ROBOTS(route):

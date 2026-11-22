@@ -323,6 +323,7 @@ class TestFlow(Base):
                                               "files": [{"name": "x.pdf", "data": "QUJD"}]}, W, "A1")
         self.assertEqual(json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"], {"tabId": 101, "ref": "ref_45", "paths": [pdf]})
         self.assertAllowed(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_65", "value": "Germany"}, W, "A1"))
+        self.page(101, "constructed_form_page.txt")  # after a fill on a choice the page is read again
         # final, apply-after-fill and unnamed submit buttons
         self.assertDenied(self.click(101, "ref_49", "A1"), "final control")
         self.assertDenied(self.click(101, "ref_48", "A1"), "showed an application form")
@@ -1426,6 +1427,9 @@ class TestIconButton(Base):
         self.assertDenied(self.click(tab, "ref_23", "A1", "Signs up with Google"), "without a name")
         self.assertAllowed(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_21", "value": "Germany"}, W, "A1"))
         self.assertAllowed(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_22", "value": True}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"},
+                  'dialog [ref_20]\n combobox "Country of residence" [ref_21]\n'
+                  ' checkbox "Terms & Conditions" [ref_22] type="checkbox"\n button [ref_23] type="submit"\n', W, "A1")
         self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_20"},
                   'dialog [ref_20]\n combobox "Country of residence" [ref_21]\n'
                   ' checkbox "Terms & Conditions" [ref_22] type="checkbox"\n button [ref_23] type="submit"\n'
@@ -1448,6 +1452,7 @@ class TestIconButton(Base):
         self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_411"}, sample("aviva_signup_dialog_all.txt"), W, "A1")
         for ref, value in (("ref_430", "Italy"), ("ref_439", True), ("ref_443", True)):
             self.assertAllowed(self.guard(C + "form_input", {"tabId": tab, "ref": ref, "value": value}, W, "A1"))
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, sample("aviva_signup_dialog_interactive.txt"), W, "A1")
         self.post("read_page", {"tabId": tab, "filter": "all", "ref_id": "ref_411"}, sample("aviva_signup_dialog_all.txt"), W, "A1")
         self.assertAllowed(self.click(tab, "ref_415", "A1", "Signs up with Google"))
         # the read with a ref_id covered the dialog only: the page's own buttons keep the interactive line, with
@@ -1693,7 +1698,8 @@ class TestStaleRefsAndPermissions(Base):
         self.assertAllowed(self.guard(C + "navigate", {"tabId": 401, "url": "https://login.microsoftonline.com/common/oauth2/authorize?x=1"}, W, "S1"))
         self.post("read_page", {"tabId": 401}, 'button "Accept" [ref_1] type="button"\nbutton "Cancel" [ref_2] type="button"\n', W, "S1")
         self.assertDenied(self.click(401, "ref_1", "S1"), "permission")
-        self.assertAllowed(self.click(401, "ref_2", "S1", "Cancels the sign-in"))
+        # the whole page of an OAuth server is refused, a back-out with it: the worker reports ACCOUNT_WALL
+        self.assertDenied(self.click(401, "ref_2", "S1", "Cancels the sign-in"), "permission")
 
 
 if __name__ == "__main__":

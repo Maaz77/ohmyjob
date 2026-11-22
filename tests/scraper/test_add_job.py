@@ -384,7 +384,7 @@ def test_apply_start_queues_an_added_job_like_a_scraped_one(env):
 def test_reconcile_pairs_the_added_folder_with_its_row(env):
     root, name, row = added_job(env)
     t = Tracker(root / "Job_Tracker.xlsx")
-    t.set_status(1, "Pending Review", None)
+    t.set_cell(1, "Status", "Pending Review")  # seeded directly: Found -> Pending Review is not a legal step, and this tests reconcile
     t.save()
     (root / "Applications" / name).rename(root / "Pending-Review" / name)
     out = sub(root, "reconcile.py", "--apply")
