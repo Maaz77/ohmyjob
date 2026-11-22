@@ -868,10 +868,11 @@ def test_grouped_roles(pj, workspace):
 
 
 def test_fill_is_idempotent(pj):
+    import aa_lib
     md = job_md("https://www.linkedin.com/jobs/view/1", "A", "T")
     once = pj.fill_section(pj.fill_overview(md, "Match Score", "7"), r"Gaps\??", ["one"])
     assert pj.fill_section(pj.fill_overview(once, "Match Score", "7"), r"Gaps\??", ["one"]) == once
-    with pytest.raises(pj.JobError):
+    with pytest.raises(aa_lib.JobError):
         pj.fill_overview(once, "Match Score", "8")
     bold = job_md("https://www.linkedin.com/jobs/view/1", "A", "T", bold=True)
     assert "- **Match Score:** 7\n" in pj.fill_overview(bold, "Match Score", "7")

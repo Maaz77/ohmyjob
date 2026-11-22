@@ -209,7 +209,7 @@ claude plugin validate --strict .
 bash scripts/pii_gate.sh <terms-file>
 ```
 
-CI (`.github/workflows/ci.yml`) runs these, a real TinyTeX resume build and the extension tests.
+CI (`.github/workflows/ci.yml`) runs these, a real TinyTeX resume build and the extension tests, on every pull request to `main`.
 
 ## Credits and license
 
