@@ -15,7 +15,7 @@ import sys
 BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "continue with google",
                "create an account", "crea un account", "créer un compte", "konto erstellen", "registrarse",
                "criar conta", "account aanmaken", "zarejestruj się", "регистрация", "注册", "新規登録", "회원가입",
-               "sign up", "register", "sign up with linkedin"}
+               "sign up", "register", "sign up with linkedin", "create account to apply"}
 FAIL_NAMES = {"fallisci"}
 
 def reply(obj: dict) -> None:

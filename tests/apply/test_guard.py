@@ -1317,6 +1317,15 @@ class TestClickGuardHoles(T.Base):
         # the fake judge blocks this name, and it carries no step word either
         self.assertDenied(self.click(101, "ref_3", "A1", "Goes on"), "final control")
 
+    def test_a_sign_up_name_that_also_asks_to_apply_is_still_checked(self):
+        """Before a fill an Apply word lets a click pass with no check. A name carrying a sign-up word as well must
+        not ride on that pass: the hard sign-up refusal used to catch it, and the Haiku check has to now."""
+        self.boot()  # unfilled tab, and jobs.example.com is no job board
+        page = 'button "Create account to apply" [ref_1] type="button"\n'
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(page, "ref_1"), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
     def test_a_sign_up_name_goes_to_the_judge_and_an_alert_sign_up_passes(self):
         self.boot(filled=True)
         page = ('button "Register interest" [ref_1] type="button"\n'

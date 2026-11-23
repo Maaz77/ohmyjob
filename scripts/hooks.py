@@ -562,7 +562,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         L.log(ctx.run_dir, "google-option", tab=int(tab), host=ctx.host(tab))
         return
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
-    if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
+    # `not signup`: before a fill an Apply word lets a click pass with no check, and a name that asks for an account
+    # in order to apply ("Create account to apply", "Sign up and apply") carries both words. The hard sign-up refusal
+    # used to catch those; now that the Haiku check decides a sign-up name, this pass has to stand aside for it.
+    if not name.strip() or consent or (apply_word and not filled and not sticky and not board and not signup) \
+            or name in X.SAFE:
         return
     # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
     # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
