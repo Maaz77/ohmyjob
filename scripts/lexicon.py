@@ -332,20 +332,32 @@ CODE_ASK = Terms(
      "bevestig je identiteit"],
 )
 
-# Delete and withdraw.
-DELETE = Terms(
-    ["delete", "withdraw", "elimina", "eliminare", "cancella", "cancellare", "ritira", "ritirare", "supprimer",
-     "supprime", "supprimez", "retirer", "löschen", "zurückziehen", "eliminar", "borrar", "retirar", "excluir",
-     "apagar", "esborrar", "verwijderen", "verwijder", "intrekken", "trek in", "radera", "dra tillbaka", "slet",
-     "træk tilbage", "slett", "trekk tilbake", "poista", "kustuta", "võta tagasi", "dzēst", "atsaukt", "ištrinti",
-     "atšaukti", "usuń", "wycofaj", "smazat", "vymazať", "zmazať", "izbriši", "umakni", "obriši", "povuci",
-     "șterge", "retrage", "töröl*", "visszavon*"],
-    ["обриши", "избриши", "повуци", "изтрий", "оттегли", "повлечи", "удалить", "отозвать", "видалити", "відкликати",
-     "выдаліць", "διαγραφή", "απόσυρση", "sil", "geri çek", "fshi"],
-    ["حذف", "سحب", "امسح", "מחק", "מחיקה", "משוך", "پاک کردن", "हटाएं", "मिटाएं", "删除", "刪除", "撤回", "撤销",
-     "撤銷", "削除", "取り下げ", "辞退", "삭제", "철회", "ลบ", "ถอน", "xóa", "rút lại", "hapus", "tarik kembali",
-     "padam", "tarik balik"],
+# Withdraw and delete, two lists. A withdraw word is a hard refusal that never reaches the Haiku check: withdrawing an
+# application cannot be undone and is never part of applying. A delete word ("Remove", "Delete") is judged by the Haiku
+# check from the text around it: "Remove" beside an uploaded file is an upload control, "Delete my data" is not.
+# A word whose sense is not clearly "remove this row" belongs in WITHDRAW: a word misfiled there parks a worker
+# (recoverable), a word misfiled as a delete word hands an ambiguous destructive name to a model that may allow it.
+_WITHDRAW = (
+    ["withdraw", "cancella", "cancellare", "ritira", "ritirare", "retirer", "zurückziehen", "retirar", "intrekken",
+     "trek in", "dra tillbaka", "træk tilbage", "trekk tilbake", "võta tagasi", "atsaukt", "atšaukti", "wycofaj",
+     "umakni", "povuci", "retrage", "visszavon*"],
+    ["повуци", "оттегли", "повлечи", "отозвать", "відкликати", "απόσυρση", "sil", "geri çek", "fshi"],
+    ["سحب", "משוך", "撤回", "撤销", "撤銷", "取り下げ", "辞退", "철회", "ถอน", "rút lại", "tarik kembali", "tarik balik"],
 )
+WITHDRAW = Terms(*_WITHDRAW)
+_REMOVE = (
+    ["delete", "remove", "elimina", "eliminare", "supprimer", "supprime", "supprimez", "löschen", "entfernen",
+     "eliminar", "borrar", "excluir", "apagar", "esborrar", "verwijderen", "verwijder", "radera", "slet", "slett",
+     "poista", "kustuta", "dzēst", "ištrinti", "usuń", "smazat", "vymazať", "zmazať", "izbriši", "obriši", "șterge",
+     "töröl*", "rimuovi", "quitar", "remover"],
+    ["обриши", "избриши", "изтрий", "удалить", "видалити", "выдаліць", "διαγραφή"],
+    ["حذف", "امسح", "מחק", "מחיקה", "پاک کردن", "हटाएं", "मिटाएं", "删除", "刪除", "削除", "삭제", "ลบ", "xóa", "hapus",
+     "padam"],
+)
+REMOVE = Terms(*_REMOVE)
+# Both lists: the consent-dialog branch refuses either, with no model call (a control in a privacy dialog is about
+# candidate data by definition).
+DELETE = Terms(*_WITHDRAW, *_REMOVE)
 
 # Search and filter boxes (a job search on a careers site). A fill there is not an application form: a search for the
 # job title must not block the "Apply" button that opens the form.
@@ -393,18 +405,18 @@ SUBMITTED = Terms(
 SAFE = Terms(
     ["next", "continue", "back", "previous", "review", "save", "save and continue", "save & continue",
      "continue to next step", "next step", "review your application", "upload", "upload resume", "upload cv",
-     "choose file", "select file", "attach", "browse", "add", "add another", "edit", "remove", "close", "cancel",
+     "choose file", "select file", "attach", "browse", "add", "add another", "edit", "close", "cancel",
      "dismiss", "show more", "see more", "show less", "see less", "expand", "collapse", "yes", "no", "skip"],
     ["avanti", "successivo", "continua", "prosegui", "indietro", "precedente", "salva", "salva e continua", "carica",
-     "scegli file", "sfoglia", "aggiungi", "modifica", "rimuovi", "chiudi", "annulla", "mostra altro", "sì", "si",
+     "scegli file", "sfoglia", "aggiungi", "modifica", "chiudi", "annulla", "mostra altro", "sì", "si",
      "suivant", "continuer", "poursuivre", "précédent", "retour", "enregistrer", "enregistrer et continuer",
      "importer", "parcourir", "ajouter", "modifier", "fermer", "annuler", "afficher plus", "voir plus", "oui", "non",
      "weiter", "fortfahren", "fortsetzen", "zurück", "speichern", "speichern und weiter", "hochladen", "datei auswählen",
-     "durchsuchen", "hinzufügen", "bearbeiten", "entfernen", "schließen", "abbrechen", "mehr anzeigen", "ja", "nein",
+     "durchsuchen", "hinzufügen", "bearbeiten", "schließen", "abbrechen", "mehr anzeigen", "ja", "nein",
      "siguiente", "continuar", "atrás", "anterior", "volver", "revisar", "guardar", "guardar y continuar", "subir",
-     "cargar", "seleccionar archivo", "examinar", "añadir", "agregar", "editar", "quitar", "cerrar", "cancelar",
+     "cargar", "seleccionar archivo", "examinar", "añadir", "agregar", "editar", "cerrar", "cancelar",
      "ver más", "mostrar más", "sí", "próximo", "seguinte", "avançar", "voltar", "salvar", "carregar",
-     "escolher ficheiro", "escolher arquivo", "adicionar", "remover", "fechar", "ver mais", "sim", "não",
+     "escolher ficheiro", "escolher arquivo", "adicionar", "fechar", "ver mais", "sim", "não",
      "següent", "enrere", "desa", "desar", "puja", "afegeix", "edita", "tanca"],
     ["volgende", "doorgaan", "verder", "terug", "vorige", "opslaan", "uploaden", "bestand kiezen", "bladeren",
      "toevoegen", "bewerken", "wijzigen", "sluiten", "annuleren", "meer weergeven", "nee", "nästa", "fortsätt",

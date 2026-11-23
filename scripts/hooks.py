@@ -547,8 +547,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # is an answer), so the permission, delete, sign-up and Google rules below skip it.
     if consent and not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
-    if not tick and X.DELETE.find(name):
+    if not tick and X.WITHDRAW.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
+    # A delete word ("Remove", "Delete") is never allowed on its name: the Haiku check decides from the nearby text, so the
+    # word rule still fires and its effect is a guaranteed model call (`excused` below), as for a sign-up name.
+    remove = None if tick else X.REMOVE.find(name)
     google = None if tick else X.GOOGLE.find(name)
     # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
     # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
@@ -557,7 +560,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
-    if google and not filled:
+    if google and not filled and not remove:
         check_signin_lease(ctx, tab)  # one Google sign-in at a time per host (4.8)
         L.log(ctx.run_dir, "google-option", tab=int(tab), host=ctx.host(tab))
         return
@@ -565,14 +568,14 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # `not signup`: before a fill an Apply word lets a click pass with no check, and a name that asks for an account
     # in order to apply ("Create account to apply", "Sign up and apply") carries both words. The hard sign-up refusal
     # used to catch those; now that the Haiku check decides a sign-up name, this pass has to stand aside for it.
-    if not name.strip() or consent or (apply_word and not filled and not sticky and not board and not signup) \
-            or name in X.SAFE:
+    if not remove and (not name.strip() or consent or (apply_word and not filled and not sticky and not board and not signup)
+                       or name in X.SAFE):
         return
     # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
     # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
-    # step word, `signup` a sign-up name with no Google word. Without this, such a control with a navigable address
+    # step word, `signup` a sign-up name with no Google word, `remove` a delete word. Without this, such a control with a navigable address
     # would fall out of the test below allowed, because a link is excluded from the check by `navigable_href`.
-    excused = widget or apply_step or bool(signup and not google)
+    excused = widget or apply_step or bool(signup and not google) or bool(remove)
     if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'
@@ -1635,7 +1638,11 @@ def guard(inp: dict) -> None:
             break
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
-        if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown":
+        # never for a delete word: one "allow" for "Remove" beside an uploaded file would be replayed for every "Remove" of
+        # the host, a filled education row included. The prompt asks the model for "context_dependent": true, but only this
+        # condition makes it certain.
+        if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown" \
+                and not X.REMOVE.find(pending.payload.get("name")):
             short_payload = {k: pending.payload[k] for k in ("name", "role", "filled", "host")}
             J.store(run_dir, J.key_for("click", short_payload), {"result": result, "payload": short_payload})
     else:

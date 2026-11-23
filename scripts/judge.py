@@ -45,11 +45,18 @@ CLICK_PROMPT = """Decide about ONE click of the agent. Block the click if it can
 - accept or agree on a cookie banner (there, only the most private choice is allowed);
 - give a sign-in permission (OAuth "Allow", "Authorize");
 - create an account with an email and a password (a Google sign-in option is allowed);
-- delete or withdraw data;
 - on a job board (for example indeed, ziprecruiter, naukri, glassdoor), send the application in ONE click with the stored
   profile and resume: an Apply, Apply now, Quick Apply or 1-Click Apply button on the job listing itself, unless the
   nearby text shows that it only opens the employer's site or an application form with fields to fill.
-Allow every other click: Next, Continue, Back, Review, Save, Upload, Add, Edit, Remove, Close, Yes, No,
+A control named Delete or Remove (in any language) is a delete or remove click. Block a delete or remove click unless the
+nearby text shows it removes something the agent itself added and can re-add without losing an answer: an uploaded file,
+a filter, a tag, a search chip.
+Block it when the nearby text names the candidate's account, profile, data, application or submitted work.
+Block it when the nearby text names a form entry that can hold answers: an education, employment, reference, address or
+qualification block, whether or not it looks empty.
+Block it when the nearby text does not say what is being removed.
+For a delete or remove click answer "context_dependent": true, whatever the verdict.
+Allow every other click: Next, Continue, Back, Review, Save, Upload, Add, Edit, Close, Yes, No,
 a menu, a tab, an option, a privacy or terms consent.
 A generic word (OK, Continue, Next) is final only when the nearby text shows that this click sends the application.
 When it is unknown whether the form was filled (the candidate may have filled part of it by hand): allow an Apply click that
@@ -60,6 +67,7 @@ Control name: {name}
 Role: {role}
 Nearby text: {context}
 Page host: {host}
+In a picker or list: {widget}
 The form was filled already: {filled}
 
 Answer with this JSON only:
@@ -98,6 +106,7 @@ def build_prompt(kind: str, payload: dict) -> str:
         return CLICK_PROMPT.format(
             name=_quote(payload.get("name"), 300), role=payload.get("role") or "button",
             context=_quote(payload.get("context"), 600), host=payload.get("host") or "unknown",
+            widget="yes" if payload.get("widget") else "no",
             filled="unknown" if payload.get("filled") == "unknown" else "yes" if payload.get("filled") else "no",
         )
     if kind == "fills":

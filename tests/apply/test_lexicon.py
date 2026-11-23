@@ -56,6 +56,13 @@ class TestButtons(unittest.TestCase):
             self.assertTrue(X.SIGNUP.find(name), name)
         for name in ["Delete", "Elimina il mio profilo", "Supprimer", "Löschen", "Eliminar", "Usuń", "Удалить", "删除", "削除"]:
             self.assertTrue(X.DELETE.find(name), name)
+        for name in ["Withdraw", "Zurückziehen", "Intrekken", "撤回", "辞退", "Visszavonás"]:
+            self.assertTrue(X.WITHDRAW.find(name), name)
+            self.assertFalse(X.REMOVE.find(name), name)
+        for name in ["Delete", "Remove", "Rimuovi", "Quitar", "Remover", "Entfernen", "Löschen", "Elimina", "Törölni"]:
+            self.assertTrue(X.REMOVE.find(name), name)
+            self.assertFalse(X.WITHDRAW.find(name), name)
+            self.assertNotIn(name, X.SAFE)  # a delete word is never allowed on its name (issue 45)
         for name in ["Continue with Google", "Accedi con Google", "Mit Google anmelden", "Googleでログイン"]:
             self.assertTrue(X.GOOGLE.find(name), name)
 

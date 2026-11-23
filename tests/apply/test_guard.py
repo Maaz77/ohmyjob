@@ -1349,6 +1349,55 @@ class TestClickGuardHoles(T.Base):
         self.assertDenied(self.try_click(page, "ref_1"), "Haiku check blocked")  # the fake judge blocks this name
         self.assertEqual(len(self.judge_calls()), before + 1)
 
+    def test_a_delete_word_goes_to_the_judge_and_is_decided_by_the_text_around_it(self):
+        """Issue 45: "Remove" used to pass on its name (SAFE) while "Delete" was refused. Both now ask the model, and the
+        same name gets three verdicts from its surroundings: an uploaded file allows, a form entry and a sparse
+        sign-in page block."""
+        self.boot(filled=True)
+        upload = 'group "Resume" [ref_9]\n link "Resume.pdf" [ref_8]\n button "Remove" [ref_1] type="button"\n'
+        education = ('group "Education 2" [ref_9]\n textbox "School" [ref_8] type="text"\n'
+                     ' button "Remove" [ref_1] type="button"\n')
+        signin = 'button "Delete my data" [ref_1] type="button"\n'
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(upload))
+        self.assertEqual(self.judge_calls()[-1]["name"], "Remove")
+        self.assertDenied(self.try_click(education), "Haiku check blocked")
+        self.assertDenied(self.try_click(signin), "Haiku check blocked")
+        # no verdict by name is kept: the second and third click were asked, not answered from the first
+        self.assertEqual(len(self.judge_calls()), before + 3)
+
+    def test_a_withdraw_word_is_refused_with_no_judge_call(self):
+        self.boot(filled=True)
+        before = len(self.judge_calls())
+        for name in ("Withdraw application", "Zurückziehen", "撤回"):
+            self.assertDenied(self.try_click('button "%s" [ref_1] type="button"\n' % name), "withdraws")
+        self.assertEqual(len(self.judge_calls()), before)
+
+    def test_a_delete_word_in_a_consent_dialog_stays_a_hard_refusal(self):
+        self.boot()
+        page = 'dialog "We use cookies" [ref_9]\n button "Remove" [ref_1] type="button"\n'
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(page), "deletes")
+        self.assertEqual(len(self.judge_calls()), before)
+
+    def test_a_remove_word_cannot_ride_a_step_word_a_google_word_or_an_apply_pass(self):
+        before = len(self.judge_calls())
+        self.boot(filled=True)
+        # "Remove" left SAFE, so it no longer excuses an apply word as a step word
+        self.assertDenied(self.try_click('button "Remove and apply" [ref_1] type="button"\n'), "can send the application")
+        self.boot()
+        # unfilled tab: neither the Google pass nor the apply pass may let a delete word through unasked
+        self.assertDenied(self.try_click('button "Delete Google account" [ref_1] type="button"\n'), "Haiku check blocked")
+        self.assertDenied(self.try_click('button "Remove and apply" [ref_1] type="button"\n'), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 2)
+
+    def test_the_prompt_shows_the_widget_and_has_no_withdraw_rule(self):
+        import judge as J  # noqa: E402  (scripts/ is on the path)
+        text = J.build_prompt("click", {"name": "Done", "context": "x", "host": "h", "widget": True})
+        self.assertIn("In a picker or list: yes", text)
+        self.assertNotIn("withdraw", text.lower())
+        self.assertNotIn("Edit, Remove", text)
+
     def edit_tab(self, **fields):
         path = self.run_dir() / "state.json"
         state = json.loads(path.read_text())

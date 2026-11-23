@@ -18,6 +18,15 @@ BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden
                "sign up", "register", "sign up with linkedin", "create account to apply"}
 FAIL_NAMES = {"fallisci"}
 
+# A delete or remove control is judged from the text around it, never from its name: the same "Remove" sits beside an
+# uploaded file (allow), a filled education row (block) and a sign-in page (block). Mirrors the four clauses of the real
+# prompt: allow only what the agent added and can re-add, block account, data and form entries, and block when the
+# nearby text says nothing. The name only decides that this rule applies.
+DELETE_NAME_RE = re.compile(r"\b(delete|remove|rimuovi|quitar|remover|entfernen|löschen|elimina)\b", re.I)
+BLOCK_NEARBY = ("education", "employment", "work experience", "reference", "address", "qualification", "account",
+                "profile", "data", "application")
+ALLOW_NEARBY = (".pdf", "resume", "cv", "upload", "attachment", "filter", "tag")
+
 def reply(obj: dict) -> None:
     usage = {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}
     print(json.dumps({"type": "result", "is_error": False, "result": json.dumps(obj), "usage": usage}))
@@ -45,7 +54,13 @@ def main() -> None:
         if name.lower() in FAIL_NAMES:
             print("not json at all")
             sys.exit(1)
-        if name.lower() in BLOCK_NAMES:
+        if DELETE_NAME_RE.search(name):
+            nearby = field(prompt, "Nearby text").lower()
+            ok = not any(w in nearby for w in BLOCK_NEARBY) and any(w in nearby for w in ALLOW_NEARBY)
+            # context_dependent is False on purpose: the real model may ignore the prompt line that asks for true, so
+            # the guard must never cache a delete word's verdict by name, whatever the model says.
+            reply({"verdict": "allow" if ok else "block", "reason": "fake: nearby text", "context_dependent": False})
+        elif name.lower() in BLOCK_NAMES:
             reply({"verdict": "block", "reason": "fake: final", "context_dependent": False})
         else:
             reply({"verdict": "allow", "reason": "fake: navigation", "context_dependent": name.lower() == "procedi"})
