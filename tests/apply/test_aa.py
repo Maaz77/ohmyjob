@@ -1785,6 +1785,14 @@ class TestHandover(Base):
         self.set_job(folder, stopped_by="stall")  # now a Sonnet job that handed over
         self.assertEqual(self.handover(), [])
 
+    def test_a_repeated_denial_is_not_handed_over(self):
+        """The guard refuses Sonnet for the same reason, so a second worker only re-earns the same wall."""
+        folder, tab = self.setup_run()
+        self.set_job(folder, stopped_by="repeat_deny")
+        self.assertEqual(self.handover(), [])
+        # the job keeps its stop, so the ledger still codes it as a wall
+        self.assertEqual(self.state()["jobs"][folder]["stopped_by"], "repeat_deny")
+
     def test_the_handover_brief_tells_the_truth(self):
         import aa
         text = aa.handover_section({"where": "step 2 of 5", "blocker": "OTHER: stuck", "open": ["Visa"],
