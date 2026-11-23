@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import lexicon as X  # noqa: E402
+import aa_lib as L  # noqa: E402
 
 
 class TestNorm(unittest.TestCase):
@@ -70,6 +71,22 @@ class TestButtons(unittest.TestCase):
                      "Merci pour votre candidature", "ご応募ありがとうございます", "申请已提交"]:
             self.assertTrue(X.SUBMITTED.find(text), text)
         self.assertIsNone(X.SUBMITTED.find("Review your application"))
+
+
+class TestOAuthUrl(unittest.TestCase):
+    def test_a_real_provider_page_matches(self):
+        for url in ("https://provider.example.com/oauth/authorize?x=1",
+                    "https://appleid.apple.com/auth/authorize?client_id=1",
+                    "https://login.microsoftonline.com/common/oauth2/authorize?x=1",
+                    "https://oauth.vk.com/authorize",
+                    "https://www.example.com/sso/oauth2"):
+            self.assertTrue(L.OAUTH_URL_RE.search(url), url)
+
+    def test_a_job_slug_is_no_sign_in_page(self):
+        for url in ("https://jobs.example.com/careers/authorize-solutions-engineer/123",
+                    "https://boards.example.com/jobs/oauth-integration-engineer",
+                    "https://jobs.example.com/roles/authorized-signatory-manager"):
+            self.assertIsNone(L.OAUTH_URL_RE.search(url), url)
 
 
 if __name__ == "__main__":

@@ -1283,6 +1283,12 @@ class TestClickGuardHoles(T.Base):
         self.clear_watchdog()
         self.assertDenied(self.click(101, "ref_2", "A1", "Goes on"), "final control")
 
+    def test_a_job_slug_with_authorize_does_not_refuse_every_click(self):
+        url = "https://jobs.example.com/careers/authorize-solutions-engineer/123"
+        self.boot(url=url)
+        page = 'button "Next" [ref_1] type="button"\n'
+        self.assertAllowed(self.try_click(page, "ref_1", url=url))
+
     def test_a_link_with_an_address_in_a_picker_is_still_checked(self):
         """The widget rule excuses the word, never the control: a link with an address used to fall out of the
         judge test (it is excluded by `navigable_href`) and would have been allowed on its name alone."""
