@@ -1069,6 +1069,28 @@ class TestHiddenFieldFills(T.Base):
             {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_289", "value": "x"}}]}
         self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "hidden on the page")
 
+    def test_a_stale_fill_is_dropped_and_the_rest_of_the_batch_runs(self):
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_41", "value": "x"}},
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_9999", "value": "x"}}]}
+        proc = self.guard(C + "browser_batch", batch, W, "A1")
+        self.assertExplicitAllow(proc)
+        kept = json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"]["actions"]
+        self.assertEqual([a["input"]["ref"] for a in kept], ["ref_41"])
+
+    def test_a_batch_of_only_stale_fills_is_refused(self):
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_9998", "value": "x"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "no longer on the page")
+
+    def test_a_stale_click_still_denies_the_whole_batch(self):
+        """A click says something about the page, so the fills beside it must not run on the old refs."""
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_41", "value": "x"}},
+            {"name": "computer", "input": {"tabId": self.tab, "action": "left_click", "ref": "ref_9997",
+                                            "action_summary": "Opens the next step"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "unknown ref")
+
     def test_a_visible_field_and_ticks_and_uploads_are_unchanged(self):
         self.assertExplicitAllow(self.fill("ref_41"))
         self.assertExplicitAllow(self.fill("ref_291", True))

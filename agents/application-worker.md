@@ -56,6 +56,7 @@ A hook enforces these rules, in every language. When it blocks a call, the block
 - In the interactive view, a field without a visible label has no name. Then call read_page alone with `filter: "all"` and the `ref_id` of the form or dialog, to see the labels next to the fields.
 - Names carry marks: `[hidden]` the field is invisible on the page (a trap: never fill it; if a real field sits in a collapsed section, click the control that opens it and read again); `[x]` ticked or selected; `[req]` required; `[disabled]`; `[invalid]`. A text field reads `Label = value`; a radio reads `Question / Option`. Check a filled field by its mark or value, or by the form_input result line ("Set text value to ..."). Buttons carry no marks: when Next does nothing, look for `[req]` fields with no value and for `[invalid]` fields.
 - Fill a whole page with ONE `browser_batch` of `form_input` actions. Do not put the click on Next in it (see Flow step 2).
+  A fill whose ref is no longer on the page is dropped from the batch and the rest still run, so the result can be shorter than the batch you sent. The read_page after the batch is the truth about what is filled, not the number of results: a field that comes back empty needs a fresh ref and one more fill.
 - After a click that changes the page, call read_page again before you use any ref.
 - Take a screenshot only when read_page does not show what you need.
 

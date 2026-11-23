@@ -637,6 +637,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
         actions = ti.get("actions") or []
         changed = False
         new_actions = []
+        dropped = []
         for i, action in enumerate(actions):
             raw = str(action.get("name") or "")
             if not raw:
@@ -647,12 +648,30 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             try:
                 updated = check_worker_action(ctx, name, action.get("input") or {}, in_batch=True)
             except Deny as exc:
+                # A page is filled with one batch of form_input actions, so one ref that went stale used to cost
+                # every other fill on the page and the worker refilled the lot. A stale ref is dropped instead: it
+                # says nothing about the page, `element` raises before any fill is recorded, and the worker's rules
+                # make its next call a read_page, which shows the field still empty.
+                #
+                # Only a fill, and only a stale ref. Every other refusal still denies the whole batch, because it
+                # says something about the page that the rest of the batch must not act on: a hidden (honeypot)
+                # field, a second click, a click after the page changed, a marker. `L.NeedJudge` is not a `Deny`,
+                # so it keeps propagating.
+                if name == "form_input" and str(exc).startswith("Unknown ref"):
+                    dropped.append(i + 1)
+                    changed = True
+                    continue
                 raise Deny(f"browser_batch item {i + 1} ({name}): {exc}") from None
             if updated is not None or name != raw:
                 new_actions.append({**action, "name": name, "input": updated if updated is not None else action.get("input")})
                 changed = True
             else:
                 new_actions.append(action)
+        if dropped:
+            if not new_actions:
+                raise Deny(f"Every fill in this browser_batch used a ref that is no longer on the page (items "
+                           f"{', '.join(map(str, dropped))}). Call read_page alone first, then fill with its refs.")
+            L.log(ctx.run_dir, "batch-drop", items=dropped, kept=len(new_actions))
         return {**ti, "actions": new_actions} if changed else None
     tab = ti.get("tabId")
     if tab is None:
