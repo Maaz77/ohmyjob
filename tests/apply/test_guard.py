@@ -1289,6 +1289,18 @@ class TestClickGuardHoles(T.Base):
         page = 'button "Next" [ref_1] type="button"\n'
         self.assertAllowed(self.try_click(page, "ref_1", url=url))
 
+    def test_an_apply_word_in_a_picker_goes_to_the_judge(self):
+        self.boot(filled=True)
+        page = ('listbox "Pick a date" [ref_9]\n'
+                ' button "Apply filters" [ref_1] type="button"\n'
+                'button "Apply now" [ref_2] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.assertEqual(len(self.judge_calls()), before + 1)
+        self.assertEqual(self.judge_calls()[-1]["name"], "Apply filters")
+        self.clear_watchdog()
+        self.assertDenied(self.click(101, "ref_2", "A1", "Goes on"), "can send the application")
+
     def test_a_link_with_an_address_in_a_picker_is_still_checked(self):
         """The widget rule excuses the word, never the control: a link with an address used to fall out of the
         judge test (it is excluded by `navigable_href`) and would have been allowed on its name alone."""

@@ -513,9 +513,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
             return
     word = None if choice else X.FINAL.find(scan)
-    # a final word inside a picker, list or menu closes that widget and sends no form ("Done" in a date picker,
-    # "Confirm" in a multi-select). The name alone never allows it: the Haiku check below decides.
-    widget = L.widget_ancestor(snapshot, ref) if word else None
+    apply_hit = None if choice else X.APPLY.find(scan)
+    # a final or apply word inside a picker, list or menu closes that widget and sends no form ("Done" in a date
+    # picker, "Apply" in a multi-select, "Apply filters" beside a date field). The name alone never allows it:
+    # the Haiku check below decides.
+    widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit) else None
     if word and not widget:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
@@ -526,7 +528,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "form or dialog, then click it again. If you already did, do not click it: stop with status "
                    "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
-    if filled and not choice and X.APPLY.find(scan):
+    if filled and apply_hit and not widget:
         to = start_apply_link(ctx, tab, ref, item)
         if to is None:
             raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. "
