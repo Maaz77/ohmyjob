@@ -542,6 +542,13 @@ class TestWorkerBypasses(T.Base):
         for keys in ["Tab", "shift+Tab", "Escape", "ctrl+a"]:
             self.assertExplicitAllow(self.key(keys))
 
+    def test_the_key_refusal_names_the_dropdown_route(self):
+        """A worker that pressed Enter on a search list is told the route that works, not only what is refused."""
+        self.start()
+        for part in ("read_page alone", "click the option by its ref", "cannot be answered"):
+            self.assertDenied(self.key("Enter"), part)
+            self.clear_watchdog()  # the same denial repeated would stop the worker (4.7)
+
     def test_typed_text_has_no_control_characters(self):
         self.start()
         self.page(101, "constructed_form_page.txt")
