@@ -528,9 +528,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "form or dialog, then click it again. If you already did, do not click it: stop with status "
                    "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
-    # "Continua la candidatura", "Bewerbung fortsetzen": a step word in the name says the click moves within the
-    # flow, and SAFE already holds those words in every listed language. SAFE needs a whole name, so these phrases
-    # never reach it; here the word only stands rule 9 down and the Haiku check decides.
+    # "Continua la candidatura", "Bewerbung fortsetzen": a step word inside the name says the click moves within the
+    # flow. The SAFE allow further down needs the whole name, so neither phrase reaches it; found inside a longer
+    # name the word only stands rule 9 down, and the Haiku check decides. A step word SAFE lacks belongs in SAFE,
+    # and nothing keeps that list complete: the German "fortsetzen" was missing beside "weiter" and "fortfahren",
+    # so "Bewerbung fortsetzen" stayed refused until it was added.
     apply_step = bool(filled and apply_hit and not widget and X.SAFE.find(name))
     if filled and apply_hit and not widget and not apply_step:
         to = start_apply_link(ctx, tab, ref, item)
@@ -551,6 +553,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
     # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
     # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
+    # `excused` below carries this flag to that check; nothing else reads it.
     signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
@@ -561,8 +564,10 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
     if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
         return
-    # `excused` first: a control a word rule stood down for is never allowed on its name alone. Without it a link
-    # with an address inside a picker, or one named "Continue application", would fall out of this test allowed.
+    # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
+    # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
+    # step word, `signup` a sign-up name with no Google word. Without this, such a control with a navigable address
+    # would fall out of the test below allowed, because a link is excluded from the check by `navigable_href`.
     excused = widget or apply_step or bool(signup and not google)
     if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
