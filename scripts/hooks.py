@@ -716,8 +716,16 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             raise Deny(problem)
         expected = ctx.pdf_for(tab)
         paths = ti.get("paths") or ([ti["file_path"]] if ti.get("file_path") else [])
-        if not expected or len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
-            raise Deny(f'Upload only this one file, as "paths": ["{expected}"]')
+        if not expected:
+            # no resume on this job: the old message printed ["None"], which no worker could act on
+            raise Deny("This job has no resume PDF, so nothing may be uploaded. Leave the upload empty, list it in "
+                       "`open`, and go on.")
+        if len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
+            # The worker reaches here for a second required document as often as for a wrong path, and uploading the
+            # resume into a cover-letter field would attach the wrong document to a real application.
+            raise Deny(f'Upload only this one file, as "paths": ["{expected}"]. It is the only file you may upload. '
+                       f'If this field wants a different document (a cover letter, a transcript, a portfolio), do '
+                       f'not put the resume in it: leave the field, list it in `open`, and go on.')
         element(ctx, tab, ti.get("ref"))
         ctx.mark_filled(tab)
         ctx.set_focus(tab, None)

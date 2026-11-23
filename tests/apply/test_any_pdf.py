@@ -46,6 +46,11 @@ class TestAnyPdf(T.Base):
         self.assertNotEqual(ok.returncode, 2, ok.stderr)
         self.assertDenied(self.guard(C + "file_upload", {"tabId": tab, "ref": "ref_50", "paths": [str(folder / "other.pdf")]}, W, "A1"),
                           "Upload only this one file")
+        # a second required document is the other way a worker reaches this refusal: it must not answer it with the
+        # resume, so the refusal names the way out instead of only the one allowed path
+        for part in ("only file you may upload", "cover letter", "list it in `open`"):
+            self.assertDenied(self.guard(C + "file_upload", {"tabId": tab, "ref": "ref_50",
+                                                             "paths": [str(folder / "cover.pdf")]}, W, "A1"), part)
 
     def test_a_folder_without_any_pdf_is_skipped_with_a_plain_reason(self):
         folder = self.folder()
