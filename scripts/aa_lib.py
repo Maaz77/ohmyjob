@@ -884,6 +884,7 @@ CLICKABLE_ROLES = {"button", "link", "menuitem", "menuitemcheckbox", "menuitemra
 # Roles that pick a value and never send a form: final and Apply words do not count on them
 # ("I confirm I have read the above." is a checkbox, "Acknowledge/Confirm" an option: both were wrongly blocked once).
 CHOICE_ROLES = TICK_ROLES | {"option"}
+WIDGET_ROLES = {"listbox", "menu", "menubar", "tree", "treegrid", "grid", "combobox"}
 
 
 def is_search_field(item: dict) -> bool:
@@ -1293,6 +1294,34 @@ def ancestor_names(text: str, ref: str) -> str:
     return " ".join(reversed(names))
 
 
+def widget_ancestor(text: str, ref: str) -> Optional[str]:
+    """The name of the nearest picker, list or menu that encloses `ref` (its role when it has no name), or None.
+
+    A control inside a listbox, menu, tree or grid closes that widget and sends no form: a date picker's "Done",
+    a multi-select's "Apply". The word rules ask this before they refuse a final word. `dialog` is
+    deliberately not a widget role: the real Submit of an Easy Apply dialog, and of every modal application form,
+    sits inside one."""
+    lines = text.splitlines()
+    index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
+    if index is None:
+        return None
+    indent = len(lines[index]) - len(lines[index].lstrip())
+    for j in range(index - 1, -1, -1):
+        line = lines[j]
+        if not line.strip():
+            continue
+        level = len(line) - len(line.lstrip())
+        if level >= indent:
+            continue
+        indent = level
+        match = ELEMENT_RE.match(line.rstrip())
+        if match and match.group("role").lower() in WIDGET_ROLES:
+            return line_name(line) or match.group("role").lower()
+        if indent == 0:
+            break
+    return None
+
+
 def consent_control(text: str, ref: str, name: str) -> bool:
     """A cookie or consent dialog control: its own name, or the dialog it sits in."""
     around = ancestor_names(text, ref)
@@ -1442,6 +1471,8 @@ def final_items(refs: dict, filled: bool, text: str = "") -> list[tuple[str, dic
             name = item.get("inside") or ""  # kept from an "all" read: the interactive read has no child lines
         if text and consent_control(text, ref, name):
             continue  # a cookie panel's "Confirm My Choices" is no application button
+        if text and widget_ancestor(text, ref):
+            continue  # a picker's "Done" closes a widget, not the application
         if X.FINAL.find(name) or (filled and X.APPLY.find(name)):
             found.append((name, item))
     return found
@@ -1496,11 +1527,12 @@ def check_result(run_dir: Path, state: dict, job: dict, result: Optional[dict]) 
             "You stopped before the final step and listed no open question. "
             "Go on to the step with the final button, or list in 'open' what stops you."
         ]
-    if not finals and not result.get("final_button"):
-        # a park counts as a win only when the end of the flow is evidenced (a run parked on step 1 of 5 of an
-        # Easy Apply dialog with 4 open entries was graded PASS)
-        return "BLOCKED", ["OTHER: The worker stopped before any final control: no final button in the last "
-                           "snapshot and none named in 'final_button'."]
+    if not finals:
+        # a park counts as a win only when the end of the flow is evidenced in the snapshot itself. 'final_button'
+        # is the worker's own claim, and a claim is no evidence: a run parked on step 1 of 5 of an Easy Apply dialog
+        # with 4 open entries was graded PASS on that claim alone.
+        return "BLOCKED", ["OTHER: The worker stopped before any final control: no final control in the last "
+                           "snapshot ('final_button' is the worker's own claim, not evidence)."]
     return "PASS", []
 
 

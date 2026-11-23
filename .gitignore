@@ -8,3 +8,5 @@ tmp/
 .vscode/
 .claude/
 docs/agents/
+docs/adr/
+docs/GLOSSARY.md
