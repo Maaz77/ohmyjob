@@ -826,9 +826,12 @@ def job_description(job_md: str) -> Optional[str]:
 # lexicon.py, in many languages.
 # The rules here need no language.
 
+# "oauth" only as a host label or a whole path segment, and "/authorize" only as a whole segment: a job slug such as
+# /careers/authorize-solutions-engineer or /jobs/oauth-integration-engineer is no sign-in page, and the rule that reads
+# this refuses every non-choice click on the page it matches, a click into a text field included (issue 23).
 OAUTH_URL_RE = re.compile(
-    r"(oauth|/authori[sz]e|accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com"
-    r"|github\.com/login)",
+    r"(?:(?<=[/.])oauth\d?(?=[./]|$)|/authori[sz]e(?=[/?#]|$)|accounts\.google\.com|login\.microsoftonline\.com"
+    r"|login\.live\.com|appleid\.apple\.com|github\.com/login)",
     re.I,
 )
 TICK_ROLES = {"checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"}

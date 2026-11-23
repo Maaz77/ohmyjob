@@ -513,9 +513,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
             return
     word = None if choice else X.FINAL.find(scan)
-    # a final word inside a picker, list or menu closes that widget and sends no form ("Done" in a date picker,
-    # "Confirm" in a multi-select). The name alone never allows it: the Haiku check below decides.
-    widget = L.widget_ancestor(snapshot, ref) if word else None
+    apply_hit = None if choice else X.APPLY.find(scan)
+    # a final or apply word inside a picker, list or menu closes that widget and sends no form ("Done" in a date
+    # picker, "Apply" in a multi-select, "Apply filters" beside a date field). The name alone never allows it:
+    # the Haiku check below decides.
+    widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit) else None
     if word and not widget:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
@@ -526,7 +528,13 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "form or dialog, then click it again. If you already did, do not click it: stop with status "
                    "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
-    if filled and not choice and X.APPLY.find(scan):
+    # "Continua la candidatura", "Bewerbung fortsetzen": a step word inside the name says the click moves within the
+    # flow. The SAFE allow further down needs the whole name, so neither phrase reaches it; found inside a longer
+    # name the word only stands rule 9 down, and the Haiku check decides. A step word SAFE lacks belongs in SAFE,
+    # and nothing keeps that list complete: the German "fortsetzen" was missing beside "weiter" and "fortfahren",
+    # so "Bewerbung fortsetzen" stayed refused until it was added.
+    apply_step = bool(filled and apply_hit and not widget and X.SAFE.find(name))
+    if filled and apply_hit and not widget and not apply_step:
         to = start_apply_link(ctx, tab, ref, item)
         if to is None:
             raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. "
@@ -542,9 +550,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if not tick and X.DELETE.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
     google = None if tick else X.GOOGLE.find(name)
-    if not tick and X.SIGNUP.find(name) and not google:
-        raise Deny(f"'{name}' creates an account with an email and a password. Not allowed. Use a Google option if the "
-                   "page has one, else stop with status 'blocked'.")
+    # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
+    # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
+    # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
+    # `excused` below carries this flag to that check; nothing else reads it.
+    signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
     if google and not filled:
@@ -552,11 +562,18 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         L.log(ctx.run_dir, "google-option", tab=int(tab), host=ctx.host(tab))
         return
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
-    if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
+    # `not signup`: before a fill an Apply word lets a click pass with no check, and a name that asks for an account
+    # in order to apply ("Create account to apply", "Sign up and apply") carries both words. The hard sign-up refusal
+    # used to catch those; now that the Haiku check decides a sign-up name, this pass has to stand aside for it.
+    if not name.strip() or consent or (apply_word and not filled and not sticky and not board and not signup) \
+            or name in X.SAFE:
         return
-    # `widget` first: a control the widget rule excused carried a final word, so it is never allowed on its name
-    # alone. Without it a link with an address inside a picker would fall out of this test allowed.
-    if widget or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
+    # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
+    # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
+    # step word, `signup` a sign-up name with no Google word. Without this, such a control with a navigable address
+    # would fall out of the test below allowed, because a link is excluded from the check by `navigable_href`.
+    excused = widget or apply_step or bool(signup and not google)
+    if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",

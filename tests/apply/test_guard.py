@@ -1283,6 +1283,62 @@ class TestClickGuardHoles(T.Base):
         self.clear_watchdog()
         self.assertDenied(self.click(101, "ref_2", "A1", "Goes on"), "final control")
 
+    def test_a_job_slug_with_authorize_does_not_refuse_every_click(self):
+        url = "https://jobs.example.com/careers/authorize-solutions-engineer/123"
+        self.boot(url=url)
+        page = 'button "Next" [ref_1] type="button"\n'
+        self.assertAllowed(self.try_click(page, "ref_1", url=url))
+
+    def test_an_apply_word_in_a_picker_goes_to_the_judge(self):
+        self.boot(filled=True)
+        page = ('listbox "Pick a date" [ref_9]\n'
+                ' button "Apply filters" [ref_1] type="button"\n'
+                'button "Apply now" [ref_2] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.assertEqual(len(self.judge_calls()), before + 1)
+        self.assertEqual(self.judge_calls()[-1]["name"], "Apply filters")
+        self.clear_watchdog()
+        self.assertDenied(self.click(101, "ref_2", "A1", "Goes on"), "can send the application")
+
+    def test_a_step_word_beside_an_apply_word_goes_to_the_judge(self):
+        self.boot(filled=True)
+        # both phrases are the ones issue 23 reports, "fortsetzen" included: it was missing from SAFE beside
+        # "weiter" and "fortfahren", so the step word could not stand the apply rule down
+        page = ('button "Continua la candidatura" [ref_1] type="button"\n'
+                'button "Bewerbung fortsetzen" [ref_2] type="button"\n'
+                'button "Invia candidatura" [ref_3] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.clear_watchdog()
+        self.assertAllowed(self.click(101, "ref_2", "A1", "Goes on"))
+        self.assertEqual(len(self.judge_calls()), before + 2)
+        self.clear_watchdog()
+        # the fake judge blocks this name, and it carries no step word either
+        self.assertDenied(self.click(101, "ref_3", "A1", "Goes on"), "final control")
+
+    def test_a_sign_up_name_that_also_asks_to_apply_is_still_checked(self):
+        """Before a fill an Apply word lets a click pass with no check. A name carrying a sign-up word as well must
+        not ride on that pass: the hard sign-up refusal used to catch it, and the Haiku check has to now."""
+        self.boot()  # unfilled tab, and jobs.example.com is no job board
+        page = 'button "Create account to apply" [ref_1] type="button"\n'
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(page, "ref_1"), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
+    def test_a_sign_up_name_goes_to_the_judge_and_an_alert_sign_up_passes(self):
+        self.boot(filled=True)
+        page = ('button "Register interest" [ref_1] type="button"\n'
+                'button "Sign up for alerts" [ref_2] type="button"\n'
+                'button "Create an account" [ref_3] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.clear_watchdog()
+        self.assertAllowed(self.click(101, "ref_2", "A1", "Goes on"))
+        self.clear_watchdog()
+        self.assertDenied(self.click(101, "ref_3", "A1", "Goes on"), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 3)
+
     def test_a_link_with_an_address_in_a_picker_is_still_checked(self):
         """The widget rule excuses the word, never the control: a link with an address used to fall out of the
         judge test (it is excluded by `navigable_href`) and would have been allowed on its name alone."""

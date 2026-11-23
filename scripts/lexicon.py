@@ -399,7 +399,7 @@ SAFE = Terms(
      "scegli file", "sfoglia", "aggiungi", "modifica", "rimuovi", "chiudi", "annulla", "mostra altro", "sì", "si",
      "suivant", "continuer", "poursuivre", "précédent", "retour", "enregistrer", "enregistrer et continuer",
      "importer", "parcourir", "ajouter", "modifier", "fermer", "annuler", "afficher plus", "voir plus", "oui", "non",
-     "weiter", "fortfahren", "zurück", "speichern", "speichern und weiter", "hochladen", "datei auswählen",
+     "weiter", "fortfahren", "fortsetzen", "zurück", "speichern", "speichern und weiter", "hochladen", "datei auswählen",
      "durchsuchen", "hinzufügen", "bearbeiten", "entfernen", "schließen", "abbrechen", "mehr anzeigen", "ja", "nein",
      "siguiente", "continuar", "atrás", "anterior", "volver", "revisar", "guardar", "guardar y continuar", "subir",
      "cargar", "seleccionar archivo", "examinar", "añadir", "agregar", "editar", "quitar", "cerrar", "cancelar",
