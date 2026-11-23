@@ -59,6 +59,18 @@ class TestButtons(unittest.TestCase):
         for name in ["Continue with Google", "Accedi con Google", "Mit Google anmelden", "Googleでログイン"]:
             self.assertTrue(X.GOOGLE.find(name), name)
 
+    def test_google_signin_is_not_a_google_product(self):
+        # issue 46: "Upload from Google Drive" is an upload control. An app name is a proper noun that travels
+        # untranslated, so the rule excludes the ten app names instead of asking for a sign-in verb in 62 languages.
+        for name in ["Continue with Google", "Accedi con Google", "Mit Google anmelden", "Googleでログイン", "谷歌登录"]:
+            self.assertTrue(X.google_signin(name), name)
+        for app in ["Drive", "Docs", "Maps", "Pay", "Play", "Photos", "Sheets", "Calendar", "Meet", "Cloud"]:
+            self.assertIsNone(X.google_signin(f"Upload from Google {app}"), app)
+        self.assertIsNone(X.google_signin("Importer depuis Google Drive"))
+        self.assertIsNone(X.google_signin("Register to upload from Google Drive"))
+        self.assertIsNone(X.google_signin("Plain button"))
+        self.assertIsNone(X.google_signin(None))
+
     def test_safe_needs_the_whole_name(self):
         self.assertIn("Next", X.SAFE)
         self.assertIn("  Avanti › ", X.SAFE)

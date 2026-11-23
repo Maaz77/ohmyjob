@@ -360,6 +360,15 @@ SEARCH = Terms(
 # A Google option on a site ("Sign in with Google", "Continuer avec Google" ...).
 GOOGLE = Terms(["~google", "гугл", "גוגל", "جوجل", "گوگل", "谷歌", "グーグル", "구글"])
 
+# A Google app is not a sign-in option ("Upload from Google Drive"). App names are proper nouns and travel untranslated.
+# The same ten names are written by hand in chrome-extension/bridge.js (GOOGLE_PRODUCTS): change both together.
+GOOGLE_PRODUCTS = Terms(["drive", "docs", "maps", "pay", "play", "photos", "sheets", "calendar", "meet", "cloud"])
+
+
+def google_signin(name: Optional[str]) -> Optional[str]:
+    """The Google word of a name that is a Google sign-in option, or None (no Google word, or a Google app named)."""
+    return None if GOOGLE_PRODUCTS.find(name) else GOOGLE.find(name)
+
 # Messages that an application was sent (the checks raise an alarm when the last page shows one).
 SUBMITTED = Terms(
     ["application was sent", "application has been sent", "application sent", "application submitted",
