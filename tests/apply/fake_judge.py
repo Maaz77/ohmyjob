@@ -10,7 +10,12 @@ import os
 import re
 import sys
 
-BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "continue with google"}
+# The last entries mirror the real prompt's account-creation rule, so a sign-up refusal stays pinned by a test now
+# that the word rule defers to the judge.
+BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "continue with google",
+               "create an account", "crea un account", "créer un compte", "konto erstellen", "registrarse",
+               "criar conta", "account aanmaken", "zarejestruj się", "регистрация", "注册", "新規登録", "회원가입",
+               "sign up", "register", "sign up with linkedin"}
 FAIL_NAMES = {"fallisci"}
 
 def reply(obj: dict) -> None:

@@ -548,9 +548,10 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if not tick and X.DELETE.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
     google = None if tick else X.GOOGLE.find(name)
-    if not tick and X.SIGNUP.find(name) and not google:
-        raise Deny(f"'{name}' creates an account with an email and a password. Not allowed. Use a Google option if the "
-                   "page has one, else stop with status 'blocked'.")
+    # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
+    # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
+    # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
+    signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
     if google and not filled:
@@ -562,7 +563,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         return
     # `excused` first: a control a word rule stood down for is never allowed on its name alone. Without it a link
     # with an address inside a picker, or one named "Continue application", would fall out of this test allowed.
-    excused = widget or apply_step
+    excused = widget or apply_step or bool(signup and not google)
     if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'

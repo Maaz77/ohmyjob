@@ -1147,14 +1147,14 @@ class TestLanguages(Base):
         self.assertAllowed(self.click(101, "ref_150", "L1", "Goes to the next step"))   # Avanti
         self.assertAllowed(self.click(101, "ref_161", "L1", "Goes to the next step"))   # Weiter
         self.assertDenied(self.click(101, "ref_146", "L1"), "cookie")
-        self.assertDenied(self.click(101, "ref_151", "L1"), "email and a password")
+        self.assertDenied(self.click(101, "ref_151", "L1"), "Haiku check blocked")
         self.assertAllowed(self.click(101, "ref_152", "L1", "Opens Sign in with Google"))
         self.assertDenied(self.click(101, "ref_153", "L1"), "deletes")
         self.assertDenied(self.click(101, "ref_158", "L1"), "permission")
         self.assertAllowed(self.click(101, "ref_157", "L1", "Opens the privacy notice"))  # a link to a page
         self.assertAllowed(self.click(101, "ref_148", "L1", "Opens the application form"))  # apply before a fill
         self.assertAllowed(self.click(101, "ref_160", "L1", "Opens the application form"))  # 応募する: apply
-        self.assertEqual(len(self.judge_calls()), before, "the word lists decided these without Haiku")
+        self.assertEqual(len(self.judge_calls()), before + 1, "the word lists decided these without Haiku, bar the sign-up name")
         # names that no list knows: the Haiku check (fake) decides, and its answer is cached
         self.assertAllowed(self.click(101, "ref_147", "L1", "Rejects all cookies"))      # Rifiuta tutti
         self.assertDenied(self.click(101, "ref_155", "L1"), "haiku check blocked")       # Trasmetti la domanda
@@ -1264,7 +1264,7 @@ class TestGoogle(Base):
         self.post("read_page", {"tabId": 201}, modal, W, "G1")
         self.assertAllowed(self.click(201, "ref_4", "G1", "Opens Continue with Google"))
         self.post("read_page", {"tabId": 201}, modal, W, "G1")
-        self.assertDenied(self.click(201, "ref_5", "G1"), "email and a password")
+        self.assertDenied(self.click(201, "ref_5", "G1"), "Haiku check blocked")
 
     def test_sign_in_with_google(self):
         self.aa_json("start")
@@ -1276,7 +1276,7 @@ class TestGoogle(Base):
         self.post("read_page", {"tabId": 201}, sample("constructed_signin_gateway.txt"), W, "G1")
         self.assertAllowed(click(201, "ref_81", "G1", "Opens Sign up with Google"))
         self.assertAllowed(click(201, "ref_82", "G1", "Opens Continue with Google"))
-        self.assertDenied(click(201, "ref_83", "G1"), "email and a password")
+        self.assertDenied(click(201, "ref_83", "G1"), "Haiku check blocked")
         self.assertDenied(click(201, "ref_85", "G1"), "deletes")
         # Google in the same tab; the sign-in address asks for the basic profile only
         basic = ("https://accounts.google.com/o/oauth2/v2/auth?client_id=x&response_type=code"
@@ -1410,7 +1410,7 @@ class TestIconButton(Base):
                   'button [ref_14] type="submit"\n generic "Sign up with Linkedin" [ref_15]\n'
                   'button [ref_16] type="button"\n generic "Submit application" [ref_17]\n', W, "A1")
         self.assertAllowed(self.click(tab, "ref_10", "A1", "Starts sign-in with the Google option"))
-        self.assertDenied(self.click(tab, "ref_14", "A1", "Starts sign-up with LinkedIn"), "creates an account")
+        self.assertDenied(self.click(tab, "ref_14", "A1", "Starts sign-up with LinkedIn"), "Haiku check blocked")
         # the blind spot the nameless button left: a final control is now seen even when its text is in a child
         self.assertDenied(self.click(tab, "ref_16", "A1", "Goes to the next step"), "final control")
 

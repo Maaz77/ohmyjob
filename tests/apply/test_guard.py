@@ -1315,6 +1315,19 @@ class TestClickGuardHoles(T.Base):
         # the fake judge blocks this name, and it carries no step word either
         self.assertDenied(self.click(101, "ref_3", "A1", "Goes on"), "final control")
 
+    def test_a_sign_up_name_goes_to_the_judge_and_an_alert_sign_up_passes(self):
+        self.boot(filled=True)
+        page = ('button "Register interest" [ref_1] type="button"\n'
+                'button "Sign up for alerts" [ref_2] type="button"\n'
+                'button "Create an account" [ref_3] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.clear_watchdog()
+        self.assertAllowed(self.click(101, "ref_2", "A1", "Goes on"))
+        self.clear_watchdog()
+        self.assertDenied(self.click(101, "ref_3", "A1", "Goes on"), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 3)
+
     def test_a_link_with_an_address_in_a_picker_is_still_checked(self):
         """The widget rule excuses the word, never the control: a link with an address used to fall out of the
         judge test (it is excluded by `navigable_href`) and would have been allowed on its name alone."""
