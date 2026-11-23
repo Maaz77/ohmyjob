@@ -64,7 +64,7 @@ class TestLimits(unittest.TestCase):
     def test_a_missing_file_gives_the_defaults(self):
         limits = L.worker_limits()
         self.assertEqual([limits[k] for k in ("stall_nudge_calls", "stall_stop_calls", "repeat_deny_stop",
-                                              "call_budget", "idle_minutes")], [15, 25, 5, 150, 6])
+                                              "call_budget", "idle_minutes", "per_host_workers")], [15, 25, 5, 150, 6, 5])
         self.assertEqual(limits["_warnings"], [])
 
     def test_the_template_holds_the_defaults(self):

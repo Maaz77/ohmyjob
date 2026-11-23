@@ -471,6 +471,27 @@ class TestCleanupWaitsForTheGroups(Base):
         self.assertEqual(self.aa_json("cleanup-plan")["close"], [40, 49])
 
 
+class TestPerHostCap(Base):
+    def run_with_hosts(self, urls: tuple[str, str]) -> tuple[list, list]:
+        """A cap of 1 worker per host; both jobs get the given form addresses. Returns (taken folders, waiting folders)."""
+        import aa_lib as L
+
+        L.write_json(self.root / "Worker_Limits.json", {**L._LIMITS_DEFAULTS, "per_host_workers": 1})
+        self.aa_json("start")
+        for folder, url in zip(self.jobs, urls):
+            self.set_job(folder, apply_url=url)
+        taken = [folder for folder, _tab, _brief in self.assign(101, 102)]
+        return taken, [w["folder"] for w in self.state()["waiting"]]
+
+    def test_two_jobs_on_one_host_start_one_worker(self):
+        taken, waiting = self.run_with_hosts(("https://boards.example.com/a/1", "https://boards.example.com/b/2"))
+        self.assertEqual((len(taken), len(waiting)), (1, 1))
+
+    def test_a_job_held_for_its_host_does_not_hold_up_another_host(self):
+        taken, waiting = self.run_with_hosts(("https://boards.example.com/a/1", "https://jobs.other.example/b/2"))
+        self.assertEqual((len(taken), waiting), (2, []))
+
+
 class TestCleanupWithoutTheHomeTab(Base):
     def test_cleanup_stops_waiting_for_the_tag_once_the_home_tab_is_closed(self):
         self.aa_json("start")
