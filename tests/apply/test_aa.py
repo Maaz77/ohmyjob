@@ -1196,6 +1196,66 @@ class TestLanguages(Base):
         self.assertDenied(self.click(101, "ref_160", "L1"), "showed an application form")
 
 
+class TestJudgeCacheAcrossRuns(Base):
+    """A context-free Haiku verdict is kept in the workspace (.ohmyjob/judge_cache.json) and read by the next run."""
+
+    NAME = "Trasmetti la domanda"  # ref_155 of the Italian form page: no word list knows it, the fake judge blocks it
+    DOWN = {"AA_JUDGE_CMD": f"{sys.executable} -c \"import sys; sys.exit(1)\""}
+
+    def setUp(self):
+        (self.root / ".ohmyjob" / "judge_cache.json").unlink(missing_ok=True)
+        self.judge_log.unlink(missing_ok=True)
+
+    def one_run(self, env: dict | None = None, context: str = "L1"):
+        """A fresh run: start, one judged click, end. Returns the click's result."""
+        self.aa_json("start")
+        self.master_setup()
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://lavora.esempio.it/candidatura"}, W, "L1"))
+        self.page(101, "constructed_form_page_it.txt", agent_id="L1")
+        payload = {"hook_event_name": "PreToolUse", "tool_name": C + "computer", "agent_type": W, "agent_id": "L1",
+                   "tool_input": {"tabId": 101, "action": "left_click", "ref": "ref_155", "action_summary": "Clicks the control"}}
+        proc = self.hook("guard", payload, env={**self.env, **(env or {})})
+        self.aa("end")
+        return proc
+
+    def asked(self) -> int:
+        return sum(1 for call in self.judge_calls() if call["name"] == self.NAME)
+
+    def test_lookup_and_store_use_one_key(self):
+        import hooks
+        import judge
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        (key, entry), = [(k, v) for k, v in json.loads(
+            (self.root / ".ohmyjob" / "judge_cache.json").read_text())["entries"].items()]
+        other_page = {**entry["payload"], "context": "text of another page", "extra": 1}
+        self.assertEqual(judge.key_for("click", hooks.short_click_payload(other_page)), key)
+
+    def test_a_verdict_survives_a_new_run(self):
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        self.assertEqual(self.asked(), 1)
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        self.assertEqual(self.asked(), 1, "the second run used the workspace cache")
+
+    def test_a_failure_does_not_survive_a_new_run(self):
+        self.assertDenied(self.one_run(self.DOWN), "could not check")
+        self.assertDenied(self.one_run(self.DOWN), "could not check")
+        cache = self.root / ".ohmyjob" / "judge_cache.json"
+        self.assertFalse(cache.exists() and json.loads(cache.read_text())["entries"])
+        self.assertDenied(self.one_run(), "haiku check blocked")  # the judge works now: its verdict, not the old outage
+
+    def test_a_new_stamp_voids_the_file(self):
+        import judge
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        cache = self.root / ".ohmyjob" / "judge_cache.json"
+        data = json.loads(cache.read_text())
+        self.assertEqual(data["stamp"], judge._stamp())
+        cache.write_text(json.dumps({**data, "stamp": "an older prompt"}))
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        self.assertEqual(self.asked(), 2, "an entry with another stamp was ignored")
+        self.assertEqual(json.loads(cache.read_text())["stamp"], judge._stamp())  # and rewritten with the new one
+
+
 class TestApplyGate(Base):
     """Apply opens the form until the tab shows one, and is final after ."""
 

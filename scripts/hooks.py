@@ -303,13 +303,19 @@ class Ctx:
         raise L.NeedJudge(kind, payload)
 
     def judged_click(self, payload: dict) -> dict:
-        """A name that Haiku called context-free is checked one time per run; else per page context."""
-        short = {k: payload[k] for k in ("name", "role", "filled", "host")}  # a verdict is per host: boards differ
-        short["widget"] = bool(payload.get("widget"))  # a picker's "Done" is not the same control as a form's "Done"
-        entry = J.cached(self.run_dir, J.key_for("click", short)) or {}
+        """A name Haiku called context-free is checked once per run and kept for later runs; else per page
+        context."""
+        entry = J.cached(self.run_dir, J.key_for("click", short_click_payload(payload))) or {}
         if "result" in entry:
             return entry["result"]
         return self.judged("click", payload)
+
+
+def short_click_payload(payload: dict) -> dict:
+    """The context-free key of a click. The lookup (judged_click) and the store (the judge-round loop) must both use it."""
+    short = {k: payload[k] for k in ("name", "role", "filled", "host")}  # a verdict is per host: boards differ
+    short["widget"] = bool(payload.get("widget"))  # a picker's "Done" is not the same control as a form's "Done"
+    return short
 
 
 def judge_failed(kind: str, payload: dict, error: str) -> str:
@@ -1666,8 +1672,10 @@ def guard(inp: dict) -> None:
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
         if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown":
-            short_payload = {k: pending.payload[k] for k in ("name", "role", "filled", "host")}
-            J.store(run_dir, J.key_for("click", short_payload), {"result": result, "payload": short_payload})
+            short_payload = short_click_payload(pending.payload)
+            short_key = J.key_for("click", short_payload)
+            J.store(run_dir, short_key, {"result": result, "payload": short_payload})
+            J.store_persistent(short_key, {"result": result, "payload": short_payload})
     else:
         reason = "Too many new names in one call. Click one control at a time."
     if reason is not None:
