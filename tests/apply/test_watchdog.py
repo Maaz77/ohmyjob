@@ -183,10 +183,10 @@ class TestCounters(unittest.TestCase):
 class RunBase(T.Base):
     """A run with one started worker. Each class gets its own workspace (T.Base builds it in setUpClass)."""
 
-    def worker(self) -> tuple[str, int]:
+    def worker(self, *tabs: int) -> tuple[str, int]:
         self.aa_json("start")
         self.master_setup()
-        (folder, tab, _brief), *_rest = self.assign(101, 102)
+        (folder, tab, _brief), *_rest = self.assign(*(tabs or (101, 102)))
         self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
         return folder, tab
 
@@ -346,9 +346,12 @@ class TestRetryResetsTheSlot(RunBase):
 class TestRetryNameClash(RunBase):
     """Recommendation 6: the rename must not overwrite another resume of the job."""
 
+    # One job only: with a second assigned job that never starts, 'next' waits LOST_SECONDS (60 s) for it.
+    jobs = (T.LINKEDIN_JOB,)
+
     def test_a_name_clash_keeps_the_job_blocked(self):
         """Recommendation 6: two PDFs would be one file after the rename; the job stays blocked instead."""
-        folder, tab = self.worker()
+        folder, tab = self.worker(101)
         pdf = Path(self.state()["jobs"][folder]["pdf"])
         short = pdf.parent / (f"Alex_{folder.split('_')[1]}.pdf")
         short.write_bytes(b"%PDF-1.4\n% another resume\n")
