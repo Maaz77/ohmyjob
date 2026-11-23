@@ -305,6 +305,7 @@ class Ctx:
     def judged_click(self, payload: dict) -> dict:
         """A name that Haiku called context-free is checked one time per run; else per page context."""
         short = {k: payload[k] for k in ("name", "role", "filled", "host")}  # a verdict is per host: boards differ
+        short["widget"] = bool(payload.get("widget"))  # a picker's "Done" is not the same control as a form's "Done"
         entry = J.cached(self.run_dir, J.key_for("click", short)) or {}
         if "result" in entry:
             return entry["result"]
@@ -512,7 +513,10 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
             return
     word = None if choice else X.FINAL.find(scan)
-    if word:
+    # a final word inside a picker, list or menu closes that widget and sends no form ("Done" in a date picker,
+    # "Confirm" in a multi-select). The name alone never allows it: the Haiku check below decides (docs/adr/0001).
+    widget = L.widget_ancestor(snapshot, ref) if word else None
+    if word and not widget:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
     # a <button> without a type attribute is a submit button as well
@@ -550,9 +554,13 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
     if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
         return
-    if role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
+    # `widget` first: a control the widget rule excused carried a final word, so it is never allowed on its name
+    # alone (docs/adr/0001). Without it a link with an address inside a picker would fall out of this test allowed.
+    if widget or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
+        if widget:
+            context = f'inside the list or picker "{widget}" | {context}'
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
-                   "filled": filled or ("unknown" if sticky else False)}
+                   "filled": filled or ("unknown" if sticky else False), "widget": bool(widget)}
         result = ctx.judged_click(payload)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "

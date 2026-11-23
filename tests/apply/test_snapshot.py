@@ -283,8 +283,9 @@ class TestCheckResultParked(unittest.TestCase):
     def test_final_control_in_snapshot_passes(self):
         self.assertEqual(self.run_check(self.SUBMIT, "", ["q1"]), "PASS")
 
-    def test_named_final_button_passes(self):
-        self.assertEqual(self.run_check(self.DISMISS, "Submit application", ["q1"]), "PASS")
+    def test_a_named_final_button_alone_is_a_claim_not_evidence(self):
+        # the snapshot holds no final control, so the worker's own 'final_button' does not carry the park (ADR 0001)
+        self.assertEqual(self.run_check(self.DISMISS, "Submit application", ["q1"]), "BLOCKED")
 
 
 class TestConsentIsNoFinalControl(unittest.TestCase):
@@ -370,7 +371,8 @@ class TestFalseParkGate(unittest.TestCase):
         verdict, reasons = self.check('button "Dismiss" [ref_1]\n', {}, final_button="Submit", open=[])
         self.assertEqual(verdict, "BLOCKED")
         self.assertIn("stopped before any final control", reasons[0])  # NO_FINAL_MARKER: the handover reads it
-        self.assertEqual(self.check('button "Dismiss" [ref_1]\n', {"acted": True}, final_button="Submit", open=["x"])[0], "PASS")
+        # and with work done on the tab too: the snapshot shows no final control, so 'final_button' is a claim (ADR 0001)
+        self.assertEqual(self.check('button "Dismiss" [ref_1]\n', {"acted": True}, final_button="Submit", open=["x"])[0], "BLOCKED")
 
 
 class TestWallEvidence(unittest.TestCase):
@@ -398,3 +400,57 @@ class TestWallEvidence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWidgetAncestor(unittest.TestCase):
+    PICKER = ('dialog "Apply to Example Co" [ref_1]\n'
+              ' textbox "Start date" [ref_2] type="text"\n'
+              ' listbox "Choose a date" [ref_3]\n'
+              '  option "12 May" [ref_4]\n'
+              '  button "Done" [ref_5]\n'
+              ' button "Submit application" [ref_9]\n')
+
+    def test_a_control_in_a_picker_names_its_widget(self):
+        self.assertEqual(L.widget_ancestor(self.PICKER, "ref_5"), "Choose a date")
+
+    def test_the_forms_own_submit_is_in_no_widget(self):
+        self.assertIsNone(L.widget_ancestor(self.PICKER, "ref_9"))
+
+    def test_an_unnamed_widget_gives_its_role(self):
+        self.assertEqual(L.widget_ancestor('listbox [ref_20]\n button "Done" [ref_21]\n', "ref_21"), "listbox")
+
+    def test_an_unknown_ref_is_none(self):
+        self.assertIsNone(L.widget_ancestor(self.PICKER, "ref_777"))
+
+
+class TestPickerIsNoFinalControl(unittest.TestCase):
+    PAGE = ('dialog "Apply to Example Co" [ref_1]\n'
+            ' listbox "Choose a date" [ref_3]\n'
+            '  button "Done" [ref_5]\n'
+            ' button "Next" [ref_8]\n')
+
+    def check(self, page, **report):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            L.write_text(L.snapshot_path(run_dir, 7), page)
+            L.write_json(L.refs_path(run_dir, 7), L.parse_refs(page))
+            result = {"status": "parked", "final_button": "", "open": ["x"], "filled": ["Name"], "uploaded": None}
+            result.update(report)
+            state = {"tabs": {"7": {"filled": True, "acted": True}}}
+            return (L.check_result(run_dir, state, {"tab": 7}, result)[0],
+                    L.final_controls(L.parse_refs(page), True, page))
+
+    def test_a_picker_done_is_no_final_control_and_the_park_is_blocked(self):
+        verdict, controls = self.check(self.PAGE)
+        self.assertNotIn("Done", controls)
+        self.assertEqual(verdict, "BLOCKED")
+
+    def test_a_claimed_final_button_outside_the_snapshot_is_no_evidence(self):
+        verdict, _ = self.check(self.PAGE, final_button="Submit application")
+        self.assertEqual(verdict, "BLOCKED")
+
+    def test_a_real_submit_beside_a_picker_still_passes(self):
+        verdict, controls = self.check(self.PAGE + ' button "Submit application" [ref_9]\n')
+        self.assertEqual(controls, ["Submit application"])
+        self.assertEqual(verdict, "PASS")

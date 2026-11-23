@@ -1270,6 +1270,29 @@ class TestClickGuardHoles(T.Base):
         if filled:
             self.edit_tab(filled=True, filled_host="jobs.example.com")
 
+    def test_a_final_word_in_a_picker_goes_to_the_judge_and_the_forms_submit_does_not(self):
+        self.boot(filled=True)
+        page = ('dialog "Apply to Example Co" [ref_9]\n'
+                ' listbox "Choose a date" [ref_3]\n'
+                '  button "Done" [ref_1] type="button"\n'
+                ' button "Submit application" [ref_2] type="submit"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.assertEqual(len(self.judge_calls()), before + 1)
+        self.assertEqual(self.judge_calls()[-1]["name"], "Done")
+        self.clear_watchdog()
+        self.assertDenied(self.click(101, "ref_2", "A1", "Goes on"), "final control")
+
+    def test_a_link_with_an_address_in_a_picker_is_still_checked(self):
+        """The widget rule excuses the word, never the control: a link with an address used to fall out of the
+        judge test (it is excluded by `navigable_href`) and would have been allowed on its name alone."""
+        self.boot(filled=True)
+        page = ('listbox "Pick a date" [ref_9]\n'
+                ' link "envoyer" [ref_1] href="https://jobs.example.com/x"\n')
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(page, "ref_1"), "Haiku check blocked")  # the fake judge blocks this name
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
     def edit_tab(self, **fields):
         path = self.run_dir() / "state.json"
         state = json.loads(path.read_text())
