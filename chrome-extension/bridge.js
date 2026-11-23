@@ -21,6 +21,10 @@
   const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\](?: |$)/;
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
+  // A Google app is no sign-in option ("Upload from Google Drive"). The same ten names are written by hand in
+  // scripts/lexicon.py (GOOGLE_PRODUCTS): change both together.
+  const GOOGLE_PRODUCTS = /\b(drive|docs|maps|pay|play|photos|sheets|calendar|meet|cloud)\b/i;
+  const isGoogleSignin = (text) => /google/i.test(text) && !GOOGLE_PRODUCTS.test(text);
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
   const CONTROLS = 'button, [role="button"], input[type="submit"], input[type="button"], a, [role="link"]';
   const GOOGLE_TAG_RE = /\[AA g=\d+ named=\d+( v=[0-9][\w.+-]*)?\]/;
@@ -82,12 +86,12 @@
     for (const img of scope.querySelectorAll("img")) {
       // the alt text or the file name, never the host: icons on googleusercontent.com are not Google buttons
       const file = (img.getAttribute("src") || "").split(/[?#]/)[0].split("/").pop();
-      if (/google/i.test(`${img.alt} ${file}`)) return true;
+      if (isGoogleSignin(`${img.alt} ${file}`)) return true;
     }
     for (const svg of scope.querySelectorAll("svg")) {
       const html = svg.outerHTML.toLowerCase();
       // the "G" logo: its name in an id or title, or at least 3 of its 4 colours
-      if (html.includes("google") || GOOGLE_COLORS.filter((c) => c.test(html)).length >= 3) return true;
+      if (isGoogleSignin(html) || GOOGLE_COLORS.filter((c) => c.test(html)).length >= 3) return true;
     }
     return false;
   }
@@ -102,6 +106,49 @@
 
   function hasName(el) {
     return !!(ownText(el) || el.value || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby"));
+  }
+
+  // hasName, but a label this script wrote does not count: the naming pass asks it again on every pass, so a name
+  // that no longer applies goes (see siteLabel, restoreLabel).
+  function hasSiteName(el) {
+    return !!(ownText(el) || el.value || siteLabel(el) !== null || el.hasAttribute("aria-labelledby"));
+  }
+
+  // A name for a control that has none, read off its icon. Only the sources read_page cannot see (an svg <title>,
+  // a sprite id, a test id, a class): a title attribute or an img alt already name the control there. The name is a
+  // guess, so the guard gets it marked "[icon] " (asked about, never allowed on its own); "no name" stays the honest
+  // answer whenever no source gives a word.
+  const ICON_EDGE = /^(icon|ico|btn|button)$/;
+  const ICON_TAIL = /^(button|btn|icon)$/;
+  const STYLE_WORDS = new Set(["primary", "secondary", "default", "danger", "success", "warning", "info", "light", "dark",
+    "link", "outline", "small", "large", "block", "round", "rounded", "flat", "raised", "active", "disabled", "sm", "md", "lg", "xs"]);
+  const FRAMEWORK_CLASS = /^(mui|jss|css-|ant-|v-|ng-|sc-)/i;
+
+  function iconWords(raw) {
+    const words = (raw || "").replace(/([a-z])([A-Z])/g, "$1 $2").split(/[\s\-_.]+/).map((w) => w.toLowerCase()).filter(Boolean);
+    while (words.length && ICON_EDGE.test(words[0])) words.shift();
+    while (words.length && ICON_TAIL.test(words[words.length - 1])) words.pop();
+    const text = words.join(" ");
+    // word-like: a vowel, at least 3 characters, not all digits
+    return text.length >= 3 && /[aeiouy]/.test(text) && /\D/.test(text) ? text[0].toUpperCase() + text.slice(1) : "";
+  }
+
+  function iconName(el) {
+    if (el.tagName === "INPUT" || wordsOf(el, "svg, style, script")) return "";  // it has a name or visible text
+    const title = el.querySelector("svg title");
+    const fromTitle = title ? iconWords(title.textContent) : "";
+    if (fromTitle) return fromTitle;
+    const use = el.querySelector("svg use");
+    const href = use ? use.getAttribute("href") || use.getAttribute("xlink:href") || "" : "";
+    const fromUse = iconWords(href.split("#")[1]);
+    if (fromUse) return fromUse;
+    const idEl = el.hasAttribute("data-testid") ? el : el.querySelector("[data-testid]");
+    const fromTestId = idEl ? iconWords(idEl.getAttribute("data-testid")) : "";
+    if (fromTestId) return fromTestId;
+    // a class names the control only when exactly one class is no framework prefix, no hash and no styling word
+    const classes = [...el.classList].filter((c) => !FRAMEWORK_CLASS.test(c) && !/\d/.test(c))
+      .map(iconWords).filter((w) => w && !STYLE_WORDS.has(w.toLowerCase()));
+    return classes.length === 1 ? classes[0] : "";
   }
 
   function isClickable(el) {
@@ -302,21 +349,33 @@
     }
   }
 
+  // Every name written here is "[icon] <name>", through the same record as the field marks (OURS, ORIG): a name that
+  // stops applying (the button now says "Submit application") is taken back by the next pass, and leaveRun takes
+  // all of them back.
+  function setIconName(el, name) {
+    if (name) writeLabel(el, `[icon] ${name}`);
+    else restoreLabel(el);
+  }
+
   function nameGoogleButtons() {
+    let seen = 0;
     for (const el of document.querySelectorAll(CONTROLS)) {
-      if (hasName(el) || inStoreLink(el)) continue;
+      if (++seen > MARK_CAP) break;
       const label = el.closest("label");
-      if (label && label.textContent.trim()) continue;
-      if (!hasGoogleIcon(label || el)) continue;
-      el.setAttribute("aria-label", GOOGLE_NAME);
+      let name = "";
+      if (!hasSiteName(el) && !inStoreLink(el) && !(label && label.textContent.trim())) {
+        name = hasGoogleIcon(label || el) ? GOOGLE_NAME : iconName(el);
+      }
+      setIconName(el, name);
       // the control can be hidden: its label takes the click
-      if (label && !hasName(label)) label.setAttribute("aria-label", GOOGLE_NAME);
+      if (label) setIconName(label, name === GOOGLE_NAME && !hasSiteName(label) ? name : "");
     }
     for (const el of iconHolders()) {
-      if (hasName(el) || !isClickable(el) || inStoreLink(el) || !hasGoogleIcon(el)) continue;
-      el.setAttribute("aria-label", GOOGLE_NAME);
+      if (el.matches(CONTROLS)) continue;  // a real control: the loop above
+      const google = !hasSiteName(el) && isClickable(el) && !inStoreLink(el) && hasGoogleIcon(el);
+      setIconName(el, google ? GOOGLE_NAME : "");
       const label = el.closest("label");
-      if (label && !hasName(label)) label.setAttribute("aria-label", GOOGLE_NAME);
+      if (label) setIconName(label, google && !hasSiteName(label) ? GOOGLE_NAME : "");
     }
   }
 
@@ -341,7 +400,7 @@
         continue;
       }
       const text = `${el.textContent} ${el.getAttribute("aria-label") || ""} ${el.title || ""} ${el.getAttribute("alt") || ""}`;
-      if (/google/i.test(text)) {
+      if (isGoogleSignin(text)) {
         add(el, hasName(el));
         continue;
       }

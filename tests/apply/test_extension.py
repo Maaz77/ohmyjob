@@ -22,6 +22,11 @@ EXTENSION = HERE.parents[1] / "chrome-extension"
 VERSION = json.loads((EXTENSION / "manifest.json").read_text())["version"]
 ON = f"[AA on {VERSION}]"  # the tag of the tab that registered the run group; Chrome trims a trailing space
 SITE = HERE / "extension_site"
+ICON_GOOGLE = "[icon] Continue with Google"
+# icons.html: a name read off an icon carries "[icon] "; a button with no word in any source stays nameless (None),
+# and the site's own aria-label is never touched
+ICON_NAMES = {"titled": "[icon] Add another", "sprite": "[icon] Trash can", "bare": None, "testid": "[icon] Remove row",
+              "cls": "[icon] Add row", "submit-icon": "[icon] Save entry", "own": "Add a row"}
 # The job page is served as https://www.linkedin.com/feed; newer Chromium blocks its iframe on 127.0.0.1 without this.
 NO_LNA = ["--disable-features=LocalNetworkAccessChecks"]
 
@@ -301,10 +306,15 @@ class TestPopupsAsTabs(unittest.TestCase):
                 page.goto("http://127.0.0.1:8001/icons.html")
                 time.sleep(1.0)
                 names = page.evaluate("Object.fromEntries([...document.querySelectorAll('button')].map(b => [b.id, b.getAttribute('aria-label')]))")
-                self.assertEqual(names, {"github": None, "google": "Continue with Google", "text": None,
-                                         "wrapped": "Continue with Google", "late": "Continue with Google"})
+                self.assertEqual(names, {"github": None, "google": ICON_GOOGLE, "text": None,
+                                         "wrapped": ICON_GOOGLE, "late": ICON_GOOGLE, **ICON_NAMES})
+                # a name that stops applying is taken back: the class that gave it is gone after the next pass
+                page.evaluate("document.querySelector('#cls').className = 'btn'; document.body.append(document.createElement('i'))")
+                time.sleep(0.8)
+                self.assertIsNone(page.evaluate("document.querySelector('#cls').getAttribute('aria-label')"))
+                self.assertIsNone(page.evaluate("document.querySelector('#cls').getAttribute('data-aa-label')"))
                 self.assertEqual(page.evaluate("document.querySelector('#google').closest('label').getAttribute('aria-label')"),
-                                 "Continue with Google")
+                                 ICON_GOOGLE)
 
                 # a new sign-in check page takes the group over: the home tab of a stopped run stays open in it
                 new_home = ctx.new_page()
@@ -351,7 +361,7 @@ class TestPopupsAsTabs(unittest.TestCase):
                 time.sleep(1.0)
                 names = job.evaluate("Object.fromEntries(['glink', 'gdiv', 'plain'].map("
                                      "id => [id, document.getElementById(id).getAttribute('aria-label')]))")
-                self.assertEqual(names, {"glink": "Continue with Google", "gdiv": "Continue with Google", "plain": None})
+                self.assertEqual(names, {"glink": ICON_GOOGLE, "gdiv": ICON_GOOGLE, "plain": None})
                 # two Google controls, both named by the helper itself
                 self.assertRegex(job.title(), r"\[AA g=2 named=2 v=[0-9][\w.+-]*\]$")
 
@@ -381,7 +391,7 @@ class TestPopupsAsTabs(unittest.TestCase):
                 names = job.evaluate("Object.fromEntries([...document.querySelectorAll('button')].map("
                                      "b => [b.id, b.getAttribute('aria-label')]))")
                 self.assertEqual(names, {"button-start-signup-with-linkedin": None,
-                                         "button-start-signup-with-google": "Continue with Google",
+                                         "button-start-signup-with-google": ICON_GOOGLE,
                                          "button-submit-signup-with-email": "Register now"})
                 # the button and the icon holder inside it, both named by the helper, as on the page itself
                 self.assertRegex(job.title(), r"\[AA g=2 named=2 v=[0-9][\w.+-]*\]$")
