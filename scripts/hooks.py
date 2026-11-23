@@ -765,7 +765,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if not L.keys_allowed(keys):
                 raise Deny("Press only Tab, Shift+Tab, Escape, Backspace, Delete, the arrow, Home, End and Page keys, or "
                            "Ctrl/Cmd with A, C, V, X, Z, Y. Enter, Return and Space can press a focused button: click the "
-                           "control by its ref instead.")
+                           "control by its ref instead. A dropdown or search list never commits from a key: click the "
+                           "field by its ref, call read_page alone, then click the option by its ref. If no option "
+                           "appears that way, that field cannot be answered: leave it, fill the rest of the step, and "
+                           "stop as your rules say.")
             if L.TAB_KEY_RE.search(keys):
                 ctx.set_focus(tab, None)
             return None
