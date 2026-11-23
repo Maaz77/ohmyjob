@@ -8,3 +8,4 @@ tmp/
 .vscode/
 .claude/
 docs/agents/
+docs/adr/
