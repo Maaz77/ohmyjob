@@ -6,7 +6,9 @@
 
 A hook is not an agent, so it starts a separate Claude Code process in print mode with no
 tools, no MCP servers, no hooks and no settings files (an empty working folder). Results are
-cached in the run folder (judge.json). Any error gives None: the hook then blocks (fail-closed).
+cached in the run folder (judge.json); a context-free click verdict is also kept for later runs
+in the workspace (.ohmyjob/judge_cache.json, see store_persistent). Any error gives None: the
+hook then blocks (fail-closed).
 
 Environment (tests and special set-ups):
   AA_JUDGE_CMD      command to run instead of claude (it gets the prompt on stdin)
@@ -28,6 +30,8 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterator, Optional
+
+import workspace as W
 
 MODEL = os.environ.get("AA_JUDGE_MODEL") or "haiku"  # an alias, never a pinned id
 TIMEOUT = float(os.environ.get("AA_JUDGE_TIMEOUT") or 40)
@@ -236,9 +240,50 @@ def _write(run_dir: Path, cache: dict) -> None:
     os.replace(tmp, run_dir / "judge.json")
 
 
+def _stamp() -> str:
+    """A hash of what produced the verdicts. MODEL is an alias, so "haiku" means a different model over time with no
+    local change to notice; a prompt edit must not leave stale verdicts behind. A mismatch voids the whole file."""
+    raw = json.dumps([SYSTEM, CLICK_PROMPT, FILLS_PROMPT, MODEL])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _persistent_entries() -> dict:
+    try:
+        data = json.loads((W.STATE_DIR / "judge_cache.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict) or data.get("stamp") != _stamp() or not isinstance(data.get("entries"), dict):
+        return {}
+    return data["entries"]
+
+
 def cached(run_dir: Path, key: str) -> Optional[dict]:
-    """The cached entry for a key: {"result": {...}} or {"failures": n, "error": "..."}; None if not asked yet."""
-    return _read(run_dir).get(key)
+    """The cached entry for a key: {"result": {...}} or {"failures": n, "error": "..."}; None if not asked yet.
+    The run folder answers first, then the workspace file of earlier runs (it holds only results)."""
+    return _read(run_dir).get(key) or _persistent_entries().get(key)
+
+
+def store_persistent(key: str, entry: dict) -> None:
+    """Keep a verdict for later runs. Only a context-free click result goes here (the caller's job: a context-dependent
+    verdict is keyed on the names around the control, which belong to one page at one time). Never a failure: it is a
+    property of the moment (no claude binary, a timeout, unparseable output), not of the name; MAX_FAILURES already
+    stops the asking within a run, and keeping it would turn a two-minute outage into a permanently refused control."""
+    if "result" not in entry:
+        return
+    W.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(W.STATE_DIR / ".judge_cache.lock", "a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            entries = _persistent_entries()
+            entries[key] = entry
+            tmp = W.STATE_DIR / "judge_cache.json.tmp"
+            # ponytail: grows without bound; ~1 KB per distinct (name, role, host) so years of use stay under a few MB.
+            # Upgrade path: evict by age (stamp each entry with a time) when the file is noticeably large.
+            tmp.write_text(json.dumps({"stamp": _stamp(), "entries": entries}, ensure_ascii=False, indent=1),
+                           encoding="utf-8")
+            os.replace(tmp, W.STATE_DIR / "judge_cache.json")
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def store(run_dir: Path, key: str, entry: dict) -> None:
