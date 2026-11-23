@@ -1303,8 +1303,10 @@ class TestClickGuardHoles(T.Base):
 
     def test_a_step_word_beside_an_apply_word_goes_to_the_judge(self):
         self.boot(filled=True)
+        # both phrases are the ones issue 23 reports, "fortsetzen" included: it was missing from SAFE beside
+        # "weiter" and "fortfahren", so the step word could not stand the apply rule down
         page = ('button "Continua la candidatura" [ref_1] type="button"\n'
-                'button "Bewerbung fortfahren" [ref_2] type="button"\n'
+                'button "Bewerbung fortsetzen" [ref_2] type="button"\n'
                 'button "Invia candidatura" [ref_3] type="button"\n')
         before = len(self.judge_calls())
         self.assertAllowed(self.try_click(page, "ref_1"))

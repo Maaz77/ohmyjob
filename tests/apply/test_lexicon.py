@@ -66,6 +66,13 @@ class TestButtons(unittest.TestCase):
         self.assertNotIn("Next and submit", X.SAFE)
         self.assertNotIn("OK", X.SAFE)
 
+    def test_the_german_step_words_are_all_three(self):
+        # "fortsetzen" was missing beside "weiter" and "fortfahren", so "Bewerbung fortsetzen" (issue 23) could not
+        # stand the apply rule down. A step word inside a longer name is found with `find`, not `in`.
+        for name in ("Weiter", "Fortfahren", "Fortsetzen"):
+            self.assertIn(name, X.SAFE)
+        self.assertEqual(X.SAFE.find("Bewerbung fortsetzen"), "fortsetzen")
+
     def test_submitted_messages(self):
         for text in ["Your application was sent to Acme", "Grazie per la tua candidatura!", "Vielen Dank für Ihre Bewerbung",
                      "Merci pour votre candidature", "ご応募ありがとうございます", "申请已提交"]:
