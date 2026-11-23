@@ -1026,6 +1026,66 @@ class TestForeignPageRules(T.Base):
         self.assertDenied(self.guard(C + "browser_batch", batch), "http")
 
 
+class TestHiddenFieldFills(T.Base):
+    """Issue 25: an "all" read lists fields no person can see; filling a honeypot flags the application as spam."""
+    PAGE = (
+        'form [ref_1]\n'
+        ' textbox "First Name" [ref_41] type="text"\n'
+        ' textbox "[hidden] Website" [ref_287] type="text"\n'
+        ' textbox "[hidden] [req] Vis Hidden" [ref_288] type="text"\n'
+        ' textbox "[hidden] Offscreen Field" [ref_289] type="text"\n'
+        ' textbox "[value redacted]" [ref_290] type="hidden"\n'
+        ' checkbox "I agree to the privacy notice" [ref_291]\n'
+        ' checkbox "[hidden] Faked" [ref_292]\n'
+        ' button "File upload" [ref_293] type="file"\n'
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.aa_json("start")
+        (self.folder, self.tab, _brief), _other = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": self.tab, "url": "https://careers.example.com/a"}, W, "A1"))
+        self.post("read_page", {"tabId": self.tab, "filter": "all"}, self.PAGE, W, "A1")
+
+    def fill(self, ref, value="x"):
+        return self.guard(C + "form_input", {"tabId": self.tab, "ref": ref, "value": value}, W, "A1")
+
+    def test_parse_refs_strips_the_mark_and_records_it(self):
+        refs = L.parse_refs(self.PAGE)
+        self.assertEqual(refs["ref_288"]["name"], "Vis Hidden")  # [hidden] then [req], both stripped
+        self.assertIs(refs["ref_287"]["hidden"], True)
+        self.assertNotIn("hidden", refs["ref_41"])
+
+    def test_a_hidden_text_field_is_refused(self):
+        for ref in ("ref_287", "ref_288", "ref_289"):
+            self.assertDenied(self.fill(ref), "hidden on the page")
+
+    def test_a_type_hidden_input_is_refused_without_the_extension(self):
+        self.assertDenied(self.fill("ref_290"), "hidden on the page")
+
+    def test_a_fill_in_a_browser_batch_is_refused_too(self):
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_41", "value": "x"}},
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_289", "value": "x"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "hidden on the page")
+
+    def test_a_visible_field_and_ticks_and_uploads_are_unchanged(self):
+        self.assertExplicitAllow(self.fill("ref_41"))
+        self.assertExplicitAllow(self.fill("ref_291", True))
+        self.assertExplicitAllow(self.fill("ref_292", True))  # a tick role is never refused as hidden
+        pdf = self.state()["jobs"][self.folder]["pdf"]
+        self.assertAllowed(self.guard(C + "file_upload", {"tabId": self.tab, "ref": "ref_293", "paths": [pdf]}, W, "A1"))
+
+    def test_the_non_agent_path_refuses_it_too(self):
+        text = self.PAGE + '\n\nTab Context:\n- Executed on tabId: 301\n- Available tabs:\n  \u2022 tabId 301: "Page" ("https://careers.example.com/job")\n'
+        self.hook("snapshot", {"tool_name": C + "read_page", "tool_input": {"tabId": 301, "filter": "all"},
+                               "tool_response": [{"type": "text", "text": text}]})
+        for ref in ("ref_287", "ref_290"):
+            self.assertDenied(self.guard(C + "form_input", {"tabId": 301, "ref": ref, "value": "x"}), "hidden on the page")
+        self.assertNoDecision(self.guard(C + "form_input", {"tabId": 301, "ref": "ref_41", "value": "x"}))
+        self.assertNoDecision(self.guard(C + "form_input", {"tabId": 301, "ref": "ref_292", "value": True}))
+
+
 class TestWorkerChoiceClick(T.Base):
     def test_a_button_after_a_box_or_option_needs_a_new_read(self):
         self.aa_json("start")

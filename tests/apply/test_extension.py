@@ -518,6 +518,40 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_a_text_field_nobody_can_see_is_marked_hidden(self):
+        """The guard refuses form_input on a [hidden] field (a honeypot). Only text fields, and never for opacity 0, a
+        field below the fold or one scrolled out of the viewport."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "hidden-fields.html")
+            try:
+                labels = job.evaluate(self.LABELS)
+                self.assertEqual(labels["none"], "[hidden] Website")
+                self.assertEqual(labels["vis"], "[hidden] Vis Hidden")
+                self.assertEqual(labels["off"], "[hidden] Offscreen Field")
+                for field, name in (("visible", "First Name"), ("clear", "Clear Field"), ("box", "Consent"),
+                                    ("below", "Below Fold")):
+                    self.assertEqual(labels[field], name)
+                job.evaluate("window.scrollTo(0, 2500)")  # the first field is now out of the viewport
+                job.evaluate("document.getElementById('visible').setAttribute('required', '')")  # a change makes a pass
+                time.sleep(0.5)
+                labels = job.evaluate(self.LABELS)
+                self.assertEqual(labels["visible"], "[req] First Name")
+                self.assertEqual(labels["below"], "Below Fold")
+            finally:
+                ctx.close()
+
+    def test_a_revealed_field_loses_the_hidden_mark(self):
+        """A collapsed section is opened by a click, and a click schedules a pass: style and class are not watched."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "hidden-fields.html")
+            try:
+                self.assertEqual(job.evaluate(self.LABELS)["none"], "[hidden] Website")
+                job.click("#open")
+                time.sleep(0.5)
+                self.assertEqual(job.evaluate(self.LABELS)["none"], "Website")
+            finally:
+                ctx.close()
+
     def test_marks_follow_a_click_and_give_the_site_label_back(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "fields.html")

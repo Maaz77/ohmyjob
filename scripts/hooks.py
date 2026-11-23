@@ -344,6 +344,17 @@ def marker_problem(item: dict) -> Optional[str]:
     return None
 
 
+def hidden_problem(item: dict) -> Optional[str]:
+    """Why form_input on this text field is refused when no person can see it (the extension's [hidden] mark, or an
+    input type=hidden), or None. Filling a honeypot flags the application as spam without any sign. Ticks and file
+    inputs are not text roles: a consent box styled opacity 0 and a hidden file input stay usable."""
+    if item.get("role") in L.TYPE_ROLES and (item.get("hidden") or (item.get("attrs") or {}).get("type") == "hidden"):
+        return ("This field is hidden on the page: a person cannot see it, so it is a trap for bots. Do not fill it. If it "
+                "is a real field inside a collapsed section, reveal it first (click the control that opens the section), "
+                "then read the page again.")
+    return None
+
+
 def check_signin_lease(ctx: Ctx, tab: Any) -> None:
     """One Google sign-in at a time per host: the first tab takes the lease, the next one waits and then reloads.
 
@@ -697,6 +708,8 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
         if problem:
             raise Deny(problem)
         role = item.get("role") or ""
+        if hidden_problem(item):
+            raise Deny(hidden_problem(item))
         if role in L.CLICKABLE_ROLES and role not in L.TICK_ROLES:
             raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
         if not L.is_search_field(item):
@@ -937,6 +950,8 @@ class ForeignCall:
             role, attrs = item.get("role") or "", item.get("attrs") or {}
             if marker_problem(item):
                 raise Deny(marker_problem(item))
+            if short == "form_input" and hidden_problem(item):
+                raise Deny(hidden_problem(item))
             if short == "form_input" and role in L.CLICKABLE_ROLES and role not in L.TICK_ROLES:
                 raise Deny("form_input is for fields. Click buttons and links with computer left_click and the ref.")
             if short == "file_upload" and (attrs.get("type") or "").lower() != "file":
