@@ -514,7 +514,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             return
     word = None if choice else X.FINAL.find(scan)
     # a final word inside a picker, list or menu closes that widget and sends no form ("Done" in a date picker,
-    # "Confirm" in a multi-select). The name alone never allows it: the Haiku check below decides (docs/adr/0001).
+    # "Confirm" in a multi-select). The name alone never allows it: the Haiku check below decides.
     widget = L.widget_ancestor(snapshot, ref) if word else None
     if word and not widget:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
@@ -555,7 +555,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
         return
     # `widget` first: a control the widget rule excused carried a final word, so it is never allowed on its name
-    # alone (docs/adr/0001). Without it a link with an address inside a picker would fall out of this test allowed.
+    # alone. Without it a link with an address inside a picker would fall out of this test allowed.
     if widget or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'

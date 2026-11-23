@@ -1298,7 +1298,7 @@ def widget_ancestor(text: str, ref: str) -> Optional[str]:
     """The name of the nearest picker, list or menu that encloses `ref` (its role when it has no name), or None.
 
     A control inside a listbox, menu, tree or grid closes that widget and sends no form: a date picker's "Done",
-    a multi-select's "Apply". The word rules ask this before they refuse a final word (docs/adr/0001). `dialog` is
+    a multi-select's "Apply". The word rules ask this before they refuse a final word. `dialog` is
     deliberately not a widget role: the real Submit of an Easy Apply dialog, and of every modal application form,
     sits inside one."""
     lines = text.splitlines()
@@ -1472,7 +1472,7 @@ def final_items(refs: dict, filled: bool, text: str = "") -> list[tuple[str, dic
         if text and consent_control(text, ref, name):
             continue  # a cookie panel's "Confirm My Choices" is no application button
         if text and widget_ancestor(text, ref):
-            continue  # a picker's "Done" closes a widget, not the application (docs/adr/0001)
+            continue  # a picker's "Done" closes a widget, not the application
         if X.FINAL.find(name) or (filled and X.APPLY.find(name)):
             found.append((name, item))
     return found
@@ -1530,7 +1530,7 @@ def check_result(run_dir: Path, state: dict, job: dict, result: Optional[dict]) 
     if not finals:
         # a park counts as a win only when the end of the flow is evidenced in the snapshot itself. 'final_button'
         # is the worker's own claim, and a claim is no evidence: a run parked on step 1 of 5 of an Easy Apply dialog
-        # with 4 open entries was graded PASS on that claim alone (docs/adr/0001).
+        # with 4 open entries was graded PASS on that claim alone.
         return "BLOCKED", ["OTHER: The worker stopped before any final control: no final control in the last "
                            "snapshot ('final_button' is the worker's own claim, not evidence)."]
     return "PASS", []

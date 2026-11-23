@@ -29,7 +29,7 @@ For the job-discovery stage, read `.claude/jobfind-scrape.md` first.
 | **final control** | A control whose name holds a submit word in any listed language — Submit, Send, Confirm, Finish, Done, Complete — plus a one-click Apply variant. | `scripts/lexicon.py` (`FINAL`) |
 | **apply word** | A word that *starts* an application rather than sending it. Final only on a tab that already showed a form. | `scripts/lexicon.py` (`APPLY`) |
 | **step control** | A control that moves within a flow and sends nothing: Next, Continue, Review. Matched on the whole name. | `scripts/lexicon.py` (`SAFE`) |
-| **widget control** | A control inside a picker, listbox, menu or tree — a date picker's "Done", a multi-select's "Apply". It carries a final word but closes a widget, so it is not the application's submit. | `scripts/aa_lib.py`, ADR 0001 |
+| **widget control** | A control inside a picker, listbox, menu or tree — a date picker's "Done", a multi-select's "Apply". It carries a final word but closes a widget, so it is not the application's submit. | `scripts/aa_lib.py` (`widget_ancestor`) |
 | **consent carve-out** | The rule that excuses a cookie or consent dialog's own save button, judged by the dialog around it rather than the button's name. The precedent **widget control** follows. | `scripts/aa_lib.py` (`consent_control`), `scripts/hooks.py` (`consent_banner`) |
 | **note** | The worker's own English sentence for a click (`action_summary`). A note that says the click sends the application is refused on its own, whatever the button is called. | `scripts/aa_lib.py` (`note_problem`) |
 
@@ -47,6 +47,6 @@ For the job-discovery stage, read `.claude/jobfind-scrape.md` first.
 | **parked** | The worker reached the last step and stopped before the final control. The good outcome. | `agents/application-worker.md` |
 | **blocked** | The worker could not go on: a question for the candidate, a closed job, an account wall, a refused step. Needs a human or another run. | `agents/application-worker.md` |
 | **finish gate** | The check that grades a worker's report against the last snapshot. Returns PASS, BLOCKED, FAIL, ALARM or CLOSED. A worker's claim is not a verdict. | `scripts/aa_lib.py` (`check_result`) |
-| **false park** | A worker that stopped mid-flow but reported **parked**, usually because the guard refused a mid-step control. | ADR 0001 |
+| **false park** | A worker that stopped mid-flow but reported **parked**, usually because the guard refused a mid-step control. | `scripts/aa_lib.py` (`check_result`) |
 | **Pending Review** | The Chrome tab group for a PASS job: filled, parked, waiting for the candidate to press Submit. | `scripts/aa.py` |
 | **Needs Attention** | The tab group for everything else. A job here costs a glance; a wrongly-passed job in Pending Review costs an application. | `scripts/aa.py` |

@@ -1836,7 +1836,7 @@ class FillsGateBase(Base):
         (folder, tab, _brief), _other = self.assign(101, 102)
         self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1")
         # every case reads the form page: the finish gate needs a final control in the snapshot, because the
-        # report's own 'final_button' is a claim and no evidence (ADR 0001). Only the fill itself is optional here.
+        # report's own 'final_button' is a claim and no evidence. Only the fill itself is optional here.
         self.page(tab, "constructed_form_page.txt")
         if value is not None:
             self.assertExplicitAllow(self.guard(C + "form_input", {"tabId": tab, "ref": "ref_41", "value": value}, W, "A1"))

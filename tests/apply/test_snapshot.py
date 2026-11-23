@@ -284,7 +284,7 @@ class TestCheckResultParked(unittest.TestCase):
         self.assertEqual(self.run_check(self.SUBMIT, "", ["q1"]), "PASS")
 
     def test_a_named_final_button_alone_is_a_claim_not_evidence(self):
-        # the snapshot holds no final control, so the worker's own 'final_button' does not carry the park (ADR 0001)
+        # the snapshot holds no final control, so the worker's own 'final_button' does not carry the park
         self.assertEqual(self.run_check(self.DISMISS, "Submit application", ["q1"]), "BLOCKED")
 
 
@@ -371,7 +371,7 @@ class TestFalseParkGate(unittest.TestCase):
         verdict, reasons = self.check('button "Dismiss" [ref_1]\n', {}, final_button="Submit", open=[])
         self.assertEqual(verdict, "BLOCKED")
         self.assertIn("stopped before any final control", reasons[0])  # NO_FINAL_MARKER: the handover reads it
-        # and with work done on the tab too: the snapshot shows no final control, so 'final_button' is a claim (ADR 0001)
+        # and with work done on the tab too: the snapshot shows no final control, so 'final_button' is only a claim
         self.assertEqual(self.check('button "Dismiss" [ref_1]\n', {"acted": True}, final_button="Submit", open=["x"])[0], "BLOCKED")
 
 
