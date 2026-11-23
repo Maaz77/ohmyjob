@@ -965,7 +965,11 @@ def retry_workers(run_dir: Path) -> list:
 # ledger so far (geo walls, auto-mode refusals, a sign-in-only route, a consent denial) came from Sonnet itself: it
 # describes an environment Sonnet cannot pass either, so a handover would pay twice for nothing. One line to revisit.
 NO_HANDOVER_CODES = ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "OTHER", "FILL_REVIEW")  # FILL_REVIEW: the user fixes it
-WATCHDOG_STOPS = ("idle", "ended", "stall", "repeat_deny", "budget")
+# `repeat_deny` is deliberately not here. The worker stopped because the same refusal came back
+# `repeat_deny_stop` times, and the guard refuses a Sonnet worker for exactly the same reason, so a handover
+# re-earns the same wall and pays for it twice. Such a job goes to Needs Attention as a `wall`
+# (ledger.classify_outcome), which is where a wall belongs.
+WATCHDOG_STOPS = ("idle", "ended", "stall", "budget")
 NO_FINAL_MARKER = "stopped before any final control"  # check_result: a park with no final control evidenced
 
 
