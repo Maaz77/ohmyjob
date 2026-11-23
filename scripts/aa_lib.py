@@ -1141,11 +1141,11 @@ TAB_LINE_RE = re.compile(r'^\s*•\s*tabId\s+(\d+):\s*(.*)\s\("([^"]*)"\)\s*$')
 
 
 # The helper extension prefixes the aria-label of form controls with state marks ("[x] ", "[req] ", "[disabled] ",
-# "[invalid] ", in that order), and a text field's name is "<label> = <value>". Names are stripped of the marks where
-# they are read from a page line, so every rule that compares a name (SAFE, CMP, the final words) sees the page's own
+# "[invalid] ", in that order; "[hidden] " goes first), and a text field's name is "<label> = <value>". Names are
+# stripped of the marks where they are read from a page line, so every rule that compares a name (SAFE, CMP, the final words) sees the page's own
 # name; parse_refs also splits a text field's value off its label (`value`), so a value never counts as a label.
 # The worker's compacted view keeps the marks.
-MARKS_RE = re.compile(r"^(?:\[(?:x|req|disabled|invalid)\](?: |$))+")  # read_page trims a name, so a mark can end it
+MARKS_RE = re.compile(r"^(?:\[(?:hidden|x|req|disabled|invalid)\](?: |$))+")  # read_page trims a name, so a mark can end it
 
 
 def _name(value: str) -> str:
@@ -1185,8 +1185,11 @@ def parse_refs(text: str) -> dict[str, dict]:
             continue
         attrs = {k: _unescape(v) for k, v in ATTR_RE.findall(match.group("attrs") or "")}
         role = match.group("role").lower()
-        name, value = _label(role, _name(match.group("name") or ""))
+        raw_name = match.group("name") or ""
+        name, value = _label(role, _name(raw_name))
         refs[match.group("ref")] = {"role": role, "name": name, "attrs": attrs, "line": raw.strip()[:400]}
+        if raw_name.startswith("[hidden]"):
+            refs[match.group("ref")]["hidden"] = True  # the extension saw no person could see this field
         if value is not None:
             refs[match.group("ref")]["value"] = value
         if name.startswith("[AA "):

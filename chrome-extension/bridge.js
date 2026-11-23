@@ -352,7 +352,7 @@
   }
 
   // Field marks. read_page prints no state (ticked, required, disabled ...) and names a textbox by its value, so the
-  // state goes into the aria-label, which it does honour: "[x] [req] [disabled] [invalid] <name>". The guard strips
+  // state goes into the aria-label, which it does honour: "[hidden] [x] [req] [disabled] [invalid] <name>". The guard strips
   // the marks again (aa_lib.parse_refs). No getComputedStyle here, for the reason given at iconHolders.
   // Never on a pressable control (button, link ...): the label replaces its live name, and a pass that comes late would
   // leave a stale name that the guard trusts ("Next" on a button that now says "Submit application").
@@ -379,6 +379,18 @@
     return TEXT_TYPES.test(el.type) ? "text" : null;
   }
 
+  // A text field no person can see or reach: display:none / visibility:hidden, a zero box, or off the DOCUMENT (not the
+  // viewport: a field below the fold or scrolled away is real). opacity is not tested: real controls are styled opacity 0.
+  // ponytail: one box read per text field per pass, the only layout read in this pass; checkVisibility answers the two
+  // common cases first, so the read happens only for a field that is laid out. MARK_CAP bounds it.
+  function isHidden(el) {
+    // both spellings: the option was renamed (checkVisibilityCSS -> visibilityProperty) and an unknown key is
+    // ignored, so this is right on an old Chromium and a new one. opacity is left out on purpose.
+    if (!el.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true })) return true;
+    const r = el.getBoundingClientRect();
+    return (r.width === 0 && r.height === 0) || r.left + scrollX + r.width <= 0 || r.top + scrollY + r.height <= 0;
+  }
+
   function fieldMarks(el, kind, reqRadios) {
     const flag = (name) => el.getAttribute(name) === "true";
     const form = kind !== "option";
@@ -386,7 +398,7 @@
     const group = el.type === "radio" && el.name && reqRadios.get(el.form || document);
     const req = form && (el.required === true || flag("aria-required") || !!(group && group.has(el.name)));
     const off = form && (flag("aria-disabled") || el.matches(":disabled"));
-    return (on ? "[x] " : "") + (req ? "[req] " : "") + (off ? "[disabled] " : "") + (form && flag("aria-invalid") ? "[invalid] " : "");
+    return (kind === "text" && isHidden(el) ? "[hidden] " : "") + (on ? "[x] " : "") + (req ? "[req] " : "") + (off ? "[disabled] " : "") + (form && flag("aria-invalid") ? "[invalid] " : "");
   }
 
   function requiredRadios() {
@@ -536,9 +548,16 @@
   }
 
   // One debounced pass for every change: new nodes, a click or a keystroke, and the attributes that carry state.
-  // aria-label is NOT watched: this script writes it, and watching it would loop.
+  // aria-label is NOT watched: this script writes it, and watching it would loop. "hidden" is: it reveals a field and
+  // no page rewrites it in a loop. style and class are NOT: a busy page (a spinner, an animation, a sticky bar)
+  // rewrites them all the time, the 1 s starvation guard would then run a pass in every worker tab every second, and
+  // each pass now reads a box per text field (isHidden). A collapsed section is opened by a click, and a click
+  // schedules a pass, so a field revealed that way loses its mark anyway.
+  // ponytail: a field revealed by a timer alone, with no click and no new node, keeps a stale [hidden] mark until the
+  // next trigger. The mark only refuses a fill, so the worker reports the field instead of filling it. Watch style and
+  // class (scoped away from [data-aa-shadow], whose style every pass rewrites) if a real form ever needs it.
   const STATE_ATTRS = ["aria-checked", "aria-pressed", "aria-selected", "aria-disabled", "aria-invalid",
-    "aria-required", "disabled", "required", "checked"];
+    "aria-required", "disabled", "required", "checked", "hidden"];
 
   // Shadow-DOM proxies. read_page does not enter a shadow root, so a form built from web components (SmartRecruiters'
   // spl-* elements) is an empty page to the worker. Flattening the shadow DOM would break such a page (thousands of

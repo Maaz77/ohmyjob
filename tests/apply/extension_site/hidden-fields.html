@@ -1,0 +1,11 @@
+<!doctype html><title>Hidden fields</title>
+<!-- Text fields no person can see get a "[hidden] " mark; a visible, opacity 0, below-the-fold or scrolled-away one does not. -->
+<input id="visible" type="text" aria-label="First Name">
+<button id="open" onclick="document.getElementById('none').style.display='block'">Open section</button>
+<input id="none" type="text" aria-label="Website" style="display:none">
+<input id="vis" type="text" aria-label="Vis Hidden" style="visibility:hidden">
+<input id="off" type="text" aria-label="Offscreen Field" style="position:absolute;left:-9999px">
+<input id="clear" type="text" aria-label="Clear Field" style="opacity:0">
+<input id="box" type="checkbox" aria-label="Consent" style="opacity:0">
+<div style="height:3000px"></div>
+<input id="below" type="text" aria-label="Below Fold">
