@@ -1398,6 +1398,83 @@ class TestIconButton(Base):
         # a worker cannot load the master's pages
         self.assertDenied(self.guard(C + "navigate", {"tabId": tab, "url": "https://www.linkedin.com/feed/#aa-popups-as-tabs"}, W, "A1"), "master only")
 
+    def icon_page(self, tab, lines):
+        self.post("read_page", {"tabId": tab}, lines, W, "A1")
+
+    def test_an_icon_name_is_evidence_for_the_model_never_an_allow_or_a_refusal(self):
+        """Issue 44: the extension names an icon-only button "[icon] <name>". The name is a guess, so it earns no
+        allow of its own (not even SAFE) and no word refusal either: the Haiku check decides, and it is told."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
+        self.icon_page(tab, 'button "[icon] Next" [ref_1] type="button"\nbutton "[icon] Envoyer" [ref_2] type="button"\n'
+                            'button "[icon] Delete" [ref_3] type="button"\nbutton "Next" [ref_4] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.click(tab, "ref_4", "A1", "Goes to the next step"))   # the site's own "Next": SAFE
+        self.assertEqual(len(self.judge_calls()), before)
+        self.assertAllowed(self.click(tab, "ref_1", "A1", "Goes to the next step"))   # an invented "Next": asked
+        self.assertEqual(self.judge_calls()[-1]["name"], "Next")                      # the mark is not in the name
+        # a final word on an invented name is not a refusal by itself: the model (fake) blocks "Envoyer"
+        self.assertDenied(self.click(tab, "ref_2", "A1", "Opens the next screen"), "Haiku check blocked")
+        # a delete word on an invented name reaches the model too (the fake allows it)
+        self.assertAllowed(self.click(tab, "ref_3", "A1", "Removes a row"))
+        self.assertEqual([c["name"] for c in self.judge_calls()[before:]], ["Next", "Envoyer", "Delete"])
+
+    def test_a_submit_button_named_only_from_its_icon_stays_refused(self):
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
+        self.icon_page(tab, 'button "[icon] Add" [ref_1] type="submit"\nbutton "[icon] Add" [ref_2] type="button"\n'
+                            'button "Next" [ref_3] type="submit"\nbutton [ref_4] type="submit"\n')
+        self.assertDenied(self.click(tab, "ref_1", "A1"), "submit button")
+        self.assertAllowed(self.click(tab, "ref_2", "A1", "Adds another row"))
+        self.assertAllowed(self.click(tab, "ref_3", "A1", "Goes to the next step"))   # a site-written name passes today
+        self.assertDenied(self.click(tab, "ref_4", "A1"), "without a name")
+
+    def test_the_icon_flag_is_part_of_the_cached_verdict_key(self):
+        """A name the site wrote and Haiku called context-free is cached per host, whatever stands around it. That
+        verdict must not stand in for the same name when the extension invented it."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
+        before = len(self.judge_calls())
+        self.icon_page(tab, 'button "Salva bozza" [ref_1] type="button"\n')
+        self.assertAllowed(self.click(tab, "ref_1", "A1", "Saves a draft"))   # the fake answers context_dependent false
+        self.icon_page(tab, 'link "Help" [ref_5]\nbutton "Salva bozza" [ref_1] type="button"\n')   # other surroundings
+        self.assertAllowed(self.click(tab, "ref_1", "A1", "Saves a draft"))
+        self.assertEqual(len(self.judge_calls()), before + 1, "the short key served the second click")
+        self.icon_page(tab, 'link "More" [ref_6]\nbutton "[icon] Salva bozza" [ref_1] type="button"\n')
+        self.assertAllowed(self.click(tab, "ref_1", "A1", "Saves a draft"))
+        self.assertEqual(len(self.judge_calls()), before + 2, "the invented name is asked again")
+
+    def test_the_signin_lease_is_taken_only_after_the_model_allows(self):
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
+        self.icon_page(tab, 'button "[icon] Sign in with Google (blocked)" [ref_1] type="button"\n'
+                            'button "[icon] Continue with Google" [ref_2] type="submit"\n')
+        self.assertDenied(self.click(tab, "ref_1", "A1"), "Haiku check blocked")
+        self.assertNotIn("careers.example.com", self.state().get("signin_hosts", {}))
+        # an invented Google name costs one model call, and a submit type does not refuse it
+        self.assertAllowed(self.click(tab, "ref_2", "A1", "Opens Google sign-in"))
+        self.assertEqual(self.judge_calls()[-1]["name"], "Continue with Google")
+        self.assertEqual(self.state()["signin_hosts"]["careers.example.com"]["status"], "pending")
+
+    def test_a_google_product_control_is_not_a_signin_option(self):
+        """Issue 46: "Upload from Google Drive" took the Google branch: no check, and the sign-in lease."""
+        self.aa_json("start")
+        (folder, tab, _b), _second = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
+        self.icon_page(tab, 'button "Upload from Google Drive" [ref_1] type="button"\n'
+                            'button "Register to upload from Google Drive" [ref_2] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.click(tab, "ref_1", "A1", "Opens the Drive picker"))  # a name no list knows: asked
+        self.assertNotIn("careers.example.com", self.state().get("signin_hosts", {}))
+        # a sign-up name that names an app has no Google excuse: it is asked, not refused
+        self.assertAllowed(self.click(tab, "ref_2", "A1", "Opens the Drive picker"))
+        self.assertEqual([c["name"] for c in self.judge_calls()[before:]],
+                         ["Upload from Google Drive", "Register to upload from Google Drive"])
+
     def test_name_comes_from_the_lines_inside_a_nameless_button(self):
         """read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
         button that holds its text in a span (Vuetify, as on aviva.talent-community.com) arrives without a name."""
@@ -1794,6 +1871,14 @@ class TestHandover(Base):
         for part in ("## Continue from the open page", "step 2 of 5", "OTHER: stuck", "Visa", "First name", "already submitted"):
             self.assertIn(part, text)
         self.assertIn("fixed this job by hand", aa.continue_section("**Run:** x"))
+
+
+class TestClickPrompt(unittest.TestCase):
+    def test_an_icon_name_is_flagged_to_the_model(self):
+        import judge
+        payload = {"name": "Add", "role": "button", "context": "x", "host": "h.example", "filled": False}
+        self.assertNotIn("icon", judge.build_prompt("click", payload))
+        self.assertIn("read off the control's icon", judge.build_prompt("click", {**payload, "icon": True}))
 
 
 class TestFillsJudge(unittest.TestCase):

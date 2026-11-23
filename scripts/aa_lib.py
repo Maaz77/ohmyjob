@@ -1148,8 +1148,9 @@ TAB_LINE_RE = re.compile(r'^\s*•\s*tabId\s+(\d+):\s*(.*)\s\("([^"]*)"\)\s*$')
 # "[invalid] ", in that order; "[hidden] " goes first), and a text field's name is "<label> = <value>". Names are
 # stripped of the marks where they are read from a page line, so every rule that compares a name (SAFE, CMP, the final words) sees the page's own
 # name; parse_refs also splits a text field's value off its label (`value`), so a value never counts as a label.
-# The worker's compacted view keeps the marks.
-MARKS_RE = re.compile(r"^(?:\[(?:hidden|x|req|disabled|invalid)\](?: |$))+")  # read_page trims a name, so a mark can end it
+# The worker's compacted view keeps the marks. "[icon] " is the one mark of a pressable control: the extension read
+# its name off an icon (svg title, sprite id, test id or class), not off visible text. parse_refs records it as `icon`.
+MARKS_RE = re.compile(r"^(?:\[(?:hidden|x|req|disabled|invalid|icon)\](?: |$))+")  # read_page trims a name, so a mark can end it
 
 
 def _name(value: str) -> str:
@@ -1194,6 +1195,8 @@ def parse_refs(text: str) -> dict[str, dict]:
         refs[match.group("ref")] = {"role": role, "name": name, "attrs": attrs, "line": raw.strip()[:400]}
         if raw_name.startswith("[hidden]"):
             refs[match.group("ref")]["hidden"] = True  # the extension saw no person could see this field
+        if raw_name.startswith("[icon]"):
+            refs[match.group("ref")]["icon"] = True  # the name is a guess from an icon: evidence, never an allow
         if value is not None:
             refs[match.group("ref")]["value"] = value
         if name.startswith("[AA "):

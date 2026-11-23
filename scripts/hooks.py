@@ -304,12 +304,21 @@ class Ctx:
 
     def judged_click(self, payload: dict) -> dict:
         """A name that Haiku called context-free is checked one time per run; else per page context."""
-        short = {k: payload[k] for k in ("name", "role", "filled", "host")}  # a verdict is per host: boards differ
-        short["widget"] = bool(payload.get("widget"))  # a picker's "Done" is not the same control as a form's "Done"
+        short = short_click_payload(payload)
         entry = J.cached(self.run_dir, J.key_for("click", short)) or {}
         if "result" in entry:
             return entry["result"]
         return self.judged("click", payload)
+
+
+def short_click_payload(payload: dict) -> dict:
+    """The question a context-free verdict is cached under. A verdict is per host (boards differ); a picker's "Done"
+    is not a form's "Done"; and a name the extension invented is not the site's own name (one judged context-free
+    must not stand in for the other, and the model has to learn the name was a guess)."""
+    short = {k: payload[k] for k in ("name", "role", "filled", "host")}
+    short["widget"] = bool(payload.get("widget"))
+    short["icon"] = bool(payload.get("icon"))
+    return short
 
 
 def judge_failed(kind: str, payload: dict, error: str) -> str:
@@ -354,6 +363,12 @@ def hidden_problem(item: dict) -> Optional[str]:
                 "is a real field inside a collapsed section, reveal it first (click the control that opens the section), "
                 "then read the page again.")
     return None
+
+
+def take_signin_lease(ctx: Ctx, tab: Any) -> None:
+    """A Google sign-in option is about to be clicked: take the lease (or wait for it), and log the option."""
+    check_signin_lease(ctx, tab)  # one Google sign-in at a time per host (4.8)
+    L.log(ctx.run_dir, "google-option", tab=int(tab), host=ctx.host(tab))
 
 
 def check_signin_lease(ctx: Ctx, tab: Any) -> None:
@@ -456,6 +471,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     role = item.get("role") or ""
     snapshot = L.snapshot_text(ctx.run_dir, tab)
     attrs = item.get("attrs") or {}
+    # a name the extension read off the control's icon (bridge.js, "[icon] "): a guess, so no allow comes from it and
+    # no word refuses on it. Each word rule below stands down for it through `excused`, and the Haiku check decides.
+    icon = bool(item.get("icon"))
     # read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
     # button whose text sits in a span (Vuetify and friends) arrives here without a name, or with only part of it
     # ("Review" over a child "and submit"). Take the names inside it, as check_google_click does: a nameless
@@ -518,12 +536,15 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # picker, "Apply" in a multi-select, "Apply filters" beside a date field). The name alone never allows it:
     # the Haiku check below decides.
     widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit) else None
-    if word and not widget:
+    if word and not widget and not icon:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
-    # a <button> without a type attribute is a submit button as well
-    if role == "button" and not name.strip() and (attrs.get("type") == "submit" or filled and attrs.get("type") not in ("button", "reset")):
-        raise Deny("This is a submit button without a name, and nothing inside it is named either. If you have not "
+    # a <button> without a type attribute is a submit button as well. The one hard refusal for a guessed name: the page
+    # itself says the button submits the form. A Google sign-in name is the exception: the Haiku check below decides.
+    if role == "button" and (not name.strip() or icon and not X.google_signin(name)) \
+            and (attrs.get("type") == "submit" or filled and attrs.get("type") not in ("button", "reset")):
+        raise Deny("This is a submit button without a name (or named only from its icon), and nothing inside it is "
+                   "named either. If you have not "
                    "read this page with filter 'all' yet, call read_page alone with filter 'all' and the ref_id of its "
                    "form or dialog, then click it again. If you already did, do not click it: stop with status "
                    "'parked' if this is the step with the final button, else 'blocked'.")
@@ -534,7 +555,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # and nothing keeps that list complete: the German "fortsetzen" was missing beside "weiter" and "fortfahren",
     # so "Bewerbung fortsetzen" stayed refused until it was added.
     apply_step = bool(filled and apply_hit and not widget and X.SAFE.find(name))
-    if filled and apply_hit and not widget and not apply_step:
+    if filled and apply_hit and not widget and not apply_step and not icon:
         to = start_apply_link(ctx, tab, ref, item)
         if to is None:
             raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. "
@@ -547,9 +568,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # is an answer), so the permission, delete, sign-up and Google rules below skip it.
     if consent and not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
-    if not tick and X.DELETE.find(name):
+    if not tick and not icon and X.DELETE.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
-    google = None if tick else X.GOOGLE.find(name)
+    google = None if tick else X.google_signin(name)
     # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
     # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
     # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
@@ -557,32 +578,34 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
-    if google and not filled:
-        check_signin_lease(ctx, tab)  # one Google sign-in at a time per host (4.8)
-        L.log(ctx.run_dir, "google-option", tab=int(tab), host=ctx.host(tab))
+    # A Google name the extension gave an icon is asked first: the lease is taken below, only on an allow.
+    if google and not filled and not icon:
+        take_signin_lease(ctx, tab)
         return
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
     # `not signup`: before a fill an Apply word lets a click pass with no check, and a name that asks for an account
     # in order to apply ("Create account to apply", "Sign up and apply") carries both words. The hard sign-up refusal
     # used to catch those; now that the Haiku check decides a sign-up name, this pass has to stand aside for it.
-    if not name.strip() or consent or (apply_word and not filled and not sticky and not board and not signup) \
-            or name in X.SAFE:
+    if not name.strip() or consent or (not icon and ((apply_word and not filled and not sticky and not board and not signup)
+                                                    or name in X.SAFE)):
         return
     # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
     # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
     # step word, `signup` a sign-up name with no Google word. Without this, such a control with a navigable address
     # would fall out of the test below allowed, because a link is excluded from the check by `navigable_href`.
-    excused = widget or apply_step or bool(signup and not google)
+    excused = widget or apply_step or bool(signup and not google) or icon
     if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
-                   "filled": filled or ("unknown" if sticky else False), "widget": bool(widget)}
+                   "filled": filled or ("unknown" if sticky else False), "widget": bool(widget), "icon": icon}
         result = ctx.judged_click(payload)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "
                        "Do not click it. " + park_order(ctx, tab, "If this is the step with the final button, stop here "
                                                          "with status 'parked'."))
+        if google and not filled and icon:
+            take_signin_lease(ctx, tab)  # below the check: no lease to hand back when the model says no
 
 
 def check_google_click(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
@@ -1636,7 +1659,7 @@ def guard(inp: dict) -> None:
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
         if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown":
-            short_payload = {k: pending.payload[k] for k in ("name", "role", "filled", "host")}
+            short_payload = short_click_payload(pending.payload)
             J.store(run_dir, J.key_for("click", short_payload), {"result": result, "payload": short_payload})
     else:
         reason = "Too many new names in one call. Click one control at a time."

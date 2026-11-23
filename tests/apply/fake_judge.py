@@ -12,7 +12,7 @@ import sys
 
 # The last entries mirror the real prompt's account-creation rule, so a sign-up refusal stays pinned by a test now
 # that the word rule defers to the judge.
-BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "continue with google",
+BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "sign in with google (blocked)",
                "create an account", "crea un account", "créer un compte", "konto erstellen", "registrarse",
                "criar conta", "account aanmaken", "zarejestruj się", "регистрация", "注册", "新規登録", "회원가입",
                "sign up", "register", "sign up with linkedin", "create account to apply"}
@@ -45,7 +45,9 @@ def main() -> None:
         if name.lower() in FAIL_NAMES:
             print("not json at all")
             sys.exit(1)
-        if name.lower() in BLOCK_NAMES:
+        # a Google sign-in option is allowed, bar after a fill (the real prompt: the form was filled already)
+        after_fill = name.lower() == "continue with google" and field(prompt, "The form was filled already") == "yes"
+        if name.lower() in BLOCK_NAMES or after_fill:
             reply({"verdict": "block", "reason": "fake: final", "context_dependent": False})
         else:
             reply({"verdict": "allow", "reason": "fake: navigation", "context_dependent": name.lower() == "procedi"})

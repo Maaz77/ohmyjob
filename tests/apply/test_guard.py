@@ -1056,6 +1056,13 @@ class TestHiddenFieldFills(T.Base):
         self.assertIs(refs["ref_287"]["hidden"], True)
         self.assertNotIn("hidden", refs["ref_41"])
 
+    def test_parse_refs_strips_the_icon_mark_and_records_it(self):
+        # "[icon] " is not "[AA ": the control is a real one of the page, so the ledger must keep it (no `marker`)
+        refs = L.parse_refs('button "[icon] Add another" [ref_1] type="button"\nbutton "Add" [ref_2]\n')
+        self.assertEqual((refs["ref_1"]["name"], refs["ref_1"].get("icon"), refs["ref_1"].get("marker")),
+                         ("Add another", True, None))
+        self.assertNotIn("icon", refs["ref_2"])
+
     def test_a_hidden_text_field_is_refused(self):
         for ref in ("ref_287", "ref_288", "ref_289"):
             self.assertDenied(self.fill(ref), "hidden on the page")
