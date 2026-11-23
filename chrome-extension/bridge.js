@@ -154,11 +154,12 @@
     if (frame.parentNode) frame.parentNode.insertBefore(link, frame);
   }
 
-  function usableFrameUrl(raw) {
+  // base: the document the address was read from, which is not this page for a frame inside a frame.
+  function usableFrameUrl(raw, base) {
     if (!raw) return null;  // new URL(null) would be ".../null"
     let url;
     try {
-      url = new URL(raw, location.href);
+      url = new URL(raw, base || location.href);
     } catch (e) {
       return null;
     }
@@ -196,7 +197,28 @@
     } catch (e) {
       here = null;
     }
-    return usableFrameUrl(here) || usableFrameUrl(frame.getAttribute("src"));
+    return usableFrameUrl(here) || usableFrameUrl(frame.getAttribute("src")) || addressInside(frame, 2);
+  }
+
+  // A frame with no address of its own (srcdoc, about:blank, written by the page) inherits this page's origin, so
+  // its document can be read from here. The form is often one level deeper, and a link to a frame it cannot open is
+  // no use to the worker, so take the address of the first big frame inside it instead.
+  function addressInside(frame, depth) {
+    if (depth <= 0) return null;
+    let doc = null;
+    try {
+      doc = frame.contentDocument;  // null for a frame of another site
+    } catch (e) {
+      return null;
+    }
+    if (!doc) return null;
+    for (const inner of doc.querySelectorAll("iframe, frame")) {
+      if (!bigEnough(inner)) continue;
+      const url = usableFrameUrl(inner.getAttribute("src"), inner.ownerDocument.baseURI)
+        || addressInside(inner, depth - 1);
+      if (url) return url;
+    }
+    return null;
   }
 
   function considerFrame(frame) {

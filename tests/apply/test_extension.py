@@ -582,6 +582,30 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_a_frame_with_no_address_offers_the_frame_inside_it(self):
+        """A frame with no address of its own holds the form one level down. read_page cannot read that inner marker,
+        so the marker beside the outer frame carries the inner frame's address."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "nested-srcdoc.html")
+            try:
+                tag = job.evaluate("(() => { const b = document.getElementById('outer').previousElementSibling;"
+                                   "return [b.dataset.aaFrame, b.getAttribute('aria-label'), b.getAttribute('href')]; })()")
+                self.assertEqual(tag, ["1", "[AA frame]", "http://localhost:8001/no-google.html"])
+            finally:
+                ctx.close()
+
+    def test_a_frame_inside_a_frame_is_reached_in_two_hops(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "nested-form.html")
+            try:
+                before = "(() => document.getElementById('%s').previousElementSibling.getAttribute('href'))()"
+                self.assertEqual(job.evaluate(before % "outer"), "http://localhost:8001/nested-outer.html")
+                job.goto("http://localhost:8001/nested-outer.html")
+                time.sleep(1.5)
+                self.assertEqual(job.evaluate(before % "inner"), "http://127.0.0.1:8001/no-google.html")
+            finally:
+                ctx.close()
+
     def test_dialogs_are_answered_in_a_run_tab(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "dialogs.html")
