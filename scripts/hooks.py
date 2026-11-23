@@ -528,7 +528,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
                    "form or dialog, then click it again. If you already did, do not click it: stop with status "
                    "'parked' if this is the step with the final button, else 'blocked'.")
     apply_word = None if choice else X.APPLY.find(name)
-    if filled and apply_hit and not widget:
+    # "Continua la candidatura", "Bewerbung fortsetzen": a step word in the name says the click moves within the
+    # flow, and SAFE already holds those words in every listed language. SAFE needs a whole name, so these phrases
+    # never reach it; here the word only stands rule 9 down and the Haiku check decides.
+    apply_step = bool(filled and apply_hit and not widget and X.SAFE.find(name))
+    if filled and apply_hit and not widget and not apply_step:
         to = start_apply_link(ctx, tab, ref, item)
         if to is None:
             raise Deny(f"'{name}' can send the application: this tab showed an application form. Do not click it. "
@@ -556,9 +560,10 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
     if not name.strip() or consent or (apply_word and not filled and not sticky and not board) or name in X.SAFE:
         return
-    # `widget` first: a control the widget rule excused carried a final word, so it is never allowed on its name
-    # alone. Without it a link with an address inside a picker would fall out of this test allowed.
-    if widget or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
+    # `excused` first: a control a word rule stood down for is never allowed on its name alone. Without it a link
+    # with an address inside a picker, or one named "Continue application", would fall out of this test allowed.
+    excused = widget or apply_step
+    if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",

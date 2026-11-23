@@ -1301,6 +1301,20 @@ class TestClickGuardHoles(T.Base):
         self.clear_watchdog()
         self.assertDenied(self.click(101, "ref_2", "A1", "Goes on"), "can send the application")
 
+    def test_a_step_word_beside_an_apply_word_goes_to_the_judge(self):
+        self.boot(filled=True)
+        page = ('button "Continua la candidatura" [ref_1] type="button"\n'
+                'button "Bewerbung fortfahren" [ref_2] type="button"\n'
+                'button "Invia candidatura" [ref_3] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page, "ref_1"))
+        self.clear_watchdog()
+        self.assertAllowed(self.click(101, "ref_2", "A1", "Goes on"))
+        self.assertEqual(len(self.judge_calls()), before + 2)
+        self.clear_watchdog()
+        # the fake judge blocks this name, and it carries no step word either
+        self.assertDenied(self.click(101, "ref_3", "A1", "Goes on"), "final control")
+
     def test_a_link_with_an_address_in_a_picker_is_still_checked(self):
         """The widget rule excuses the word, never the control: a link with an address used to fall out of the
         judge test (it is excluded by `navigable_href`) and would have been allowed on its name alone."""
