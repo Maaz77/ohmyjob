@@ -1,0 +1,10 @@
+<!doctype html><title>Graduate Programme - Apply</title>
+<!-- A consent tool blocked the application embed: it moved the real address out of `src` into an attribute of its
+     own, so until the visitor agrees the frame loads nothing and read_page sees a frame with no address at all.
+     Three shapes: a data-* name (Cookiebot), a name that is not data-* at all (Usercentrics), and a frame whose
+     only URL-valued attribute does not name itself a source -- that one must stay addressless. -->
+<h1>Graduate Programme</h1>
+<iframe id="blocked" title="Application form" data-cookieconsent="marketing"
+        data-cookieblock-src="http://localhost:8001/other.html" width="600" height="400"></iframe>
+<iframe id="uc" title="Application form" uc-src="http://localhost:8001/other.html" width="600" height="400"></iframe>
+<iframe id="decoy" title="Application form" data-poster="http://localhost:8001/other.html" width="600" height="400"></iframe>
