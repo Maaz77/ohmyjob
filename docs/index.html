@@ -724,7 +724,7 @@ footer{padding-top:28px;font-size:13px;color:var(--muted)}
       <h3>Helper extension</h3>
       <ul class="caps">
         <li>Opens sign-in pop-ups as tabs inside the run's tab group, so the worker can drive them.</li>
-        <li>Names icon-only controls from their icon ("Continue with Google" for the Google logo, app-store badges and Google apps excluded), marks each name as a guess, and tags each job tab's title with its Google control count and the helper version.</li>
+        <li>Names icon-only controls from their icon ("Continue with Google" for the Google logo, app-store badges and Google apps excluded, however an app's icon is named), marks each name as a guess, leaves a control the page already names alone, and tags each job tab's title with its Google control count and the helper version.</li>
         <li>Exposes any frame of 200×200 px or larger, from another site or the same one, as a link holding the frame's real address, kept current as it navigates or resizes; the worker opens a form frame as a page of its own. A frame with no address of its own gets a tag, so the worker reports it at once.</li>
         <li>Marks form fields, because Claude in Chrome shows no field state: <code>[x]</code> ticked or selected, <code>[req]</code> required, <code>[disabled]</code>, <code>[invalid]</code>; a text field reads "Label = value" and a radio "Question / Option". Buttons and links keep their own live names.</li>
         <li>Answers page dialogs in run tabs: an alert becomes a banner the worker can read, confirm and prompt are answered Cancel (never OK), and "Leave site?" prompts are dropped. When the tab leaves the run, the page gets its own dialogs back.</li>
