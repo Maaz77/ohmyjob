@@ -10,4 +10,10 @@
 <form><button id="cls" type="button" class="btn btn-primary add-row"><svg><path d="M0 0"/></svg></button></form>
 <form><button id="submit-icon" type="submit" data-testid="save-entry"><svg><path d="M0 0"/></svg></button></form>
 <form><button id="own" type="button" title="Add another" aria-label="Add a row"><svg><title>Close</title></svg></button></form>
+<!-- read_page names these two itself, from the title attribute and from the image inside: a guessed name would be
+     written into aria-label, which outranks both, and the word the guard refuses on ("Delete") would be gone -->
+<form><button id="titleonly" type="button" title="Delete" class="trash"><svg><path d="M0 0"/></svg></button></form>
+<form><button id="altonly" type="button" class="trash"><img alt="Delete" src="t.png"></button></form>
+<!-- a label around a Google button and a second, named control: the second must not take the label's name back -->
+<form><label id="wrap"><span id="gicon"><img alt="Google" src="g.png"></span><button id="inlabel" type="button"></button><button id="helper" type="button" aria-label="Help"></button></label></form>
 <script>setTimeout(() => { document.body.insertAdjacentHTML("beforeend", '<button id="late"><img alt="Google" src="g.png"></button>'); }, 300);</script>

@@ -153,6 +153,13 @@
 
   function iconName(el) {
     if (el.tagName === "INPUT" || wordsOf(el, "svg, style, script")) return "";  // it has a name or visible text
+    // A title attribute names the control to read_page, and the alt of an image inside it reaches the guard as the
+    // line inside the button, which a nameless control takes as its name. A guessed name is written into
+    // aria-label, which outranks both, and is not empty, so it would take their place: a trash button with
+    // title="Delete" and class="trash" would reach the guard as "Trash", and the word it hard-refuses on would be
+    // gone. So a control that is already named this way keeps the name it has, as the Google arm above does.
+    if (el.hasAttribute("title")) return "";
+    for (const img of el.querySelectorAll("img")) if ((img.getAttribute("alt") || "").trim()) return "";
     const title = el.querySelector("svg title");
     const fromTitle = title ? iconWords(title.textContent) : "";
     if (fromTitle) return fromTitle;
@@ -375,8 +382,19 @@
     else restoreLabel(el);
   }
 
+  // ponytail: MARK_CAP controls per pass, and hasGoogleIcon walks the images of each one. A form with more
+  // controls than that keeps the rest nameless; measure a big form before trading the ceiling for a cheaper walk.
   function nameGoogleButtons() {
     let seen = 0;
+    // Every label is written once, after both loops: a label holds more than one control, and the second one --
+    // in either loop -- would otherwise take back the name the Google control gave it. A name wins over a "".
+    const labels = new Map();
+    const wants = (el, name) => {
+      const label = el.closest("label");
+      if (!label) return;
+      if (name && !hasSiteName(label)) labels.set(label, name);
+      else if (!labels.has(label)) labels.set(label, "");
+    };
     for (const el of document.querySelectorAll(CONTROLS)) {
       if (++seen > MARK_CAP) break;
       const label = el.closest("label");
@@ -385,16 +403,15 @@
         name = hasGoogleIcon(label || el) ? GOOGLE_NAME : iconName(el);
       }
       setIconName(el, name);
-      // the control can be hidden: its label takes the click
-      if (label) setIconName(label, name === GOOGLE_NAME && !hasSiteName(label) ? name : "");
+      wants(el, name === GOOGLE_NAME ? name : "");  // the control can be hidden: its label takes the click
     }
     for (const el of iconHolders()) {
       if (el.matches(CONTROLS)) continue;  // a real control: the loop above
       const google = !hasSiteName(el) && isClickable(el) && !inStoreLink(el) && hasGoogleIcon(el);
       setIconName(el, google ? GOOGLE_NAME : "");
-      const label = el.closest("label");
-      if (label) setIconName(label, google && !hasSiteName(label) ? GOOGLE_NAME : "");
+      wants(el, google ? GOOGLE_NAME : "");
     }
+    for (const [label, name] of labels) setIconName(label, name);
   }
 
   // The title tag of a job tab: how many Google controls the page has, and how many of them have a name. The guard
@@ -905,7 +922,7 @@
 
   function pass() {
     if (!active) return;
-    nameGoogleButtons();
+    nameGoogleButtons();  // before markFields: no field mark ever stands in front of an "[icon] " name
     nameFrames();
     if (isTop) {
       shadowProxies();  // before markFields, so the fresh twins are marked in this same pass

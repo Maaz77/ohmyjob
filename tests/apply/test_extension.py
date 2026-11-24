@@ -26,7 +26,12 @@ ICON_GOOGLE = "[icon] Continue with Google"
 # icons.html: a name read off an icon carries "[icon] "; a button with no word in any source stays nameless (None),
 # and the site's own aria-label is never touched
 ICON_NAMES = {"titled": "[icon] Add another", "sprite": "[icon] Trash can", "bare": None, "testid": "[icon] Remove row",
-              "cls": "[icon] Add row", "submit-icon": "[icon] Save entry", "own": "Add a row"}
+              "cls": "[icon] Add row", "submit-icon": "[icon] Save entry", "own": "Add a row",
+              # a control read_page can name itself keeps that name: no guess is written over a title attribute
+              # or over the alt of an image inside it, because aria-label would outrank both
+              "titleonly": None, "altonly": None,
+              # inside the label of a Google button: the Google one is named, the one with its own name is not
+              "inlabel": ICON_GOOGLE, "helper": "Help"}
 # The job page is served as https://www.linkedin.com/feed; newer Chromium blocks its iframe on 127.0.0.1 without this.
 NO_LNA = ["--disable-features=LocalNetworkAccessChecks"]
 
@@ -315,6 +320,9 @@ class TestPopupsAsTabs(unittest.TestCase):
                 self.assertIsNone(page.evaluate("document.querySelector('#cls').getAttribute('data-aa-label')"))
                 self.assertEqual(page.evaluate("document.querySelector('#google').closest('label').getAttribute('aria-label')"),
                                  ICON_GOOGLE)
+                # the label of the Google button keeps its name: the named control beside it does not take it back,
+                # and neither does the icon holder, which is looked at in a second loop
+                self.assertEqual(page.evaluate("document.querySelector('#wrap').getAttribute('aria-label')"), ICON_GOOGLE)
 
                 # a new sign-in check page takes the group over: the home tab of a stopped run stays open in it
                 new_home = ctx.new_page()
