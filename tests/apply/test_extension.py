@@ -422,7 +422,13 @@ class TestPopupsAsTabs(unittest.TestCase):
                                          "plainfile": None, "prefixed": None, "camel": None, "mashed": None,
                                          "reversed": None, "innerg": None, "dataname": None,
                                          "photos": None, "bgdrive": None})
-                self.assertEqual(job.evaluate("document.getElementById('gdiv').getAttribute('aria-label')"), ICON_GOOGLE)
+                # issue 20: a clickable div gets role="button" from the role pass AND keeps the Google name, in
+                # the same pass. With the passes the other way round the role pass took the name off again
+                # (iconName returns "" for a div holding an <img alt="Google">) and only a second pass put it
+                # back, which is correct by accident on a page that keeps mutating and wrong on one that does not.
+                self.assertEqual(job.evaluate("(() => { const e = document.getElementById('gdiv');"
+                                              "return [e.getAttribute('aria-label'), e.getAttribute('role')]; })()"),
+                                 [ICON_GOOGLE, "button"])
                 # three Google controls, all named by the helper itself; no app control is counted
                 self.assertRegex(job.title(), r"\[AA g=3 named=3 v=[0-9][\w.+-]*\]$")
 

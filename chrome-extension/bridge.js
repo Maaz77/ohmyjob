@@ -992,8 +992,13 @@
 
   function pass() {
     if (!active) return;
+    // nameClickables FIRST: the role it writes puts the element in CONTROLS ([role="button"]), so the Google arm
+    // below sees it in its first loop and names it in the SAME pass. The other way round, the Google arm named a
+    // clickable div and this pass then took the name off again (iconName returns "" for a div holding an
+    // <img alt="Google">), and only a SECOND pass put it back -- correct by accident, and wrong on a page that
+    // mutates once and never again.
+    nameClickables();
     nameGoogleButtons();  // before markFields: no field mark ever stands in front of an "[icon] " name
-    nameClickables();     // after it: a Google div keeps the name the Google arm gave it
     nameFrames();
     if (isTop) {
       shadowProxies();  // before markFields, so the fresh twins are marked in this same pass
