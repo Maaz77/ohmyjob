@@ -533,10 +533,22 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             return
     word = None if choice else X.FINAL.find(scan)
     apply_hit = None if choice else X.APPLY.find(scan)
+    # A delete word ("Remove", "Delete") is never allowed on its name: the structural test and then the Haiku check
+    # decide, so the word rule still fires and its effect is a refusal or a guaranteed model call (`excused` below),
+    # as for a sign-up name. Read from `scan`, like the final and apply words: a `button "Options"` whose text sits in
+    # a child "Remove education" escaped the rule otherwise.
+    remove = None if tick else X.REMOVE.find(scan)
+    # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
+    # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
+    # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
+    # `excused` below carries this flag to that check; nothing else reads it.
+    signup = None if tick else X.SIGNUP.find(name)
     # a final or apply word inside a picker, list or menu closes that widget and sends no form ("Done" in a date
     # picker, "Apply" in a multi-select, "Apply filters" beside a date field). The name alone never allows it:
-    # the Haiku check below decides.
-    widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit) else None
+    # the Haiku check below decides. A delete word asks as well, because the answer is evidence the check reads
+    # ("In a picker or list"), as for a sign-up name, and a chip's "Remove" inside a tag list is the one delete that
+    # is meant to pass.
+    widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit or remove or signup) else None
     if word and not widget and not icon:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
@@ -571,22 +583,23 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # is an answer), so the permission, delete, sign-up and Google rules below skip it.
     if consent and not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
-    # The one word rule that does NOT stand down for a guessed name. CLICK_PROMPT still contradicts itself on this
-    # word (judge.py blocks "delete or withdraw data" and allows "Remove" nine lines on), so the model is no gate for
-    # it yet; issue 45 owns that prompt and the delete/icon interaction. A mislabelled icon button costs a parked
-    # worker until then, which is recoverable, while a deleted record is not.
-    if not tick and X.DELETE.find(name):
+    # A guessed name ([icon] Delete) carrying a delete word is routed, not refused, exactly like any other delete word:
+    # the containment rule (field_beside above the model, the `Inside:` field in it), not the name, decides.
+    # Only a withdraw word is refused outright.
+    if not tick and X.WITHDRAW.find(scan):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
+    # The structure decides a form entry, not the model's reading of the lines around the control: a ±2 line window
+    # cannot say what encloses what, and in the flattened interactive view a repeatable entry has no structure at all.
+    # A field in the same container (or in the window, where there is no container) means the click removes an answer.
+    field = L.field_beside(snapshot, ref) if remove else None
+    if field:
+        raise Deny(f"'{name}' sits beside the form field '{field}', so it removes an answer. Do not click it. "
+                   + park_order(ctx, tab, "If this is the step with the final button, stop here with status 'parked'."))
     google = None if tick else X.google_signin(name)
-    # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
-    # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
-    # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
-    # `excused` below carries this flag to that check; nothing else reads it.
-    signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
     # A Google name the extension gave an icon is asked first: the lease is taken below, only on an allow.
-    if google and not filled and not icon:
+    if google and not filled and not icon and not remove:
         take_signin_lease(ctx, tab)
         return
     board = bool(BOARD_LABELS & set((ctx.host(tab) or "").split(".")))
@@ -596,19 +609,27 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # `consent` sits inside the `not icon` group with the others: a consent word is wording like any other, and a
     # guess off a class ("accept-and-submit") must not buy the allow that the site's own "Accept and submit" is
     # refused by. With it, the widened `excused` below sends such a name to the Haiku check.
-    if not name.strip() or (not icon and (consent or (apply_word and not filled and not sticky and not board and not signup)
-                                          or name in X.SAFE)):
+    if not remove and (not name.strip() or (not icon and (consent or (apply_word and not filled and not sticky and not board and not signup)
+                                                          or name in X.SAFE))):
         return
     # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
     # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
-    # step word, `signup` a sign-up name with no Google word. Without this, such a control with a navigable address
-    # would fall out of the test below allowed, because a link is excluded from the check by `navigable_href`.
-    excused = widget or apply_step or bool(signup and not google) or icon
+    # step word, `signup` a sign-up name with no Google word, `remove` a delete word, `icon` a guessed name. Without
+    # this, such a control with a navigable address would fall out of the test below allowed, because a link is
+    # excluded from the check by `navigable_href`.
+    excused = widget or apply_step or bool(signup and not google) or bool(remove) or icon
     if excused or role in L.CLICKABLE_ROLES - L.CHOICE_ROLES - {"link"} or (role == "link" and not L.navigable_href(attrs.get("href"))):
         if widget:
             context = f'inside the list or picker "{widget}" | {context}'
+        # `container`: the lines that enclose the control, which the ±2 line window of `context` cannot express. The
+        # delete rule keys its one allow on this field, because only containment tells a chip's "Remove" inside a tag
+        # list from a "Remove" that happens to stand next to an uploaded file's name. Separated, and cut from the
+        # front, because the rule reads the LAST name: an upload area inside a form named "Application form" has to
+        # arrive as "Application form | Resume" and not as one run of words that reads like the application itself.
+        # `delete`: the word rule's own decision, so nothing downstream re-derives it from the name cut at 300.
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
-                   "filled": filled or ("unknown" if sticky else False), "widget": bool(widget), "icon": icon}
+                   "filled": filled or ("unknown" if sticky else False), "widget": bool(widget), "icon": icon,
+                   "container": L.ancestor_names(snapshot, ref, " | ")[-300:], "delete": bool(remove)}
         result = ctx.judged_click(payload)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "
@@ -1698,7 +1719,12 @@ def guard(inp: dict) -> None:
             break
         # a name is cached for the whole run only when its fill state is known: in /continue-applying an allowed
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
-        if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown":
+        # never for a delete word: one "allow" for "Remove" inside an upload area would be replayed for every "Remove" of
+        # the host (in every later run too: store_persistent sits in this same block), a filled education row included. The prompt asks the model for "context_dependent": true, but only this
+        # condition makes it certain. Read from the payload's own flag, never from its name: that one is cut at 300
+        # characters while the rule that routed the click read the whole of it.
+        if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown" \
+                and not pending.payload.get("delete"):
             short_payload = short_click_payload(pending.payload)
             short_key = J.key_for("click", short_payload)
             J.store(run_dir, short_key, {"result": result, "payload": short_payload})

@@ -889,6 +889,10 @@ CLICKABLE_ROLES = {"button", "link", "menuitem", "menuitemcheckbox", "menuitemra
 # ("I confirm I have read the above." is a checkbox, "Acknowledge/Confirm" an option: both were wrongly blocked once).
 CHOICE_ROLES = TICK_ROLES | {"option"}
 WIDGET_ROLES = {"listbox", "menu", "menubar", "tree", "treegrid", "grid", "combobox"}
+# Roles that hold an answer of the candidate. A delete control beside one of them removes that answer, so the delete
+# rule refuses it without asking the model (`field_beside`). A checkbox is deliberately out: a consent tick sits beside
+# half the buttons of a page, while a radio button is one answer of a question.
+FIELD_ROLES = TYPE_ROLES | {"radio"}
 
 
 def is_search_field(item: dict) -> bool:
@@ -1280,12 +1284,16 @@ def line_name(line: str) -> str:
     return _name(quoted.group(1)) if quoted else ""
 
 
-def ancestor_names(text: str, ref: str) -> str:
+def ancestor_names(text: str, ref: str, sep: str = " ") -> str:
     """The names of the lines that enclose `ref`: every line above it with a smaller indent, outermost first.
 
     A dialog gives its children their meaning ("Manage your data" over a "Confirm choices" button), while the lines
     beside a ref belong to other controls, so a test about the dialog a control sits in uses this, not the lines
-    around it."""
+    around it.
+
+    `sep`: the word rules scan the result as one text and want the default space. A reader that has to tell the
+    directly enclosing container from the ones further out passes a separator ("Application form | Resume"), because
+    the last name is the only one that encloses the ref itself."""
     lines = text.splitlines()
     index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
     if index is None:
@@ -1304,7 +1312,35 @@ def ancestor_names(text: str, ref: str) -> str:
                 names.append(name)
             if indent == 0:
                 break
-    return " ".join(reversed(names))
+    return sep.join(reversed(names))
+
+
+def field_beside(text: str, ref: str, span: int = 2) -> Optional[str]:
+    """The name (or role) of a form field in the same container as `ref`, or None.
+
+    The container is the nearest line that encloses `ref`, with everything under it. A page with no structure at all
+    has none — in `filter=interactive` plain div nesting is flattened, so a repeatable entry arrives as a flat list —
+    and there the `span` lines above and below stand in for it.
+
+    The delete rule asks this: a field in the same container means the control removes an answer of the candidate,
+    which the model must not be left to weigh up from a window of lines that cannot express containment."""
+    lines = text.splitlines()
+    index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
+    if index is None:
+        return None
+    parent = next((j for j in range(index - 1, -1, -1)
+                   if lines[j].strip() and _indent(lines[j]) < _indent(lines[index])), None)
+    if parent is None:
+        picked = range(max(0, index - span), min(len(lines), index + span + 1))
+    else:
+        end = next((j for j in range(parent + 1, len(lines))
+                    if lines[j].strip() and _indent(lines[j]) <= _indent(lines[parent])), len(lines))
+        picked = range(parent + 1, end)
+    for j in picked:
+        match = ELEMENT_RE.match(lines[j].rstrip())
+        if j != index and match and match.group("role").lower() in FIELD_ROLES:
+            return line_name(lines[j]) or match.group("role").lower()
+    return None
 
 
 def widget_ancestor(text: str, ref: str) -> Optional[str]:

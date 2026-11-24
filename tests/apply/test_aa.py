@@ -1170,12 +1170,15 @@ class TestLanguages(Base):
         self.assertDenied(self.click(101, "ref_146", "L1"), "cookie")
         self.assertDenied(self.click(101, "ref_151", "L1"), "Haiku check blocked")
         self.assertAllowed(self.click(101, "ref_152", "L1", "Opens Sign in with Google"))
-        self.assertDenied(self.click(101, "ref_153", "L1"), "deletes")
+        # "Elimina il mio profilo" is a delete word (issue 45), so it is no longer refused by the word list
+        # ("deletes"). It shares its dialog with `textbox "Nome"`, and a delete control beside a form field removes an
+        # answer, so the structure refuses it before the Haiku check: still no model call for this one
+        self.assertDenied(self.click(101, "ref_153", "L1"), "sits beside the form field 'Nome'")
         self.assertDenied(self.click(101, "ref_158", "L1"), "permission")
         self.assertAllowed(self.click(101, "ref_157", "L1", "Opens the privacy notice"))  # a link to a page
         self.assertAllowed(self.click(101, "ref_148", "L1", "Opens the application form"))  # apply before a fill
         self.assertAllowed(self.click(101, "ref_160", "L1", "Opens the application form"))  # 応募する: apply
-        self.assertEqual(len(self.judge_calls()), before + 1, "the word lists decided these without Haiku, bar the sign-up name")
+        self.assertEqual(len(self.judge_calls()), before + 1, "the word lists and the structure decided these without Haiku, bar the sign-up name")
         # names that no list knows: the Haiku check (fake) decides, and its answer is cached
         self.assertAllowed(self.click(101, "ref_147", "L1", "Rejects all cookies"))      # Rifiuta tutti
         self.assertDenied(self.click(101, "ref_155", "L1"), "haiku check blocked")       # Trasmetti la domanda
@@ -1358,7 +1361,8 @@ class TestGoogle(Base):
         self.assertAllowed(click(201, "ref_81", "G1", "Opens Sign up with Google"))
         self.assertAllowed(click(201, "ref_82", "G1", "Opens Continue with Google"))
         self.assertDenied(click(201, "ref_83", "G1"), "Haiku check blocked")
-        self.assertDenied(click(201, "ref_85", "G1"), "deletes")
+        # a delete word, so refused by the model on the nearby text (issue 45), not by the word list
+        self.assertDenied(click(201, "ref_85", "G1"), "Haiku check blocked")
         # Google in the same tab; the sign-in address asks for the basic profile only
         basic = ("https://accounts.google.com/o/oauth2/v2/auth?client_id=x&response_type=code"
                  "&scope=openid%20email%20profile&redirect_uri=https%3A%2F%2Fcareers.example.com%2Fcb")
@@ -1485,7 +1489,7 @@ class TestIconButton(Base):
     def test_an_icon_name_is_evidence_for_the_model_never_an_allow(self):
         """Issue 44: the extension names an icon-only button "[icon] <name>". The name is a guess, so it earns no
         allow of its own (not even SAFE), and a final or Apply word in it refuses nothing by itself: the Haiku check
-        decides, and it is told. A delete word is the exception and keeps its refusal (see the delete test)."""
+        decides, and it is told. A delete word is routed like the rest (see the delete test)."""
         self.aa_json("start")
         (folder, tab, _b), _second = self.assign(101, 102)
         self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
@@ -1500,23 +1504,27 @@ class TestIconButton(Base):
         self.assertDenied(self.click(tab, "ref_2", "A1", "Opens the next screen"), "Haiku check blocked")
         self.assertEqual([c["name"] for c in self.judge_calls()[before:]], ["Next", "Envoyer"])
 
-    def test_a_delete_word_refuses_a_guessed_name_too(self):
-        """The one word rule that does NOT stand down for a guess. CLICK_PROMPT still contradicts itself on this
-        word (judge.py blocks "delete or withdraw data" and allows "Remove" nine lines on), so the model is no gate
-        for it yet; issue 45 owns that prompt. A mislabelled icon button costs a parked worker, which is
-        recoverable, while a deleted record is not."""
+    def test_a_delete_word_in_a_guessed_name_is_routed_and_the_container_decides(self):
+        """Issue 45 decision: a guessed "[icon] Delete" is asked like any other delete word, not refused on its name.
+        The containment rule decides: allowed when the enclosing container is itself the removable thing, refused when
+        it holds form fields (no model call) or when the model reads the container as a form entry."""
         self.aa_json("start")
         (folder, tab, _b), _second = self.assign(101, 102)
         self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/apply"}, W, "A1"))
-        self.icon_page(tab, 'button "[icon] Delete" [ref_1] type="button"\n')
+        self.icon_page(tab, 'group "Resume" [ref_9]\n link "Resume.pdf" [ref_8]\n'
+                            ' button "[icon] Delete" [ref_1] type="button"\n')
         before = len(self.judge_calls())
-        self.assertDenied(self.click(tab, "ref_1", "A1", "Removes a row"), "deletes or withdraws data")
-        self.assertEqual(len(self.judge_calls()), before, "a delete word is refused, not asked")
-        # Why the extension writes no name over a title attribute or an img alt (bridge.js iconName): a guessed
-        # name is not empty, so it takes the place of the line inside the button as the name, and the word rules
-        # read the name. The delete word of the icon's own tooltip would be gone, as it is here.
-        self.icon_page(tab, 'button "[icon] Trash" [ref_2] type="button"\n image "Delete" [ref_3]\n')
-        self.assertAllowed(self.click(tab, "ref_2", "A1", "Removes a row"))
+        self.assertAllowed(self.click(tab, "ref_1", "A1", "Removes the uploaded file"))
+        self.assertEqual(self.judge_calls()[-1]["name"], "Delete")
+        self.assertEqual(self.judge_calls()[-1]["inside"], "Resume")
+        self.assertEqual(len(self.judge_calls()), before + 1, "a guessed delete word is asked, not refused")
+        self.icon_page(tab, 'textbox "School" [ref_7] type="text"\nbutton "[icon] Delete" [ref_2] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertDenied(self.click(tab, "ref_2", "A1", "Removes a row"), "sits beside")
+        self.assertEqual(len(self.judge_calls()), before, "beside form fields the structure refuses with no call")
+        # the icon's own tooltip words inside a nameless-by-text button: asked too, and blocked for want of a container
+        self.icon_page(tab, 'button "[icon] Trash" [ref_3] type="button"\n image "Delete" [ref_4]\n')
+        self.assertDenied(self.click(tab, "ref_3", "A1", "Removes a row"), "Haiku check blocked")
         self.assertEqual(self.judge_calls()[-1]["name"], "Trash")
 
     def test_a_submit_button_named_only_from_its_icon_stays_refused(self):
@@ -2020,7 +2028,7 @@ class TestClickPrompt(unittest.TestCase):
     def test_an_icon_name_is_flagged_to_the_model(self):
         import judge
         payload = {"name": "Add", "role": "button", "context": "x", "host": "h.example", "filled": False}
-        self.assertNotIn("icon", judge.build_prompt("click", payload))
+        self.assertNotIn("read off the control's icon", judge.build_prompt("click", payload))
         self.assertIn("read off the control's icon", judge.build_prompt("click", {**payload, "icon": True}))
 
 
