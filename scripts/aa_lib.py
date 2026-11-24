@@ -1192,10 +1192,16 @@ def parse_refs(text: str) -> dict[str, dict]:
         role = match.group("role").lower()
         raw_name = match.group("name") or ""
         name, value = _label(role, _name(raw_name))
+        # the marks that were stripped, not the first one: MARKS_RE takes them in any order, and a flag read off
+        # the start alone would be dropped from "[hidden] [icon] Add" -- a guess arriving as a name the site wrote,
+        # the one direction that fails open. ("[hidden] " is written first of all the field marks, so it may ask
+        # the start; a pressable control never gets a field mark at all, see bridge.js markFields.)
+        found = MARKS_RE.match(_unescape(raw_name))
+        marks = found.group(0) if found else ""
         refs[match.group("ref")] = {"role": role, "name": name, "attrs": attrs, "line": raw.strip()[:400]}
         if raw_name.startswith("[hidden]"):
             refs[match.group("ref")]["hidden"] = True  # the extension saw no person could see this field
-        if raw_name.startswith("[icon]"):
+        if "[icon]" in marks:
             refs[match.group("ref")]["icon"] = True  # the name is a guess from an icon: evidence, never an allow
         if value is not None:
             refs[match.group("ref")]["value"] = value

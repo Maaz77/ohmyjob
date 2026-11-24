@@ -1063,6 +1063,14 @@ class TestHiddenFieldFills(T.Base):
                          ("Add another", True, None))
         self.assertNotIn("icon", refs["ref_2"])
 
+    def test_the_icon_mark_is_recorded_wherever_it_stands(self):
+        # MARKS_RE strips the marks in any order and number, so the flag is read from the marks that were stripped,
+        # never from the first one. A dropped flag would let a guessed name pass for a name the site wrote, the one
+        # direction that fails open. nameGoogleButtons runs before markFields today, so no field mark precedes an
+        # "[icon] " name; the flag must not rest on that call order.
+        refs = L.parse_refs('button "[hidden] [icon] Add" [ref_1] type="button"\n')
+        self.assertEqual((refs["ref_1"]["name"], refs["ref_1"].get("icon")), ("Add", True))
+
     def test_a_hidden_text_field_is_refused(self):
         for ref in ("ref_287", "ref_288", "ref_289"):
             self.assertDenied(self.fill(ref), "hidden on the page")
