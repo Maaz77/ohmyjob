@@ -280,7 +280,30 @@
     } catch (e) {
       here = null;
     }
-    return usableFrameUrl(here) || usableFrameUrl(frame.getAttribute("src")) || addressInside(frame, 2);
+    return usableFrameUrl(here) || usableFrameUrl(frame.getAttribute("src")) || deferredFrameUrl(frame)
+      || addressInside(frame, 2);
+  }
+
+  // A consent tool that blocks an embed until the visitor agrees takes the address out of `src` and keeps it in an
+  // attribute of its own: data-src (OneTrust, Klaro), data-cookieblock-src (Cookiebot), data-src-cmplz (Complianz),
+  // data-cmp-src (consentmanager), uc-src (Usercentrics, not a data-* name at all). No list of tools here: the names
+  // differ per tool, several tools publish none, and the next tool will invent another. The one thing they share is
+  // "src" in the attribute's name, so that is what is looked for. This gives no consent: it only offers the worker
+  // the address the page was going to load anyway, which it opens as a page of its own.
+  //
+  // The NAME must hold "src" as a word of its own. The worker navigates its tab to whatever this returns, so taking
+  // any attribute that merely looks like a URL would offer it a data-poster image or an analytics beacon as the
+  // application form. A word, not a substring: `srcdoc` holds a document, not an address, and usableFrameUrl resolves
+  // whatever it is given against this page, so `srcdoc="<p>editor</p>"` would come back as a usable-looking URL.
+  const DEFERRED_SRC = /(^|[^a-z])src([^a-z]|$)/i;
+
+  function deferredFrameUrl(frame) {
+    for (const attr of frame.attributes) {
+      if (attr.name === "src" || !DEFERRED_SRC.test(attr.name)) continue;
+      const url = usableFrameUrl(attr.value);
+      if (url) return url;
+    }
+    return null;
   }
 
   // A frame with no address of its own (srcdoc, about:blank, written by the page) inherits this page's origin, so

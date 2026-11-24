@@ -678,6 +678,11 @@ def site_key(url: Optional[str]) -> Optional[str]:
     return f"{host}/{job_id.group(1)}" if host and job_id and host.endswith("linkedin.com") else host
 
 
+def job_host(job: dict) -> str:
+    """The host a worker really loads: the form's address when the job has one, else the posting's."""
+    return L.host_of(job.get("apply_url") or job.get("url")) or ""
+
+
 def _segments(url: Optional[str]) -> list[str]:
     return [x for x in urlsplit(url or "").path.split("/") if x]
 
@@ -904,8 +909,24 @@ def cmd_next(args: argparse.Namespace) -> None:
             running = [f for f, j in state["jobs"].items() if j.get("started_at") and not j.get("recorded")
                        and not j.get("ended_at") and j.get("stopped_by") not in ("idle", "ended")
                        and not (L.job_dir(run_dir, f) / "result.json").exists()]
+            # The cap is per host as well as per slot: the stagger only spreads each worker's FIRST page load and
+            # runs on one global clock (hooks.py next_start), so it cannot stop many workers from sitting on one
+            # ATS host. The host is the form's (apply_url) when the job has one: a LinkedIn posting whose form lives
+            # on Greenhouse loads Greenhouse. A job held for its host does not hold up a job on another host.
             free = max(0, L.SLOTS - len(running))
-            take, state["waiting"] = waiting[:free], waiting[free:]
+            cap = limits["per_host_workers"]
+            on_host: dict[str, int] = {}
+            for f in running:
+                host = job_host(state["jobs"][f])
+                on_host[host] = on_host.get(host, 0) + 1
+            take, state["waiting"] = [], []
+            for w in waiting:
+                host = job_host(state["jobs"][w["folder"]])
+                if len(take) >= free or on_host.get(host, 0) >= cap:
+                    state["waiting"].append(w)
+                    continue
+                take.append(w)
+                on_host[host] = on_host.get(host, 0) + 1
             for w in take:
                 job = state["jobs"][w["folder"]]
                 job.update({"started_at": now, "spawned": False, "worker": w,
@@ -965,7 +986,11 @@ def retry_workers(run_dir: Path) -> list:
 # ledger so far (geo walls, auto-mode refusals, a sign-in-only route, a consent denial) came from Sonnet itself: it
 # describes an environment Sonnet cannot pass either, so a handover would pay twice for nothing. One line to revisit.
 NO_HANDOVER_CODES = ("QUESTIONS", "CLOSED", "ALREADY_SUBMITTED", "OTHER", "FILL_REVIEW")  # FILL_REVIEW: the user fixes it
-WATCHDOG_STOPS = ("idle", "ended", "stall", "repeat_deny", "budget")
+# `repeat_deny` is deliberately not here. The worker stopped because the same refusal came back
+# `repeat_deny_stop` times, and the guard refuses a Sonnet worker for exactly the same reason, so a handover
+# re-earns the same wall and pays for it twice. Such a job goes to Needs Attention as a `wall`
+# (ledger.classify_outcome), which is where a wall belongs.
+WATCHDOG_STOPS = ("idle", "ended", "stall", "budget")
 NO_FINAL_MARKER = "stopped before any final control"  # check_result: a park with no final control evidenced
 
 

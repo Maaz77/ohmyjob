@@ -68,6 +68,7 @@ Three files in your workspace shape how the application workers behave.
 | `repeat_deny_stop` | 5 | This many identical refusals in a row stops the worker (waiting for a sign-in does not count). |
 | `call_budget` | 150 | Browser and file-reading calls allowed in one worker. |
 | `idle_minutes` | 6 | No tool call for this long frees the worker's slot. |
+| `per_host_workers` | 5 | Workers at once on one host (the form's host when the job has one). A job held for its host does not delay a job on another host. |
 
 Progress means a new page, the first fill of a field, the first click on a choice control, an upload, or a step of a Google sign-in. There is no wall-clock limit.
 

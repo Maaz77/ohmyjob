@@ -303,21 +303,19 @@ class Ctx:
         raise L.NeedJudge(kind, payload)
 
     def judged_click(self, payload: dict) -> dict:
-        """A name that Haiku called context-free is checked one time per run; else per page context."""
-        short = short_click_payload(payload)
-        entry = J.cached(self.run_dir, J.key_for("click", short)) or {}
+        """A name Haiku called context-free is checked once per run and kept for later runs; else per page
+        context."""
+        entry = J.cached(self.run_dir, J.key_for("click", short_click_payload(payload))) or {}
         if "result" in entry:
             return entry["result"]
         return self.judged("click", payload)
 
 
 def short_click_payload(payload: dict) -> dict:
-    """The question a context-free verdict is cached under. A verdict is per host (boards differ); a picker's "Done"
-    is not a form's "Done"; and a name the extension invented is not the site's own name (one judged context-free
-    must not stand in for the other, and the model has to learn the name was a guess)."""
-    short = {k: payload[k] for k in ("name", "role", "filled", "host")}
-    short["widget"] = bool(payload.get("widget"))
-    short["icon"] = bool(payload.get("icon"))
+    """The context-free key of a click. The lookup (judged_click) and the store (the judge-round loop) must both use it."""
+    short = {k: payload[k] for k in ("name", "role", "filled", "host")}  # a verdict is per host: boards differ
+    short["widget"] = bool(payload.get("widget"))  # a picker's "Done" is not the same control as a form's "Done"
+    short["icon"] = bool(payload.get("icon"))  # a name the extension invented is not the site's own name: one verdict must not stand in for the other
     return short
 
 
@@ -672,6 +670,7 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
         actions = ti.get("actions") or []
         changed = False
         new_actions = []
+        dropped = []
         for i, action in enumerate(actions):
             raw = str(action.get("name") or "")
             if not raw:
@@ -682,12 +681,30 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             try:
                 updated = check_worker_action(ctx, name, action.get("input") or {}, in_batch=True)
             except Deny as exc:
+                # A page is filled with one batch of form_input actions, so one ref that went stale used to cost
+                # every other fill on the page and the worker refilled the lot. A stale ref is dropped instead: it
+                # says nothing about the page, `element` raises before any fill is recorded, and the worker's rules
+                # make its next call a read_page, which shows the field still empty.
+                #
+                # Only a fill, and only a stale ref. Every other refusal still denies the whole batch, because it
+                # says something about the page that the rest of the batch must not act on: a hidden (honeypot)
+                # field, a second click, a click after the page changed, a marker. `L.NeedJudge` is not a `Deny`,
+                # so it keeps propagating.
+                if name == "form_input" and str(exc).startswith("Unknown ref"):
+                    dropped.append(i + 1)
+                    changed = True
+                    continue
                 raise Deny(f"browser_batch item {i + 1} ({name}): {exc}") from None
             if updated is not None or name != raw:
                 new_actions.append({**action, "name": name, "input": updated if updated is not None else action.get("input")})
                 changed = True
             else:
                 new_actions.append(action)
+        if dropped:
+            if not new_actions:
+                raise Deny(f"Every fill in this browser_batch used a ref that is no longer on the page (items "
+                           f"{', '.join(map(str, dropped))}). Call read_page alone first, then fill with its refs.")
+            L.log(ctx.run_dir, "batch-drop", items=dropped, kept=len(new_actions))
         return {**ti, "actions": new_actions} if changed else None
     tab = ti.get("tabId")
     if tab is None:
@@ -751,8 +768,16 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             raise Deny(problem)
         expected = ctx.pdf_for(tab)
         paths = ti.get("paths") or ([ti["file_path"]] if ti.get("file_path") else [])
-        if not expected or len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
-            raise Deny(f'Upload only this one file, as "paths": ["{expected}"]')
+        if not expected:
+            # no resume on this job: the old message printed ["None"], which no worker could act on
+            raise Deny("This job has no resume PDF, so nothing may be uploaded. Leave the upload empty, list it in "
+                       "`open`, and go on.")
+        if len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
+            # The worker reaches here for a second required document as often as for a wrong path, and uploading the
+            # resume into a cover-letter field would attach the wrong document to a real application.
+            raise Deny(f'Upload only this one file, as "paths": ["{expected}"]. It is the only file you may upload. '
+                       f'If this field wants a different document (a cover letter, a transcript, a portfolio), do '
+                       f'not put the resume in it: leave the field, list it in `open`, and go on.')
         element(ctx, tab, ti.get("ref"))
         ctx.mark_filled(tab)
         ctx.set_focus(tab, None)
@@ -800,7 +825,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if not L.keys_allowed(keys):
                 raise Deny("Press only Tab, Shift+Tab, Escape, Backspace, Delete, the arrow, Home, End and Page keys, or "
                            "Ctrl/Cmd with A, C, V, X, Z, Y. Enter, Return and Space can press a focused button: click the "
-                           "control by its ref instead.")
+                           "control by its ref instead. A dropdown or search list never commits from a key: click the "
+                           "field by its ref, call read_page alone, then click the option by its ref. If no option "
+                           "appears that way, that field cannot be answered: leave it, fill the rest of the step, and "
+                           "stop as your rules say.")
             if L.TAB_KEY_RE.search(keys):
                 ctx.set_focus(tab, None)
             return None
@@ -1672,7 +1700,9 @@ def guard(inp: dict) -> None:
         # "Apply" that opened one form must not allow a final "Apply" on a review step of another tab
         if pending.kind == "click" and result.get("context_dependent") is False and pending.payload.get("filled") != "unknown":
             short_payload = short_click_payload(pending.payload)
-            J.store(run_dir, J.key_for("click", short_payload), {"result": result, "payload": short_payload})
+            short_key = J.key_for("click", short_payload)
+            J.store(run_dir, short_key, {"result": result, "payload": short_payload})
+            J.store_persistent(short_key, {"result": result, "payload": short_payload})
     else:
         reason = "Too many new names in one call. Click one control at a time."
     if reason is not None:
