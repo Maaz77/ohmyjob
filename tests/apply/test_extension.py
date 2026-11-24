@@ -885,6 +885,69 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    GOOGLE_OVER = "document.querySelectorAll('button[data-aa-google-frame]')"
+
+    def test_a_google_button_in_a_small_frame_gets_a_clickable_overlay(self):
+        """A frame under FRAME_MIN gets no link (the worker would load a social widget with no parent to answer), so
+        the page lays a named overlay over the Google button inside it, and a coordinate click passes through."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "social-frame.html")
+            try:
+                over = job.evaluate(f"[...{self.GOOGLE_OVER}].map(e => {{ const r = e.getBoundingClientRect();"
+                                    "return [e.getAttribute('aria-label'), r.x, r.y, r.width, r.height]; })")
+                self.assertEqual(len(over), 1)
+                name, x, y, w, h = over[0]
+                self.assertEqual(name, "Continue with Google")  # the literal, no "[icon] " and no "[AA "
+                # the widget's #g button: body margin 0, button margin 12, 320x36, in the frame at the page's origin
+                # plus the h1 above it
+                frame = job.locator("#social").bounding_box()
+                for have, want in zip((x, y, w, h), (frame["x"] + 12, frame["y"] + 12, 320, 36)):
+                    self.assertAlmostEqual(have, want, delta=2)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 0)
+                widget = [f for f in job.frames if f.url.endswith("/social-widget.html")][0]
+                self.assertIsNone(widget.evaluate("window.hit"))
+                job.mouse.click(x + w / 2, y + h / 2)
+                self.assertEqual(widget.evaluate("window.hit"), "g")
+                # the overlay is a Google control of the page, named: g=1 named=1
+                time.sleep(1.0)
+                self.assertRegex(job.title(), r"\[AA g=1 named=1 v=[0-9][\w.+-]*\]$")
+            finally:
+                ctx.close()
+
+    def test_only_a_google_control_gets_a_frame_overlay(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "social-frame.html")
+            try:
+                over = job.evaluate(f"[...{self.GOOGLE_OVER}].map(e => e.getBoundingClientRect().height)")
+                self.assertEqual(len(over), 1)  # #a, the Apple button 12+36+12 lower, has none
+                widget = [f for f in job.frames if f.url.endswith("/social-widget.html")][0]
+                self.assertEqual(widget.evaluate("document.getElementById('a').getBoundingClientRect().y"), 60)
+                top = job.locator("#social").bounding_box()["y"]
+                self.assertLess(job.evaluate(f"{self.GOOGLE_OVER}[0].getBoundingClientRect().y"), top + 60)
+            finally:
+                ctx.close()
+
+    def test_a_frame_big_enough_to_be_linked_gets_no_overlay(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "framed-form.html")
+            try:
+                time.sleep(0.5)
+                self.assertEqual(job.evaluate("document.querySelectorAll('a[data-aa-frame]').length"), 2)
+                self.assertEqual(job.evaluate(f"{self.GOOGLE_OVER}.length"), 0)
+            finally:
+                ctx.close()
+
+    def test_frame_overlays_are_gone_after_the_run(self):
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "social-frame.html")
+            try:
+                self.assertEqual(job.evaluate(f"{self.GOOGLE_OVER}.length"), 1)
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                self.assertEqual(job.evaluate(f"{self.GOOGLE_OVER}.length"), 0)
+            finally:
+                ctx.close()
+
     def test_late_shadow_field_and_leaving_the_run(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "shadow-form.html")
