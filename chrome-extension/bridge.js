@@ -163,7 +163,10 @@
   }
 
   function iconName(el) {
-    if (el.tagName === "INPUT" || wordsOf(el, "svg, style, script")) return "";  // it has a name or visible text
+    if (el.tagName === "INPUT" || ownText(el)) return "";  // it has a name of its own
+    // Text only in a child element (<button><span>Remove this entry</span></button>): read_page does not pull it up,
+    // so those words are the name, once the guards below have passed.
+    const words = wordsOf(el, "svg, style, script");
     // A title attribute names the control to read_page, and the alt of an image inside it reaches the guard as the
     // line inside the button, which a nameless control takes as its name. A guessed name is written into
     // aria-label, which outranks both, and is not empty, so it would take their place: a trash button with
@@ -171,6 +174,7 @@
     // gone. So a control that is already named this way keeps the name it has, as the Google arm above does.
     if (el.hasAttribute("title")) return "";
     for (const img of el.querySelectorAll("img")) if ((img.getAttribute("alt") || "").trim()) return "";
+    if (words) return words;  // writeLabel clips it
     const title = el.querySelector("svg title");
     const fromTitle = title ? iconWords(title.textContent) : "";
     if (fromTitle) return fromTitle;
@@ -425,6 +429,32 @@
   // Every name written here is "[icon] <name>", through the same record as the field marks (OURS, ORIG): a name that
   // stops applying (the button now says "Submit application") is taken back by the next pass, and leaveRun takes
   // all of them back.
+  // Banner roots of the common consent tools, hidden (display:none) in a run tab and put back when the run ends.
+  //
+  // KNOWN CONSEQUENCE, not an oversight: the guard's consent rules (scripts/hooks.py) judge a consent dialog from
+  // the snapshot, so a hidden banner is never in a snapshot, is never judged, and the "click its most private
+  // choice" instruction stops applying to it. Hiding gives no consent: it only takes the banner out of the agent's
+  // view, so it cannot cover the page or be clicked by mistake.
+  const CONSENT_ROOTS = ["#onetrust-banner-sdk", "#onetrust-consent-sdk", "#CybotCookiebotDialog", "#usercentrics-root",
+    "#cmpbox", ".cmplz-cookiebanner", "#klaro", ".brlbs-cmpnt-container"];
+  const CONSENT_OURS = "data-aa-consent";  // set on a root this script hid: holds the site's own inline display
+
+  function hideConsentRoots() {
+    for (const el of document.querySelectorAll(CONSENT_ROOTS.join(","))) {
+      if (!el.hasAttribute(CONSENT_OURS)) el.setAttribute(CONSENT_OURS, el.style.getPropertyValue("display"));
+      el.style.setProperty("display", "none", "important");
+    }
+  }
+
+  function restoreConsentRoots() {
+    for (const el of document.querySelectorAll(`[${CONSENT_OURS}]`)) {
+      const own = el.getAttribute(CONSENT_OURS);
+      el.style.removeProperty("display");
+      if (own) el.style.setProperty("display", own);
+      el.removeAttribute(CONSENT_OURS);
+    }
+  }
+
   function setIconName(el, name) {
     if (name) writeLabel(el, `[icon] ${name}`);
     else restoreLabel(el);
@@ -1079,6 +1109,7 @@
     // clickable div and this pass then took the name off again (iconName returns "" for a div holding an
     // <img alt="Google">), and only a SECOND pass put it back -- correct by accident, and wrong on a page that
     // mutates once and never again.
+    hideConsentRoots();
     nameClickables();
     nameGoogleButtons();  // before markFields: no field mark ever stands in front of an "[icon] " name
     nameFrames();
@@ -1125,6 +1156,7 @@
     due = false;
     for (const el of document.querySelectorAll(`[${OURS}]`)) restoreLabel(el);
     dropPlainRoles();
+    restoreConsentRoots();
     for (const banner of document.querySelectorAll("a[data-aa-dialog]")) banner.remove();
     dropShadowProxies();
     dropGoogleOverlays();

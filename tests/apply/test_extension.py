@@ -374,8 +374,8 @@ class TestPopupsAsTabs(unittest.TestCase):
                 # a click handler or a tabindex is enough: read_page reads the name off their own text
                 self.assertEqual(got["handler"], ["button", None])
                 self.assertEqual(got["tabbed"], ["button", None])
-                # no own text to read: it gets the role, and its name stays the honest "none"
-                self.assertEqual(got["wrapped"], ["button", None])
+                # text only in a child: read_page shows no name for it, so the words of the child are the name
+                self.assertEqual(got["wrapped"], ["button", "[icon] Remove this entry"])
                 # an icon-only one is named like any icon button, from the test id
                 self.assertEqual(got["iconic"], ["button", "[icon] Remove row"])
                 # the site's own role is never overwritten, and a real control was already in the view
@@ -383,6 +383,25 @@ class TestPopupsAsTabs(unittest.TestCase):
                 self.assertEqual(got["real"], [None, None])
                 # nothing clickable about it, so it stays out of the view
                 self.assertEqual(got["plain"], [None, None])
+            finally:
+                ctx.close()
+
+    def test_a_name_in_a_child_element_is_written_and_guarded(self):
+        """Helper 1.16.0: a control whose text is only in a child is named from it, and still goes out as a guess."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "child-names.html")
+            try:
+                got = job.evaluate("Object.fromEntries([...document.querySelectorAll('button')].map("
+                                   "b => [b.id, b.getAttribute('aria-label')]))")
+                self.assertEqual(got, {
+                    "child": "[icon] Remove this entry",
+                    "nested": "[icon] Remove this entry",
+                    "own": None,                        # own text: read_page names it
+                    "labelled": "Close",                # an aria-label of the site is never replaced
+                    "titled": None,                     # a title and an image alt are named by read_page, and
+                    "alted": None,                      # a guess in aria-label would outrank both
+                    "long": "[icon] " + "word " * 18 + "wo\u2026",  # clipped at 100 by writeLabel
+                })
             finally:
                 ctx.close()
 
@@ -402,6 +421,62 @@ class TestPopupsAsTabs(unittest.TestCase):
                 self.assertEqual(job.evaluate(read), [None, None, 0])
                 # the site's own role is still there: it was never ours to remove
                 self.assertEqual(job.evaluate("document.getElementById('named').getAttribute('role')"), "link")
+            finally:
+                ctx.close()
+
+    def test_file_pickers_are_cancelled_in_a_run_tab_only(self):
+        """Helper 1.16.0: a drop zone that calls showOpenFilePicker gets an AbortError, builds its own file input, and the
+        native function is back outside a run and when the run ends."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "file-picker.html")
+            try:
+                chooser = []
+                job.on("filechooser", lambda c: chooser.append(c))
+                self.assertNotIn("[native code]", job.evaluate("window.showOpenFilePicker.toString()"))
+                self.assertEqual(job.evaluate("showDirectoryPicker().then(() => 'opened', e => e.name)"), "AbortError")
+                job.click("#zone")
+                time.sleep(0.5)
+                self.assertEqual(job.evaluate("window.outcome"), ["AbortError"])
+                # the input the zone built is a plain element in the page: nothing opened, and a file can be put in it
+                self.assertEqual(job.evaluate("document.querySelectorAll('input[type=file]#fallback').length"), 1)
+                self.assertEqual(chooser, [])
+
+                other = ctx.new_page()
+                other.goto("http://127.0.0.1:8001/file-picker.html")
+                time.sleep(0.5)
+                self.assertIn("[native code]", other.evaluate("window.showOpenFilePicker.toString()"))
+
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                self.assertIn("[native code]", job.evaluate("window.showOpenFilePicker.toString()"))
+                self.assertIn("[native code]", job.evaluate("window.showDirectoryPicker.toString()"))
+            finally:
+                ctx.close()
+
+    CONSENT_IDS = ["onetrust-banner-sdk", "onetrust-consent-sdk", "CybotCookiebotDialog", "usercentrics-root", "cmpbox",
+                   "klaro"]
+    CONSENT_STATE = ("(() => Object.fromEntries([...document.querySelectorAll('[id], .cmplz-cookiebanner, "
+                     ".brlbs-cmpnt-container')].filter(e => e.closest('body') && e.tagName === 'DIV')"
+                     ".map(e => [e.id || e.className, getComputedStyle(e).display === 'none'])))()")
+
+    def test_consent_roots_are_hidden_in_a_run_tab_and_come_back(self):
+        """Helper 1.16.0: the banner roots of the known consent tools are display:none in a run tab (a late one too), and
+        the site's own inline display is back when the run ends. A known consequence: a hidden banner is never judged."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "consent.html")
+            try:
+                hidden = job.evaluate(self.CONSENT_STATE)
+                self.assertEqual(hidden, {"onetrust-banner-sdk": True, "onetrust-consent-sdk": True,
+                                          "CybotCookiebotDialog": True, "usercentrics-root": True, "cmpbox": True,
+                                          "cmplz-cookiebanner": True, "klaro": True, "brlbs-cmpnt-container": True,
+                                          "cookie-note": False, "late-cmp": True})
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                shown = job.evaluate(self.CONSENT_STATE)
+                self.assertEqual({k: v for k, v in shown.items()}, {k: False for k in hidden})
+                self.assertEqual(job.evaluate("document.getElementById('klaro').getAttribute('style')"), "display: block;")
+                self.assertEqual(job.evaluate("document.getElementById('cmpbox').style.display"), "")
+                self.assertEqual(job.evaluate("document.querySelectorAll('[data-aa-consent]').length"), 0)
             finally:
                 ctx.close()
 

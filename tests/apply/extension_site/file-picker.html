@@ -1,0 +1,18 @@
+<!doctype html><title>Upload</title>
+<!-- A drop zone that opens the OS picker: in a run tab that fails like a cancelled picker, and the zone then builds
+     an <input type="file"> the worker can reach. Outside a run the page gets the native function. -->
+<div id="zone" tabindex="0" onclick="pick()">Drop your resume here</div>
+<script>
+  window.outcome = [];
+  async function pick() {
+    try {
+      await window.showOpenFilePicker();
+    } catch (e) {
+      window.outcome.push(e.name);
+      const input = document.createElement("input");
+      input.type = "file";
+      input.id = "fallback";
+      document.body.appendChild(input);
+    }
+  }
+</script>

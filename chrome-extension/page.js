@@ -8,7 +8,8 @@
 //
 // In the same tabs, alert, confirm and prompt would block the worker, which cannot answer a dialog: they are answered
 // at once (alert shown as text, confirm and prompt as Cancel) and a banner tells the worker what the page said. The
-// "Leave site?" prompt of beforeunload is dropped. Outside a run group, and after the tab is grouped away at the end
+// "Leave site?" prompt of beforeunload is dropped, and showOpenFilePicker / showDirectoryPicker reject as a cancelled
+// picker does. Outside a run group, and after the tab is grouped away at the end
 // of a run, all of them are native again (the replacements are installed only while the attribute is there), so the candidate's own Submit is never cancelled.
 
 (() => {
@@ -71,6 +72,10 @@
   // wrap whatever the page has installed by then (a site's own alert), and are taken off only while they are still
   // the ones in place: a site that replaced them since keeps its own.
   const answers = { alert: ["alert", undefined], confirm: ["confirm: answered Cancel", false], prompt: ["prompt: answered Cancel", null] };
+  // The native file pickers cannot be used by the worker: in a run tab they fail the way a cancelled picker does
+  // (an AbortError), so the page takes its own fallback, usually an <input type="file"> the worker can reach.
+  const PICKERS = ["showOpenFilePicker", "showDirectoryPicker"];
+  const cancelled = () => Promise.reject(new DOMException("The user aborted a request.", "AbortError"));
   const wrapped = {};
   const ours = {};
   let shimmed = false;
@@ -78,13 +83,14 @@
   function sync() {
     if (active() === shimmed) return;
     shimmed = !shimmed;
-    for (const name of Object.keys(answers)) {
+    for (const name of [...Object.keys(answers), ...PICKERS]) {
       if (shimmed) {
         const before = window[name];
         if (typeof before !== "function") continue;
         wrapped[name] = before;
         ours[name] = function (message) {
           if (!active()) return before.apply(window, arguments);
+          if (!answers[name]) return cancelled();
           note(answers[name][0], arguments.length ? String(message) : "");
           return answers[name][1];
         };
