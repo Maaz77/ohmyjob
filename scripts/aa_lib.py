@@ -1119,11 +1119,10 @@ def google_access(entry: Optional[dict]) -> Optional[str]:
 class NeedJudge(Exception):
     """The decision needs a Haiku check (judge.py) that is not in the cache yet."""
 
-    def __init__(self, kind: str, payload: dict, open_ok: bool = False):
+    def __init__(self, kind: str, payload: dict):
         super().__init__(kind)
         self.kind = kind
         self.payload = payload
-        self.open_ok = open_ok  # a failed check may allow the click (a name with none of the dangerous words)
 
 
 # --------------------------------------------------------------------------- snapshots

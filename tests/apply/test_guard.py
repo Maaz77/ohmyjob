@@ -486,11 +486,10 @@ class TestJudgeErrorReported(T.Base):
         self.aa_json("start")
         (folder, tab, _brief), *_rest = self.assign(101, 102)
         self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
-        # a sign-up name is one of the dangerous words: a failed check keeps refusing it (an ordinary name is let through)
         self.post("read_page", {"tabId": tab, "filter": "interactive"},
-                  f'button "Register fallisci" [ref_7]\n\nTab Context:\n- tab {tab}', W, "A1")
+                  f'button "Fallisci" [ref_7]\n\nTab Context:\n- tab {tab}', W, "A1")
         self.assertDenied(self.click(tab, "ref_7", "A1", "Goes on"), "check")
-        self.assertIn("Register fallisci", self.state()["jobs"][folder]["judge_error"])
+        self.assertIn("Fallisci", self.state()["jobs"][folder]["judge_error"])
         self.assertIn("WARN Haiku check failed for", self.aa("finish"))
 
 class TestTrackerSaveFailure(T.Base):
@@ -2033,31 +2032,3 @@ class TestGuardLoosenings(T.Base):
             self.clear_watchdog()
         self.read('dialog "Cookie settings" [ref_300]\n button "Allow all" [ref_301] type="button"\n')
         self.assertDenied(self.click(101, "ref_301", "A1", "Allows the cookies"), "permission")
-
-    # ---- 5. A failed Haiku check on an ordinary name
-
-    def test_a_failed_check_lets_an_ordinary_name_through_and_logs_it(self):
-        self.start()
-        self.read('button "Fallisci" [ref_7] type="button"\n')
-        self.assertExplicitAllow(self.click(101, "ref_7", "A1", "Goes on"))
-        self.assertEqual([e["name"] for e in self.log_events("judge-fail-open")], ["Fallisci"])
-        # the failure is not cached as a verdict: the check is asked again, fails again, the click goes through again
-        self.read('button "Fallisci" [ref_7] type="button"\n')
-        self.assertExplicitAllow(self.click(101, "ref_7", "A1", "Goes on"))
-        # after MAX_FAILURES the hook stops asking and still lets it through, logging each time
-        asked = len(self.judge_calls())
-        self.read('button "Fallisci" [ref_7] type="button"\n')
-        self.assertExplicitAllow(self.click(101, "ref_7", "A1", "Goes on"))
-        self.assertEqual(len(self.judge_calls()), asked)
-        self.assertEqual(len(self.log_events("judge-fail-open")), 3)
-
-    def test_a_failed_check_still_refuses_a_name_with_a_dangerous_word(self):
-        self.start()
-        # a sign-up word is the dangerous word that reaches the check through the word rules
-        self.read('button "Register fallisci" [ref_7] type="button"\n')
-        self.assertDenied(self.click(101, "ref_7", "A1", "Goes on"), "could not check")
-        self.clear_watchdog()
-        # its own name is fine but the text inside carries a delete word: the same scan, the same refusal
-        self.read('button "Fallisci" [ref_8] type="button"\n generic "Remove education" [ref_9]\n')
-        self.assertDenied(self.click(101, "ref_8", "A1", "Goes on"))
-        self.assertFalse(self.log_events("judge-fail-open"))

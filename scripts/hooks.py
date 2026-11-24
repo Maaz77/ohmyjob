@@ -120,7 +120,6 @@ class Ctx:
         self.dirty = False
         self.wait = 0.0  # seconds to hold this call before it runs (the first page load of a worker)
         self._refs: dict[str, dict] = {}
-        self.failed_open: set = set()  # see judged
 
     def entry(self, tab: Any) -> Optional[dict]:
         try:
@@ -294,30 +293,22 @@ class Ctx:
 
     # ---- Haiku checks (judge.py): the result comes from the cache, or the guard asks for it
 
-    def judged(self, kind: str, payload: dict, open_ok: bool = False) -> dict:
+    def judged(self, kind: str, payload: dict) -> dict:
         key = J.key_for(kind, payload)
         entry = J.cached(self.run_dir, key) or {}
         if "result" in entry:
             return entry["result"]
-        error = entry.get("error") or "no answer"
-        if open_ok and (key in self.failed_open or int(entry.get("failures") or 0) >= J.MAX_FAILURES):
-            # A FAILED check (not a "block") on a name with none of the dangerous words: the click goes through. The
-            # verdict is never cached, so the next click asks again. `failed_open` holds the check that failed in
-            # this very call (the guard loop adds it); the cache holds the ones that failed in earlier calls.
-            L.log(self.run_dir, "judge-fail-open", kind=kind, name=str(payload.get("name"))[:60],
-                  host=payload.get("host"), error=error)
-            return {"verdict": "allow", "reason": "the Haiku check failed and the name carries no dangerous word"}
         if int(entry.get("failures") or 0) >= J.MAX_FAILURES:
-            raise Deny(judge_failed(kind, payload, error))
-        raise L.NeedJudge(kind, payload, open_ok)
+            raise Deny(judge_failed(kind, payload, entry.get("error") or "no answer"))
+        raise L.NeedJudge(kind, payload)
 
-    def judged_click(self, payload: dict, open_ok: bool = False) -> dict:
+    def judged_click(self, payload: dict) -> dict:
         """A name Haiku called context-free is checked once per run and kept for later runs; else per page
-        context. `open_ok`: a failed check allows the click (see judged)."""
+        context."""
         entry = J.cached(self.run_dir, J.key_for("click", short_click_payload(payload))) or {}
         if "result" in entry:
             return entry["result"]
-        return self.judged("click", payload, open_ok)
+        return self.judged("click", payload)
 
 
 def short_click_payload(payload: dict) -> dict:
@@ -662,12 +653,7 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
                    "filled": filled or ("unknown" if sticky else False), "widget": bool(widget), "icon": icon,
                    "container": L.ancestor_names(snapshot, ref, " | ")[-300:], "delete": bool(remove)}
-        # A failed Haiku check allows the click only for a name with none of the dangerous words, read from the same
-        # `scan` (own name plus the text inside) as the rules above, and never for a name the extension guessed or a
-        # Google option. The lists are every one that keeps the old fail-closed refusal.
-        open_ok = not icon and not google and not any(
-            t.find(scan) for t in (X.FINAL, X.APPLY, X.DELETE, X.PERMISSION, X.CONSENT, X.SIGNUP))
-        result = ctx.judged_click(payload, open_ok)
+        result = ctx.judged_click(payload)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "
                        "Do not click it. " + park_order(ctx, tab, "If this is the step with the final button, stop here "
@@ -1709,7 +1695,6 @@ def guard(inp: dict) -> None:
     wait = 0.0
     denied_recorded = False
     folder_for_error = None  # captured when NeedJudge is caught, for Haiku check failure save
-    failed_open: set = set()  # keys of the checks that failed in this call and may let the click through (Ctx.judged)
     for _round in range(MAX_JUDGE_ROUNDS):
         pending: Optional[L.NeedJudge] = None
         with L.locked(run_dir):
@@ -1722,7 +1707,6 @@ def guard(inp: dict) -> None:
                 reason = f"The run is not active (status: {state.get('status')})."
             else:
                 ctx = Ctx(run_dir, state, agent_id)
-                ctx.failed_open = failed_open
                 try:
                     if agent_type == L.WORKER:
                         updated = check_worker_action(ctx, short, ti)
@@ -1753,9 +1737,6 @@ def guard(inp: dict) -> None:
         result, error = J.ask(run_dir, pending.kind, pending.payload)
         L.log(run_dir, "judge", kind=pending.kind, payload=pending.payload, result=result, error=error or None,
               agent_id=agent_id)
-        if result is None and pending.open_ok:
-            failed_open.add(J.key_for(pending.kind, pending.payload))
-            continue  # the next round's check finds the failure and lets the click through (and logs it)
         if result is None:
             reason = judge_failed(pending.kind, pending.payload, error)
             # the master reports the failed check in its summary: the state must be saved, under the lock
