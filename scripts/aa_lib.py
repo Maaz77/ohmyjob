@@ -78,6 +78,7 @@ _LIMITS_DEFAULTS = {
     "repeat_deny_stop": 5,     # equal denials in a row (sign-in lease waits excluded) before the worker is stopped
     "call_budget": 150,        # Chrome and Read calls in one worker
     "idle_minutes": 6,         # a worker with no call for this long loses its slot
+    "per_host_workers": 5,     # workers at once on one host (the ATS bot check, not a slot limit)
 }
 LIMITS_FILE = "Worker_Limits.json"
 

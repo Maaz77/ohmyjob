@@ -542,6 +542,13 @@ class TestWorkerBypasses(T.Base):
         for keys in ["Tab", "shift+Tab", "Escape", "ctrl+a"]:
             self.assertExplicitAllow(self.key(keys))
 
+    def test_the_key_refusal_names_the_dropdown_route(self):
+        """A worker that pressed Enter on a search list is told the route that works, not only what is refused."""
+        self.start()
+        for part in ("read_page alone", "click the option by its ref", "cannot be answered"):
+            self.assertDenied(self.key("Enter"), part)
+            self.clear_watchdog()  # the same denial repeated would stop the worker (4.7)
+
     def test_typed_text_has_no_control_characters(self):
         self.start()
         self.page(101, "constructed_form_page.txt")
@@ -1069,6 +1076,28 @@ class TestHiddenFieldFills(T.Base):
             {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_289", "value": "x"}}]}
         self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "hidden on the page")
 
+    def test_a_stale_fill_is_dropped_and_the_rest_of_the_batch_runs(self):
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_41", "value": "x"}},
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_9999", "value": "x"}}]}
+        proc = self.guard(C + "browser_batch", batch, W, "A1")
+        self.assertExplicitAllow(proc)
+        kept = json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"]["actions"]
+        self.assertEqual([a["input"]["ref"] for a in kept], ["ref_41"])
+
+    def test_a_batch_of_only_stale_fills_is_refused(self):
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_9998", "value": "x"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "no longer on the page")
+
+    def test_a_stale_click_still_denies_the_whole_batch(self):
+        """A click says something about the page, so the fills beside it must not run on the old refs."""
+        batch = {"tabId": self.tab, "actions": [
+            {"name": "form_input", "input": {"tabId": self.tab, "ref": "ref_41", "value": "x"}},
+            {"name": "computer", "input": {"tabId": self.tab, "action": "left_click", "ref": "ref_9997",
+                                            "action_summary": "Opens the next step"}}]}
+        self.assertDenied(self.guard(C + "browser_batch", batch, W, "A1"), "unknown ref")
+
     def test_a_visible_field_and_ticks_and_uploads_are_unchanged(self):
         self.assertExplicitAllow(self.fill("ref_41"))
         self.assertExplicitAllow(self.fill("ref_291", True))
@@ -1485,8 +1514,12 @@ class TestClickGuardHoles(T.Base):
         page = ('group "Resume" [ref_9]\n link "Resume.pdf" [ref_8]\n'
                 ' button "%s" [ref_1] type="button"\n' % name)
         self.assertAllowed(self.try_click(page))
-        short = {"name": name[:300], "role": "button", "filled": True, "host": "jobs.example.com"}
-        self.assertFalse(J.cached(self.run_dir(), J.key_for("click", short)))
+        import hooks  # noqa: E402
+        short = hooks.short_click_payload({"name": name[:300], "role": "button", "filled": True, "host": "jobs.example.com"})
+        key = J.key_for("click", short)
+        self.assertFalse(J.cached(self.run_dir(), key))  # the run's cache, and the across-runs file J.cached also reads
+        persistent = self.root / ".ohmyjob" / "judge_cache.json"
+        self.assertFalse(persistent.exists() and key in json.loads(persistent.read_text())["entries"])
 
     def test_a_withdraw_word_is_refused_with_no_judge_call(self):
         self.boot(filled=True)

@@ -582,6 +582,25 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_a_frame_a_consent_tool_blocked_offers_its_deferred_address(self):
+        """A consent tool moves the address out of `src` and keeps it in an attribute of its own, so the frame loads
+        nothing until the visitor agrees. The attribute's name has to hold "src": the worker navigates its tab to
+        whatever the marker carries, so a URL in any other attribute is not an address of the form."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "blocked-frame.html")
+            try:
+                marks = job.evaluate("Object.fromEntries(['blocked', 'uc', 'decoy'].map(id => {"
+                                     "const before = document.getElementById(id).previousElementSibling;"
+                                     "return [id, [before.dataset.aaFrame, before.getAttribute('href')]];"
+                                     "}))")
+                # a data-* name (Cookiebot) and a name that is not data-* at all (Usercentrics)
+                self.assertEqual(marks["blocked"], ["1", "http://localhost:8001/other.html"])
+                self.assertEqual(marks["uc"], ["1", "http://localhost:8001/other.html"])
+                # data-poster holds a URL and does not name itself a source: the frame stays addressless
+                self.assertEqual(marks["decoy"], ["none", None])
+            finally:
+                ctx.close()
+
     def test_a_frame_with_no_address_offers_the_frame_inside_it(self):
         """A frame with no address of its own holds the form one level down. read_page cannot read that inner marker,
         so the marker beside the outer frame carries the inner frame's address."""

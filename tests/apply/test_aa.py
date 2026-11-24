@@ -471,6 +471,27 @@ class TestCleanupWaitsForTheGroups(Base):
         self.assertEqual(self.aa_json("cleanup-plan")["close"], [40, 49])
 
 
+class TestPerHostCap(Base):
+    def run_with_hosts(self, urls: tuple[str, str]) -> tuple[list, list]:
+        """A cap of 1 worker per host; both jobs get the given form addresses. Returns (taken folders, waiting folders)."""
+        import aa_lib as L
+
+        L.write_json(self.root / "Worker_Limits.json", {**L._LIMITS_DEFAULTS, "per_host_workers": 1})
+        self.aa_json("start")
+        for folder, url in zip(self.jobs, urls):
+            self.set_job(folder, apply_url=url)
+        taken = [folder for folder, _tab, _brief in self.assign(101, 102)]
+        return taken, [w["folder"] for w in self.state()["waiting"]]
+
+    def test_two_jobs_on_one_host_start_one_worker(self):
+        taken, waiting = self.run_with_hosts(("https://boards.example.com/a/1", "https://boards.example.com/b/2"))
+        self.assertEqual((len(taken), len(waiting)), (1, 1))
+
+    def test_a_job_held_for_its_host_does_not_hold_up_another_host(self):
+        taken, waiting = self.run_with_hosts(("https://boards.example.com/a/1", "https://jobs.other.example/b/2"))
+        self.assertEqual((len(taken), waiting), (2, []))
+
+
 class TestCleanupWithoutTheHomeTab(Base):
     def test_cleanup_stops_waiting_for_the_tag_once_the_home_tab_is_closed(self):
         self.aa_json("start")
@@ -1178,6 +1199,66 @@ class TestLanguages(Base):
         self.assertDenied(self.click(101, "ref_160", "L1"), "showed an application form")
 
 
+class TestJudgeCacheAcrossRuns(Base):
+    """A context-free Haiku verdict is kept in the workspace (.ohmyjob/judge_cache.json) and read by the next run."""
+
+    NAME = "Trasmetti la domanda"  # ref_155 of the Italian form page: no word list knows it, the fake judge blocks it
+    DOWN = {"AA_JUDGE_CMD": f"{sys.executable} -c \"import sys; sys.exit(1)\""}
+
+    def setUp(self):
+        (self.root / ".ohmyjob" / "judge_cache.json").unlink(missing_ok=True)
+        self.judge_log.unlink(missing_ok=True)
+
+    def one_run(self, env: dict | None = None, context: str = "L1"):
+        """A fresh run: start, one judged click, end. Returns the click's result."""
+        self.aa_json("start")
+        self.master_setup()
+        self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://lavora.esempio.it/candidatura"}, W, "L1"))
+        self.page(101, "constructed_form_page_it.txt", agent_id="L1")
+        payload = {"hook_event_name": "PreToolUse", "tool_name": C + "computer", "agent_type": W, "agent_id": "L1",
+                   "tool_input": {"tabId": 101, "action": "left_click", "ref": "ref_155", "action_summary": "Clicks the control"}}
+        proc = self.hook("guard", payload, env={**self.env, **(env or {})})
+        self.aa("end")
+        return proc
+
+    def asked(self) -> int:
+        return sum(1 for call in self.judge_calls() if call["name"] == self.NAME)
+
+    def test_lookup_and_store_use_one_key(self):
+        import hooks
+        import judge
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        (key, entry), = [(k, v) for k, v in json.loads(
+            (self.root / ".ohmyjob" / "judge_cache.json").read_text())["entries"].items()]
+        other_page = {**entry["payload"], "context": "text of another page", "extra": 1}
+        self.assertEqual(judge.key_for("click", hooks.short_click_payload(other_page)), key)
+
+    def test_a_verdict_survives_a_new_run(self):
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        self.assertEqual(self.asked(), 1)
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        self.assertEqual(self.asked(), 1, "the second run used the workspace cache")
+
+    def test_a_failure_does_not_survive_a_new_run(self):
+        self.assertDenied(self.one_run(self.DOWN), "could not check")
+        self.assertDenied(self.one_run(self.DOWN), "could not check")
+        cache = self.root / ".ohmyjob" / "judge_cache.json"
+        self.assertFalse(cache.exists() and json.loads(cache.read_text())["entries"])
+        self.assertDenied(self.one_run(), "haiku check blocked")  # the judge works now: its verdict, not the old outage
+
+    def test_a_new_stamp_voids_the_file(self):
+        import judge
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        cache = self.root / ".ohmyjob" / "judge_cache.json"
+        data = json.loads(cache.read_text())
+        self.assertEqual(data["stamp"], judge._stamp())
+        cache.write_text(json.dumps({**data, "stamp": "an older prompt"}))
+        self.assertDenied(self.one_run(), "haiku check blocked")
+        self.assertEqual(self.asked(), 2, "an entry with another stamp was ignored")
+        self.assertEqual(json.loads(cache.read_text())["stamp"], judge._stamp())  # and rewritten with the new one
+
+
 class TestApplyGate(Base):
     """Apply opens the form until the tab shows one, and is final after ."""
 
@@ -1788,6 +1869,14 @@ class TestHandover(Base):
         self.assertEqual(len(self.handover()), 1)
         self.set_job(folder, stopped_by="stall")  # now a Sonnet job that handed over
         self.assertEqual(self.handover(), [])
+
+    def test_a_repeated_denial_is_not_handed_over(self):
+        """The guard refuses Sonnet for the same reason, so a second worker only re-earns the same wall."""
+        folder, tab = self.setup_run()
+        self.set_job(folder, stopped_by="repeat_deny")
+        self.assertEqual(self.handover(), [])
+        # the job keeps its stop, so the ledger still codes it as a wall
+        self.assertEqual(self.state()["jobs"][folder]["stopped_by"], "repeat_deny")
 
     def test_the_handover_brief_tells_the_truth(self):
         import aa
