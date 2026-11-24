@@ -12,7 +12,7 @@ import sys
 
 # The last entries mirror the real prompt's account-creation rule, so a sign-up refusal stays pinned by a test now
 # that the word rule defers to the judge.
-BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "continue with google",
+BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden", "ok", "sign in with google (blocked)",
                "create an account", "crea un account", "créer un compte", "konto erstellen", "registrarse",
                "criar conta", "account aanmaken", "zarejestruj się", "регистрация", "注册", "新規登録", "회원가입",
                "sign up", "register", "sign up with linkedin", "create account to apply"}
@@ -74,7 +74,9 @@ def main() -> None:
             # context_dependent is False on purpose: the real model may ignore the prompt line that asks for true, so
             # the guard must never cache a delete word's verdict by name, whatever the model says.
             reply({"verdict": "allow" if ok else "block", "reason": "fake: the container", "context_dependent": False})
-        elif name.lower() in BLOCK_NAMES:
+        # a Google sign-in option is allowed, bar after a fill (the real prompt: the form was filled already)
+        elif name.lower() in BLOCK_NAMES or (name.lower() == "continue with google"
+                                             and field(prompt, "The form was filled already") == "yes"):
             reply({"verdict": "block", "reason": "fake: final", "context_dependent": False})
         else:
             reply({"verdict": "allow", "reason": "fake: navigation", "context_dependent": name.lower() == "procedi"})

@@ -66,6 +66,33 @@ class TestButtons(unittest.TestCase):
         for name in ["Continue with Google", "Accedi con Google", "Mit Google anmelden", "Googleでログイン"]:
             self.assertTrue(X.GOOGLE.find(name), name)
 
+    def test_google_signin_is_not_a_google_product(self):
+        # issue 46: "Upload from Google Drive" is an upload control. An app name is a proper noun that travels
+        # untranslated, so the rule excludes the ten app names instead of asking for a sign-in verb in 62 languages.
+        for name in ["Continue with Google", "Accedi con Google", "Mit Google anmelden", "Googleでログイン", "谷歌登录"]:
+            self.assertTrue(X.google_signin(name), name)
+        for app in ["Drive", "Docs", "Maps", "Pay", "Play", "Photos", "Sheets", "Calendar", "Meet", "Cloud"]:
+            self.assertIsNone(X.google_signin(f"Upload from Google {app}"), app)
+        self.assertIsNone(X.google_signin("Importer depuis Google Drive"))
+        self.assertIsNone(X.google_signin("Register to upload from Google Drive"))
+        self.assertIsNone(X.google_signin("Plain button"))
+        self.assertIsNone(X.google_signin(None))
+
+    def test_a_google_product_written_as_one_word_is_still_a_product(self):
+        # issue 46: an app name is written glued to "google" as often as beside it ("GoogleDrive", "google_drive",
+        # "gdrive"), and the word boundary of the app list falls inside such a word -- "_" is a word character, so
+        # not even the separator breaks it. A bare substring would be wrong the other way round, which is why the
+        # glued form has to name google or g: Paylocity, display, Cloudflare and driver each hold an app name.
+        for name in ["GoogleDrive", "Google_Drive", "googledrive", "google_drive.svg", "gdrive-google.svg",
+                     "Upload from gDrive", "GooglePhotos", "g_calendar",
+                     # an icon file carries a prefix as often as not, and that leaves no boundary before the
+                     # "google" either; the app is named before the word as readily as after it
+                     "ic_google_drive.svg", "btnGoogleDrive.svg", "icongoogledrive.png", "drive_google.svg"]:
+            self.assertIsNone(X.google_signin(name), name)
+        for name in ["Sign in to Paylocity with Google", "Sign in with Google to display your profile",
+                     "Continue with Google at Cloudflare", "Sign up with Google as a driver"]:
+            self.assertTrue(X.google_signin(name), name)
+
     def test_safe_needs_the_whole_name(self):
         self.assertIn("Next", X.SAFE)
         self.assertIn("  Avanti › ", X.SAFE)

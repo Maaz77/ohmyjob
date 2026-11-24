@@ -173,6 +173,10 @@ class TestRedaction(unittest.TestCase):
         self.assertIn("Password", tail)
         self.assertNotIn("filler 30", tail)
 
+    def test_a_google_app_is_no_google_option_in_the_ledger(self):
+        # issue 46: a Drive upload button must not look like a missed sign-in
+        self.assertEqual(ledger.page_tail("button 'Upload from Google Drive'"), "")
+
 
 class TestLedgerInTheRun(T.Base):
     """A whole run: 'end' writes the ledger before the run folder goes, and a trace for the blocked job."""
