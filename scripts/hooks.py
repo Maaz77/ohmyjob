@@ -341,6 +341,21 @@ def element(ctx: Ctx, tab: Any, ref: Optional[str]) -> dict:
 BOX_ROLES = {"checkbox", "switch", "menuitemcheckbox"}
 
 
+def enter_in_search_list(ctx: Ctx, tab: Any, keys: str) -> bool:
+    """Enter or Return alone, while the focus is on a combobox or a search box: a search list commits on it. A plain
+    text box stays refused, because Enter there submits a form. A worker's key action only (a foreign caller keeps
+    the old rule)."""
+    focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+    return keys.strip().lower() in ("enter", "return") and focused.get("role") in ("combobox", "searchbox")
+
+
+def multiline_box(item: dict) -> bool:
+    """A text box that takes a line break: a textarea, or a textbox that says aria-multiline="true"."""
+    attrs = item.get("attrs") or {}
+    return item.get("role") == "textarea" or attrs.get("type") == "textarea" \
+        or item.get("role") == "textbox" and attrs.get("aria-multiline") == "true"
+
+
 def marker_problem(item: dict) -> Optional[str]:
     """Why a call on this ref is refused when it is a marker of the helper extension ("[AA frame]" link, "[AA frame: no
     address]" tag, "[AA alert]" banner), or None. The dialog banner is pointer-events:none, so a click on its ref lands,
@@ -516,8 +531,16 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         if choice:
             return  # a toggle of the dialog: the worker turns the options off, and no tick sends anything
         if consent:
-            raise Deny("This is a cookie or consent dialog. Click its most private choice (Reject all, Decline, Only "
-                       "necessary). If it offers none, turn its options off and then save (Confirm choices, Save).")
+            # "Accept all" is the only way past a dialog that offers nothing else: no private choice, no toggle, no
+            # other button (L.consent_offers_nothing_else). Not a guessed name, not after a fill, and not a name with a
+            # final or delete word beside the consent phrase. Any doubt keeps the refusal.
+            if not (name.strip() and not icon and not filled and not X.DELETE.find(scan)
+                    and not X.FINAL.find(X.norm(scan).replace(X.CMP.find(X.norm(scan)) or "\0", " "))
+                    and L.consent_offers_nothing_else(snapshot, ref)):
+                raise Deny("This is a cookie or consent dialog. Click its most private choice (Reject all, Decline, Only "
+                           "necessary). If it offers none, turn its options off and then save (Confirm choices, Save).")
+            L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60], only_choice=True)
+            return
         if X.DELETE.find(name):
             raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
         # `sticky` plays no part here: it says that a form of an earlier run may stand filled on the page, which
@@ -793,16 +816,22 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             # no resume on this job: the old message printed ["None"], which no worker could act on
             raise Deny("This job has no resume PDF, so nothing may be uploaded. Leave the upload empty, list it in "
                        "`open`, and go on.")
-        if len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
+        # One path: the job's resume, or another file that already sits in the same folder (a cover letter the job's
+        # folder holds). The candidate is resolved first (symlinks, "..", "~"), then its parent must be the resume's
+        # parent, so no other directory is reachable and a link out of the folder does not count.
+        upload = Path(str(paths[0])).expanduser().resolve() if len(paths) == 1 else None
+        folder = Path(expected).resolve().parent
+        if upload is None or (str(upload) != expected and not (upload.is_file() and upload.parent == folder)):
             # The worker reaches here for a second required document as often as for a wrong path, and uploading the
             # resume into a cover-letter field would attach the wrong document to a real application.
-            raise Deny(f'Upload only this one file, as "paths": ["{expected}"]. It is the only file you may upload. '
-                       f'If this field wants a different document (a cover letter, a transcript, a portfolio), do '
+            raise Deny(f'Upload only this job\'s resume, as "paths": ["{expected}"], or one other file that sits in the same '
+                       f'folder ({folder}), one path per call. No other file may be uploaded. If this field wants a '
+                       f'different document (a cover letter, a transcript, a portfolio) that is not in that folder, do '
                        f'not put the resume in it: leave the field, list it in `open`, and go on.')
         element(ctx, tab, ti.get("ref"))
         ctx.mark_filled(tab)
         ctx.set_focus(tab, None)
-        clean = {"tabId": tab, "ref": ti.get("ref"), "paths": [expected]}  # no "files", no "file_path"
+        clean = {"tabId": tab, "ref": ti.get("ref"), "paths": [str(upload)]}  # no "files", no "file_path"
         return clean if clean != ti else None
 
     if short == "form_input":
@@ -843,9 +872,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             keys = str(ti.get("text") or "")
             if google or signin:
                 raise Deny("Do not press keys on Google pages.")
-            if not L.keys_allowed(keys):
+            if not L.keys_allowed(keys) and not enter_in_search_list(ctx, tab, keys):
                 raise Deny("Press only Tab, Shift+Tab, Escape, Backspace, Delete, the arrow, Home, End and Page keys, or "
-                           "Ctrl/Cmd with A, C, V, X, Z, Y. Enter, Return and Space can press a focused button: click the "
+                           "Ctrl/Cmd with A, C, V, X, Z, Y. Enter and Return only in a combobox or search box that you "
+                           "clicked by its ref. Enter, Return and Space can press a focused button: click the "
                            "control by its ref instead. A dropdown or search list never commits from a key: click the "
                            "field by its ref, call read_page alone, then click the option by its ref. If no option "
                            "appears that way, that field cannot be answered: leave it, fill the rest of the step, and "
@@ -857,10 +887,11 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if google or signin:
                 raise Deny("Do not type on Google pages.")
             text = str(ti.get("text") or "")
-            if L.CONTROL_CHAR_RE.search(text):
-                raise Deny("No line breaks, tabs or other control characters in a type action (they go out as key presses). "
-                           "Use form_input for text with line breaks.")
             focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+            # a line break is allowed in a multi-line text box only; a tab and every other control character never
+            if L.CONTROL_CHAR_RE.search(text.replace("\n", "") if multiline_box(focused) else text):
+                raise Deny("No line breaks, tabs or other control characters in a type action (they go out as key presses), "
+                           "except a line break in a multi-line text box. Use form_input for text with line breaks.")
             # an autocomplete (Vuetify and friends) is a text input that read_page calls a listbox, so the role alone
             # would refuse the only way to fill it: typing and then clicking the option
             typable = ctx.focus(tab) in L.TYPE_ROLES or (focused.get("attrs") or {}).get("type") == "text"

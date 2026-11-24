@@ -1377,6 +1377,43 @@ def consent_control(text: str, ref: str, name: str) -> bool:
     return bool(X.COOKIE.find(name) or X.COOKIE.find(around) or X.CMP.find(name) or X.CMP.find(around))
 
 
+def consent_offers_nothing_else(text: str, ref: str) -> bool:
+    """True when the consent dialog around `ref` offers no choice but this control: a dialog found (the nearest
+    enclosing line that is a dialog, or whose name has a cookie or consent-platform word) and, among its other lines,
+    no tick or radio button, no button or other non-link control at all, and no link with a private-choice word
+    (X.PRIVATE) or a consent-platform word (X.CMP). Anything unclear is False, so the caller keeps refusing."""
+    lines = text.splitlines()
+    index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
+    if index is None:
+        return False
+    indent = _indent(lines[index])
+    top = None
+    for j in range(index - 1, -1, -1):
+        if not lines[j].strip() or _indent(lines[j]) >= indent:
+            continue
+        indent = _indent(lines[j])
+        match = ELEMENT_RE.match(lines[j].rstrip())
+        name = line_name(lines[j])
+        if (match and match.group("role").lower() in ("dialog", "alertdialog")) or X.COOKIE.find(name) or X.CMP.find(name):
+            top = j
+            break
+        if indent == 0:
+            break
+    if top is None:
+        return False
+    end = next((j for j in range(top + 1, len(lines)) if lines[j].strip() and _indent(lines[j]) <= _indent(lines[top])),
+               len(lines))
+    for other, item in parse_refs("\n".join(lines[top + 1:end])).items():
+        if other == ref:
+            continue
+        role, name = item["role"], item["name"]
+        if role in TICK_ROLES or item["attrs"].get("type") in ("checkbox", "radio") or role in CLICKABLE_ROLES - {"link"}:
+            return False
+        if role == "link" and (X.PRIVATE.find(name) or X.CMP.find(name)):
+            return False
+    return True
+
+
 def subtree_names(text: str, ref: str) -> list[str]:
     """The name of `ref` and the names of the lines inside it (the lines right below it with a deeper indent).
 

@@ -45,10 +45,10 @@ class TestAnyPdf(T.Base):
         ok = self.guard(C + "file_upload", {"tabId": tab, "ref": "ref_50", "paths": [expected]}, W, "A1")
         self.assertNotEqual(ok.returncode, 2, ok.stderr)
         self.assertDenied(self.guard(C + "file_upload", {"tabId": tab, "ref": "ref_50", "paths": [str(folder / "other.pdf")]}, W, "A1"),
-                          "Upload only this one file")
+                          "Upload only this job's resume")
         # a second required document is the other way a worker reaches this refusal: it must not answer it with the
         # resume, so the refusal names the way out instead of only the one allowed path
-        for part in ("only file you may upload", "cover letter", "list it in `open`"):
+        for part in ("No other file may be uploaded", "cover letter", "list it in `open`"):
             self.assertDenied(self.guard(C + "file_upload", {"tabId": tab, "ref": "ref_50",
                                                              "paths": [str(folder / "cover.pdf")]}, W, "A1"), part)
 
