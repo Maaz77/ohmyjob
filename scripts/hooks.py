@@ -591,11 +591,13 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
             context = f'inside the list or picker "{widget}" | {context}'
         # `container`: the lines that enclose the control, which the ±2 line window of `context` cannot express. The
         # delete rule keys its one allow on this field, because only containment tells a chip's "Remove" inside a tag
-        # list from a "Remove" that happens to stand next to an uploaded file's name.
+        # list from a "Remove" that happens to stand next to an uploaded file's name. Separated, and cut from the
+        # front, because the rule reads the LAST name: an upload area inside a form named "Application form" has to
+        # arrive as "Application form | Resume" and not as one run of words that reads like the application itself.
         # `delete`: the word rule's own decision, so nothing downstream re-derives it from the name cut at 300.
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
                    "filled": filled or ("unknown" if sticky else False), "widget": bool(widget),
-                   "container": around[:300], "delete": bool(remove)}
+                   "container": L.ancestor_names(snapshot, ref, " | ")[-300:], "delete": bool(remove)}
         result = ctx.judged_click(payload)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "

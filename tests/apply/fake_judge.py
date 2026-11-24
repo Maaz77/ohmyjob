@@ -20,16 +20,17 @@ FAIL_NAMES = {"fallisci"}
 
 # A delete control is judged from the container it sits in ("Inside"), never from the lines beside it: the same
 # "Remove" sits inside an upload area (allow), inside a filled education row (block) and on a flat page with no
-# container at all (block), with the same "Resume.pdf" next to it in the first and the last. Mirrors the real prompt's
-# clauses: allow only a container that is itself what the agent added and can re-add, block an account, data or form
-# entry, and block an empty "Inside".
+# container at all (block), with the same "Resume.pdf" next to it in the first and the last. One clause per name,
+# mirroring the real prompt: the allow and the form-entry block read the name after the last "|", the container that
+# directly encloses the control, while the account block reads every name. An upload area nested in a form named
+# "Application form" must therefore pass, as it does on main.
 # The name only decides that this rule applies, and it carries the prompt's capability framing: a delete-ish name that
 # no word list knows ("Clear", "Reset") is judged the same way, because the real rule goes by what the click does.
 DELETE_NAME_RE = re.compile(r"\b(delete|remove|clear|discard|reset|erase|trash|withdraw|rimuovi|quitar|remover"
                             r"|entfernen|löschen|elimina)\b", re.I)
-BLOCK_INSIDE = ("education", "employment", "work experience", "reference", "address", "qualification", "account",
-                "profile", "data", "application")
-ALLOW_INSIDE = ("resume", "cv", "upload", "attachment", "filter", "tag", "chip")
+ENTRY = ("education", "employment", "work experience", "reference", "address", "qualification")
+ACCOUNT = ("account", "profile", "saved data", "my data", "sent application", "submitted")
+RE_ADDABLE = ("resume", "cv", "upload", "attachment", "filter", "tag", "chip")
 
 def reply(obj: dict) -> None:
     usage = {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}
@@ -67,7 +68,9 @@ def main() -> None:
         if field(prompt, "A delete word in the name or in the text inside the control") == "yes" \
                 or DELETE_NAME_RE.search(name):
             inside = field(prompt, "Inside").lower()
-            ok = not any(w in inside for w in BLOCK_INSIDE) and any(w in inside for w in ALLOW_INSIDE)
+            nearest = inside.rsplit("|", 1)[-1]
+            ok = (any(w in nearest for w in RE_ADDABLE) and not any(w in nearest for w in ENTRY)
+                  and not any(w in inside for w in ACCOUNT))
             # context_dependent is False on purpose: the real model may ignore the prompt line that asks for true, so
             # the guard must never cache a delete word's verdict by name, whatever the model says.
             reply({"verdict": "allow" if ok else "block", "reason": "fake: the container", "context_dependent": False})

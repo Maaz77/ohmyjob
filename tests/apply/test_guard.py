@@ -1396,6 +1396,19 @@ class TestClickGuardHoles(T.Base):
         self.assertEqual(self.judge_calls()[-1]["inside"], "Education 2")
         self.assertEqual(len(self.judge_calls()), before + 1)
 
+    def test_a_delete_in_an_upload_area_inside_the_form_is_still_allowed(self):
+        """The allow keys on the container that DIRECTLY encloses the control, so "Inside" has to show where that one
+        starts: an upload area nested in a form named "Application form" must not read as the application itself.
+        "Remove" is also the control that drops an uploaded file so a better resume can be attached, and that flow
+        works on main; a rule that parks it buys nothing."""
+        self.boot(filled=True)
+        page = ('form "Application form" [ref_9]\n group "Resume" [ref_8]\n'
+                '  link "Resume.pdf" [ref_7]\n  button "Remove" [ref_1] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertAllowed(self.try_click(page))
+        self.assertEqual(self.judge_calls()[-1]["inside"], "Application form | Resume")
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
     def test_an_unlisted_delete_name_is_judged_by_capability_not_by_the_word_list(self):
         """Issue 45, defect 2: "Clear" is in no word list, so no hook rule fires for it. The prompt's delete rule is
         framed on what the click does, not on the control's name, so the model still blocks it on a form entry."""
@@ -1446,9 +1459,9 @@ class TestClickGuardHoles(T.Base):
         312-character name ending in "Remove" routed as a delete word and then passed the cache guard's own word test.
         The decision travels in the payload now.
 
-        Asserted on the store and not on a second click: the read key carries `widget` and the write key does not
-        (hooks.py:307 against hooks.py:1646), so nothing written here is ever found again. The guard starts mattering
-        in practice when that key fix lands in PR 1; the condition is what this pins."""
+        Asserted on the store and not on a second click: the key `Ctx.judged_click` reads carries `widget` and the one
+        `guard` writes does not, so nothing written here is ever found again. The guard starts mattering in practice
+        when that key fix lands in PR 1; the condition is what this pins."""
         import judge as J  # noqa: E402  (scripts/ is on the path)
         self.boot(filled=True)
         name = "A" * 305 + " Remove"

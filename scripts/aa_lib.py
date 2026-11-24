@@ -1274,12 +1274,16 @@ def line_name(line: str) -> str:
     return _name(quoted.group(1)) if quoted else ""
 
 
-def ancestor_names(text: str, ref: str) -> str:
+def ancestor_names(text: str, ref: str, sep: str = " ") -> str:
     """The names of the lines that enclose `ref`: every line above it with a smaller indent, outermost first.
 
     A dialog gives its children their meaning ("Manage your data" over a "Confirm choices" button), while the lines
     beside a ref belong to other controls, so a test about the dialog a control sits in uses this, not the lines
-    around it."""
+    around it.
+
+    `sep`: the word rules scan the result as one text and want the default space. A reader that has to tell the
+    directly enclosing container from the ones further out passes a separator ("Application form | Resume"), because
+    the last name is the only one that encloses the ref itself."""
     lines = text.splitlines()
     index = next((i for i, line in enumerate(lines) if f"[{ref}]" in line), None)
     if index is None:
@@ -1298,7 +1302,7 @@ def ancestor_names(text: str, ref: str) -> str:
                 names.append(name)
             if indent == 0:
                 break
-    return " ".join(reversed(names))
+    return sep.join(reversed(names))
 
 
 def field_beside(text: str, ref: str, span: int = 2) -> Optional[str]:

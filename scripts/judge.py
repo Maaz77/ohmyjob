@@ -54,15 +54,15 @@ CLICK_PROMPT = """Decide about ONE click of the agent. Block the click if it can
 The last rule goes by what the click does, never by the control's name: "Clear", "Reset", "Discard", and an X or a
 trash icon that takes an item out of a list or a form, are that click as much as "Delete" is, in any language. An X
 that only closes a dialog, a menu, a banner or a message is Close, and allowed.
-"Inside" names the containers the control sits in, outermost first, so the last name is the one that directly encloses
-it. A delete click is allowed in one case only: that last container is itself the thing being removed, and it is
-something the agent added and can re-add without losing an answer - an upload or attachment area, a filter or tag
-list, a list of search chips.
+"Inside" lists the containers the control sits in, separated by "|", outermost first, so the name after the last "|"
+is the container that directly encloses it. A delete click is allowed in one case only: that last container is itself
+the thing being removed, and it is something the agent added and can re-add without losing an answer - an upload or
+attachment area, a filter or tag list, a list of search chips.
 Block it when "Inside" is empty: with no container there is no evidence of what the click removes.
 Block it when that last container is a form entry that can hold answers: an education, employment, reference, address
 or qualification block, whether or not it looks empty.
-Block it when "Inside" names the candidate's account, profile, saved data or a sent application. The form being filled
-in is not that: every one of these pages holds one.
+Block it when any name in "Inside" is the candidate's account, profile, saved data or a sent application. The form
+being filled in is not one of those: every one of these pages holds one.
 A click that withdraws an application is never allowed.
 For such a click answer "context_dependent": true, whatever the verdict.
 Allow every other click: Next, Continue, Back, Review, Save, Upload, Add, Edit, Close, Yes, No,
