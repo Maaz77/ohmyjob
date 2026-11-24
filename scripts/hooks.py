@@ -519,11 +519,17 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # as for a sign-up name. Read from `scan`, like the final and apply words: a `button "Options"` whose text sits in
     # a child "Remove education" escaped the rule otherwise.
     remove = None if tick else X.REMOVE.find(scan)
+    # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
+    # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
+    # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
+    # `excused` below carries this flag to that check; nothing else reads it.
+    signup = None if tick else X.SIGNUP.find(name)
     # a final or apply word inside a picker, list or menu closes that widget and sends no form ("Done" in a date
     # picker, "Apply" in a multi-select, "Apply filters" beside a date field). The name alone never allows it:
     # the Haiku check below decides. A delete word asks as well, because the answer is evidence the check reads
-    # ("In a picker or list"), and a chip's "Remove" inside a tag list is the one delete that is meant to pass.
-    widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit or remove) else None
+    # ("In a picker or list"), as for a sign-up name, and a chip's "Remove" inside a tag list is the one delete that
+    # is meant to pass.
+    widget = L.widget_ancestor(snapshot, ref) if (word or apply_hit or remove or signup) else None
     if word and not widget:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
@@ -563,11 +569,6 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         raise Deny(f"'{name}' sits beside the form field '{field}', so it removes an answer. Do not click it. "
                    + park_order(ctx, tab, "If this is the step with the final button, stop here with status 'parked'."))
     google = None if tick else X.GOOGLE.find(name)
-    # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
-    # so the Haiku check decides. Its prompt blocks a click that creates an account with an email and a password.
-    # A provider's own page needs no exception here: the OAuth rule above already refuses every non-choice click there.
-    # `excused` below carries this flag to that check; nothing else reads it.
-    signup = None if tick else X.SIGNUP.find(name)
     # A name that no list knows: the Haiku check decides (button, or a link that runs a page action).
     # a Google name after a fill goes to the Haiku check: the extension names icon-only buttons by their logo
     if google and not filled and not remove:
