@@ -360,6 +360,38 @@ SEARCH = Terms(
 # A Google option on a site ("Sign in with Google", "Continuer avec Google" ...).
 GOOGLE = Terms(["~google", "гугл", "גוגל", "جوجل", "گوگل", "谷歌", "グーグル", "구글"])
 
+# The one name the helper extension writes on an icon-only Google logo, written by hand in
+# chrome-extension/bridge.js (GOOGLE_NAME) as well: change both together. Rules that excuse a guessed name because
+# a Google sign-in is behind it test this literal, never GOOGLE -- that list matches "google" anywhere, so a class
+# such as "google-apply-submit" would take the same excuse.
+GOOGLE_NAME = "Continue with Google"
+
+# A Google app is not a sign-in option ("Upload from Google Drive"). App names are proper nouns and travel untranslated.
+# The same ten names are written by hand in chrome-extension/bridge.js (GOOGLE_PRODUCTS): change both together.
+_PRODUCTS = ["drive", "docs", "maps", "pay", "play", "photos", "sheets", "calendar", "meet", "cloud"]
+GOOGLE_PRODUCTS = Terms(_PRODUCTS)
+# The same app written as one word ("GoogleDrive", "icongoogledrive.png", "gdrive"), which the list above cannot
+# see: "_" is a word character, and a name folded to one word has no boundary inside it at all. The text is split
+# into words first (_split, below); what no split can separate is the app glued to its own "google", or to a bare
+# "g". Not matched as a plain substring, which would read an app name out of Paylocity, display, Cloudflare and
+# driver, so the "google" or the "g" has to be there.
+_P = "|".join(_PRODUCTS)
+_GLUED_PRODUCT = re.compile(rf"google[\s\-.]*(?:{_P})|(?<!\w)g(?:{_P})")
+_CAMEL_RE = re.compile(r"([a-z0-9])([A-Z])")
+_SEPARATOR_RE = re.compile(r"[\s\-_.]+")
+
+
+def _split(text: Optional[str]) -> str:
+    """"btnGoogleDrive.svg" -> "btn Google Drive svg": one word per word, so the app list sees its boundaries. Runs
+    before norm(), which folds away the case the camelCase split needs. The same split is in bridge.js."""
+    return _SEPARATOR_RE.sub(" ", _CAMEL_RE.sub(r"\1 \2", str(text or "")))
+
+
+def google_signin(name: Optional[str]) -> Optional[str]:
+    """The Google word of a name that is a Google sign-in option, or None (no Google word, or a Google app named)."""
+    text = norm(_split(name))
+    return None if GOOGLE_PRODUCTS.find(text) or _GLUED_PRODUCT.search(text) else GOOGLE.find(name)
+
 # Messages that an application was sent (the checks raise an alarm when the last page shows one).
 SUBMITTED = Terms(
     ["application was sent", "application has been sent", "application sent", "application submitted",

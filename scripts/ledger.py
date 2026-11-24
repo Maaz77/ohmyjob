@@ -267,7 +267,7 @@ def page_tail(text: str, max_lines: int = 60) -> str:
     lines = text.splitlines()
     keep: set[int] = set()
     for i, line in enumerate(lines):
-        if X.GOOGLE.find(line) or X.SIGNUP.find(line) or X.FINAL.find(line) or "password" in line.lower():
+        if X.google_signin(line) or X.SIGNUP.find(line) or X.FINAL.find(line) or "password" in line.lower():
             keep.update(range(max(0, i - 2), min(len(lines), i + 3)))
     return "\n".join(lines[i] for i in sorted(keep)[:max_lines])
 
@@ -465,7 +465,7 @@ def write_ledger_and_traces(run_dir: Path, state: dict, transcript: Optional[str
         signin = signin_info(run_dir, tab, state)
         step = (signin or {}).get("step")
         entry_tab = (state.get("tabs") or {}).get(L.tab_key(tab)) or {}
-        in_snapshot = any(X.GOOGLE.find(item.get("name") or "") and not item.get("marker")
+        in_snapshot = any(X.google_signin(item.get("name") or "") and not item.get("marker")
                           for item in L.snapshot_refs(run_dir, tab).values())
         google = {"count": entry_tab.get("google_count", 0), "named": entry_tab.get("google_named", 0),
                   "in_snapshot": in_snapshot}
