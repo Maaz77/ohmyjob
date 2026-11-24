@@ -360,6 +360,51 @@ class TestPopupsAsTabs(unittest.TestCase):
             finally:
                 ctx.close()
 
+    def test_a_clickable_div_gets_a_role_so_read_page_lists_it(self):
+        """read_page lists elements by role, so a div whose only sign of being a control is a click handler is not in
+        the interactive view at all. It gets role="button"; read_page then names it from its own text."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "plain-clickables.html")
+            try:
+                got = job.evaluate(
+                    "Object.fromEntries(['handler','tabbed','wrapped','iconic','named','plain','real'].map(id => {"
+                    "const el = document.getElementById(id);"
+                    "return [id, [el.getAttribute('role'), el.getAttribute('aria-label')]];"
+                    "}))")
+                # a click handler or a tabindex is enough: read_page reads the name off their own text
+                self.assertEqual(got["handler"], ["button", None])
+                self.assertEqual(got["tabbed"], ["button", None])
+                # no own text to read: it gets the role, and its name stays the honest "none"
+                self.assertEqual(got["wrapped"], ["button", None])
+                # an icon-only one is named like any icon button, from the test id
+                self.assertEqual(got["iconic"], ["button", "[icon] Remove row"])
+                # the site's own role is never overwritten, and a real control was already in the view
+                self.assertEqual(got["named"], ["link", None])
+                self.assertEqual(got["real"], [None, None])
+                # nothing clickable about it, so it stays out of the view
+                self.assertEqual(got["plain"], [None, None])
+            finally:
+                ctx.close()
+
+    def test_a_written_role_goes_when_the_run_ends(self):
+        """The page is put back as it was: a role and a name this script wrote must not outlive the run group."""
+        with sync_playwright() as p:
+            ctx, sw, home, home_id, job, job_id, gid = self.job_on(p, "plain-clickables.html")
+            try:
+                read = ("(() => [document.getElementById('handler').getAttribute('role'),"
+                        "document.getElementById('iconic').getAttribute('aria-label'),"
+                        "document.querySelectorAll('[data-aa-role]').length])()")
+                # four qualify: handler, tabbed, wrapped, iconic. `named` has the site's own role, `real` is a
+                # real control, `plain` has neither a handler nor a tabindex.
+                self.assertEqual(job.evaluate(read), ["button", "[icon] Remove row", 4])
+                home.goto(self.group_plan("Pending Review", job_id))
+                time.sleep(1.5)
+                self.assertEqual(job.evaluate(read), [None, None, 0])
+                # the site's own role is still there: it was never ours to remove
+                self.assertEqual(job.evaluate("document.getElementById('named').getAttribute('role')"), "link")
+            finally:
+                ctx.close()
+
     def test_google_links_are_named_and_the_title_counts_them(self):
         with sync_playwright() as p:
             ctx, sw, home, home_id, job_id, gid = self.start_run(p, "https://www.linkedin.com/robots.txt#aa-popups-as-tabs")

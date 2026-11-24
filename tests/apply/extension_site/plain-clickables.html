@@ -1,0 +1,11 @@
+<!doctype html><title>Apply - step 2</title>
+<!-- Controls a site built out of divs and spans. read_page lists a role, so an element with none is invisible to
+     the worker however clickable it is. -->
+<h1>Work experience</h1>
+<div id="handler" onclick="window.hit='handler'">Add another</div>
+<span id="tabbed" tabindex="0">Next step</span>
+<div id="wrapped" onclick="window.hit='wrapped'"><span>Remove this entry</span></div>
+<div id="iconic" onclick="window.hit='iconic'" data-testid="remove-row"><svg><path d="M0 0"/></svg></div>
+<div id="named" onclick="window.hit='named'" role="link">Already a role</div>
+<div id="plain">Not clickable at all</div>
+<button id="real" onclick="window.hit='real'" tabindex="0">A real button</button>
