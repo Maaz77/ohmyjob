@@ -1,0 +1,10 @@
+<!doctype html><title>Child names</title>
+<!-- read_page names a button from its own text, an aria-label or an alt, never from a child element. -->
+<button id="child" type="button"><span>Remove this entry</span></button>
+<button id="nested" type="button"><span><b>Remove</b> <i>this entry</i></span><svg><path d="M0 0"/></svg></button>
+<button id="own" type="button">Next<span>step</span></button>
+<button id="labelled" type="button" aria-label="Close"><span>Remove this entry</span></button>
+<!-- a title attribute and an image alt already name the control to read_page: no guess over them -->
+<button id="titled" type="button" title="Delete"><span>Remove</span></button>
+<button id="alted" type="button"><span>Remove</span><img alt="Delete" src="t.png"></button>
+<button id="long" type="button"><span>word word word word word word word word word word word word word word word word word word word word</span></button>
