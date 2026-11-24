@@ -1349,22 +1349,114 @@ class TestClickGuardHoles(T.Base):
         self.assertDenied(self.try_click(page, "ref_1"), "Haiku check blocked")  # the fake judge blocks this name
         self.assertEqual(len(self.judge_calls()), before + 1)
 
-    def test_a_delete_word_goes_to_the_judge_and_is_decided_by_the_text_around_it(self):
+    def test_a_delete_word_goes_to_the_judge_and_is_decided_by_the_container_it_sits_in(self):
         """Issue 45: "Remove" used to pass on its name (SAFE) while "Delete" was refused. Both now ask the model, and the
-        same name gets three verdicts from its surroundings: an uploaded file allows, a form entry and a sparse
-        sign-in page block."""
+        same name gets its verdict from the container it sits in, not from the lines beside it: an upload area allows, a
+        flat page with no container and a sparse sign-in page block."""
         self.boot(filled=True)
         upload = 'group "Resume" [ref_9]\n link "Resume.pdf" [ref_8]\n button "Remove" [ref_1] type="button"\n'
-        education = ('group "Education 2" [ref_9]\n textbox "School" [ref_8] type="text"\n'
-                     ' button "Remove" [ref_1] type="button"\n')
+        # the same uploaded file beside the button, with no container naming it: the window can show "Resume.pdf" but
+        # cannot say the button sits inside the upload area, so there is no evidence of containment and it blocks
+        flat_upload = 'link "Resume.pdf" [ref_8]\nbutton "Remove" [ref_1] type="button"\n'
         signin = 'button "Delete my data" [ref_1] type="button"\n'
         before = len(self.judge_calls())
         self.assertAllowed(self.try_click(upload))
         self.assertEqual(self.judge_calls()[-1]["name"], "Remove")
-        self.assertDenied(self.try_click(education), "Haiku check blocked")
+        self.assertEqual(self.judge_calls()[-1]["inside"], "Resume")
+        self.assertDenied(self.try_click(flat_upload), "Haiku check blocked")
+        self.assertEqual(self.judge_calls()[-1]["inside"], "")
         self.assertDenied(self.try_click(signin), "Haiku check blocked")
         # no verdict by name is kept: the second and third click were asked, not answered from the first
         self.assertEqual(len(self.judge_calls()), before + 3)
+
+    def test_a_delete_beside_a_form_field_is_refused_with_no_judge_call(self):
+        """Issue 45, defect 1: the prompt cannot judge containment from a window of lines, so the structure decides.
+        A field in the same container (or, on a page with no container, in the window) means the control removes an
+        answer. The flat page is the one the worker really sees: filter=interactive flattens plain div nesting, so the
+        ARIA group that indents "Education 2" is the lucky case, not the normal one."""
+        self.boot(filled=True)
+        flat = ('textbox "School" [ref_7] type="text"\ntextbox "Degree" [ref_6] type="text"\n'
+                'button "Delete" [ref_1] type="button"\nlink "Resume.pdf" [ref_5]\n'
+                'button "Remove" [ref_4] type="button"\n')
+        group = ('group "Education 2" [ref_9]\n textbox "School" [ref_8] type="text"\n'
+                 ' button "Remove" [ref_1] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(flat), "sits beside")
+        self.assertDenied(self.try_click(group), "sits beside")
+        self.assertEqual(len(self.judge_calls()), before)
+
+    def test_a_delete_in_a_form_entry_with_no_field_line_still_blocks(self):
+        """The structural rule is the floor, not the whole rule: an entry whose fields were never named (an empty
+        textbox in the interactive view has no name of its own) reaches the model, which blocks it on the container."""
+        self.boot(filled=True)
+        page = ('group "Education 2" [ref_9]\n button "Edit" [ref_8] type="button"\n'
+                ' button "Remove" [ref_1] type="button"\n')
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(page), "Haiku check blocked")
+        self.assertEqual(self.judge_calls()[-1]["inside"], "Education 2")
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
+    def test_an_unlisted_delete_name_is_judged_by_capability_not_by_the_word_list(self):
+        """Issue 45, defect 2: "Clear" is in no word list, so no hook rule fires for it. The prompt's delete rule is
+        framed on what the click does, not on the control's name, so the model still blocks it on a form entry."""
+        self.boot(filled=True)
+        page = ('group "Employment 2" [ref_9]\n textbox "Employer" [ref_8] type="text"\n'
+                ' button "Clear" [ref_1] type="button"\n')
+        before = len(self.judge_calls())
+        # the structural rule stands down as well: it fires on a delete word, and no list knows this name
+        self.assertDenied(self.try_click(page), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
+    def test_a_delete_word_inside_the_control_counts_as_well_as_its_own_name(self):
+        """Issue 45, defect 5: the final and apply words read the control's own name plus the text inside it; the
+        delete and withdraw words read the name alone, so a button whose text sits in a child escaped both."""
+        self.boot(filled=True)
+        remove = ('group "Education 2" [ref_9]\n button "Options" [ref_1] type="button"\n'
+                  '  generic "Remove education" [ref_2]\n')
+        withdraw = 'button "Options" [ref_1] type="button"\n generic "Withdraw application" [ref_2]\n'
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(remove), "Haiku check blocked")
+        self.assertDenied(self.try_click(withdraw), "withdraws")
+        self.assertEqual(len(self.judge_calls()), before + 1)  # the withdraw word never reaches the model
+
+    def test_a_delete_link_with_an_address_is_still_checked(self):
+        """Issue 45, defect 3: a link with a navigable address is excluded from the role test by `navigable_href`, so
+        only the `excused` flag sends a delete link to the model. Every other delete fixture is a button and would stay
+        green with that flag gone."""
+        self.boot(filled=True)
+        entry = ('group "Education 2" [ref_9]\n textbox "School" [ref_8] type="text"\n'
+                 ' link "Remove" [ref_1] href="/education/2/delete"\n')
+        upload = ('group "Resume" [ref_9]\n link "Resume.pdf" [ref_8]\n'
+                  ' link "Remove" [ref_1] href="/resume/1/delete"\n')
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(entry), "sits beside")
+        self.assertAllowed(self.try_click(upload))  # asked, not allowed on its name: `excused` carries it there
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
+    def test_a_delete_word_in_a_picker_says_so_in_the_prompt(self):
+        """Issue 45, defect 6: the picker line was computed only for a final or apply word, so for a delete word it
+        always read "no" without the hook ever looking. It is evidence the model reads, so it has to be true."""
+        self.boot(filled=True)
+        page = 'listbox "Chosen tags" [ref_9]\n button "Remove" [ref_1] type="button"\n'
+        self.assertAllowed(self.try_click(page))
+        self.assertEqual(self.judge_calls()[-1]["widget"], "yes")
+
+    def test_a_long_delete_name_is_never_cached_by_name(self):
+        """Issue 45, defect 4: the payload's name is cut at 300 characters while the routing reads the full one, so a
+        312-character name ending in "Remove" routed as a delete word and then passed the cache guard's own word test.
+        The decision travels in the payload now.
+
+        Asserted on the store and not on a second click: the read key carries `widget` and the write key does not
+        (hooks.py:307 against hooks.py:1646), so nothing written here is ever found again. The guard starts mattering
+        in practice when that key fix lands in PR 1; the condition is what this pins."""
+        import judge as J  # noqa: E402  (scripts/ is on the path)
+        self.boot(filled=True)
+        name = "A" * 305 + " Remove"
+        page = ('group "Resume" [ref_9]\n link "Resume.pdf" [ref_8]\n'
+                ' button "%s" [ref_1] type="button"\n' % name)
+        self.assertAllowed(self.try_click(page))
+        short = {"name": name[:300], "role": "button", "filled": True, "host": "jobs.example.com"}
+        self.assertFalse(J.cached(self.run_dir(), J.key_for("click", short)))
 
     def test_a_withdraw_word_is_refused_with_no_judge_call(self):
         self.boot(filled=True)
@@ -1391,12 +1483,29 @@ class TestClickGuardHoles(T.Base):
         self.assertDenied(self.try_click('button "Remove and apply" [ref_1] type="button"\n'), "Haiku check blocked")
         self.assertEqual(len(self.judge_calls()), before + 2)
 
-    def test_the_prompt_shows_the_widget_and_has_no_withdraw_rule(self):
+    def test_the_prompt_shows_the_container_and_the_widget(self):
         import judge as J  # noqa: E402  (scripts/ is on the path)
-        text = J.build_prompt("click", {"name": "Done", "context": "x", "host": "h", "widget": True})
+        text = J.build_prompt("click", {"name": "Done", "context": "x", "host": "h", "widget": True,
+                                        "container": "Education 2"})
         self.assertIn("In a picker or list: yes", text)
-        self.assertNotIn("withdraw", text.lower())
-        self.assertNotIn("Edit, Remove", text)
+        self.assertIn('Inside: "Education 2"', text)
+        self.assertNotIn("Edit, Remove", text)  # "Remove" is no allow word (issue 45)
+
+    def test_the_prompt_blocks_a_delete_by_what_it_does_not_by_the_control_name(self):
+        """Issue 45, defect 2: `main` blocked "delete or withdraw data" by capability, whatever the control was named.
+        A rule gated on the name ("A control named Delete or Remove ...") leaves "Clear", "Discard" and "Reset" with no
+        rule at all, and a withdraw synonym outside the word list ("Rescind") with neither a word refusal nor a rule."""
+        import judge as J  # noqa: E402  (scripts/ is on the path)
+        text = J.build_prompt("click", {"name": "Clear", "context": "x", "host": "h"})
+        self.assertNotIn("named Delete or Remove", text)
+        for word in ("delete", "remove", "clear", "discard", "reset", "erase", "trash", "withdraw"):
+            self.assertIn(word, text.lower(), word)
+        # an X that closes a dialog is Close and stays allowed: `main` allowed it, and a delete rule that swallows
+        # every X would park a worker on closing a cookie banner
+        self.assertIn("is Close, and allowed", text)
+        # the hook's word lists know nothing of "Clear", and the rule still has to reach it
+        self.assertIn("inside the control: no", text)
+        self.assertIn("inside the control: yes", J.build_prompt("click", {"name": "Options", "delete": True}))
 
     def edit_tab(self, **fields):
         path = self.run_dir() / "state.json"

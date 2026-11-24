@@ -18,14 +18,18 @@ BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden
                "sign up", "register", "sign up with linkedin", "create account to apply"}
 FAIL_NAMES = {"fallisci"}
 
-# A delete or remove control is judged from the text around it, never from its name: the same "Remove" sits beside an
-# uploaded file (allow), a filled education row (block) and a sign-in page (block). Mirrors the four clauses of the real
-# prompt: allow only what the agent added and can re-add, block account, data and form entries, and block when the
-# nearby text says nothing. The name only decides that this rule applies.
-DELETE_NAME_RE = re.compile(r"\b(delete|remove|rimuovi|quitar|remover|entfernen|löschen|elimina)\b", re.I)
-BLOCK_NEARBY = ("education", "employment", "work experience", "reference", "address", "qualification", "account",
+# A delete control is judged from the container it sits in ("Inside"), never from the lines beside it: the same
+# "Remove" sits inside an upload area (allow), inside a filled education row (block) and on a flat page with no
+# container at all (block), with the same "Resume.pdf" next to it in the first and the last. Mirrors the real prompt's
+# clauses: allow only a container that is itself what the agent added and can re-add, block an account, data or form
+# entry, and block an empty "Inside".
+# The name only decides that this rule applies, and it carries the prompt's capability framing: a delete-ish name that
+# no word list knows ("Clear", "Reset") is judged the same way, because the real rule goes by what the click does.
+DELETE_NAME_RE = re.compile(r"\b(delete|remove|clear|discard|reset|erase|trash|withdraw|rimuovi|quitar|remover"
+                            r"|entfernen|löschen|elimina)\b", re.I)
+BLOCK_INSIDE = ("education", "employment", "work experience", "reference", "address", "qualification", "account",
                 "profile", "data", "application")
-ALLOW_NEARBY = (".pdf", "resume", "cv", "upload", "attachment", "filter", "tag")
+ALLOW_INSIDE = ("resume", "cv", "upload", "attachment", "filter", "tag", "chip")
 
 def reply(obj: dict) -> None:
     usage = {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}
@@ -50,16 +54,23 @@ def main() -> None:
         name = field(prompt, "Control name")
         if log:
             with open(log, "a", encoding="utf-8") as handle:
-                handle.write(json.dumps({"kind": "click", "name": name}) + "\n")
+                # the container and the picker line as the prompt shows them, so a test can pin the evidence the real
+                # model would read and not only the verdict that follows from it
+                handle.write(json.dumps({"kind": "click", "name": name, "inside": field(prompt, "Inside"),
+                                         "widget": field(prompt, "In a picker or list")}) + "\n")
         if name.lower() in FAIL_NAMES:
             print("not json at all")
             sys.exit(1)
-        if DELETE_NAME_RE.search(name):
-            nearby = field(prompt, "Nearby text").lower()
-            ok = not any(w in nearby for w in BLOCK_NEARBY) and any(w in nearby for w in ALLOW_NEARBY)
+        # the hook's own flag first, for a name the word lists caught but the prompt's name field cannot show (a
+        # "Options" button over a child "Remove education", a name cut at 300 characters); the regex second, for the
+        # capability cases no word list knows
+        if field(prompt, "A delete word in the name or in the text inside the control") == "yes" \
+                or DELETE_NAME_RE.search(name):
+            inside = field(prompt, "Inside").lower()
+            ok = not any(w in inside for w in BLOCK_INSIDE) and any(w in inside for w in ALLOW_INSIDE)
             # context_dependent is False on purpose: the real model may ignore the prompt line that asks for true, so
             # the guard must never cache a delete word's verdict by name, whatever the model says.
-            reply({"verdict": "allow" if ok else "block", "reason": "fake: nearby text", "context_dependent": False})
+            reply({"verdict": "allow" if ok else "block", "reason": "fake: the container", "context_dependent": False})
         elif name.lower() in BLOCK_NAMES:
             reply({"verdict": "block", "reason": "fake: final", "context_dependent": False})
         else:

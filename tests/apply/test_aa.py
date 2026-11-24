@@ -1149,14 +1149,15 @@ class TestLanguages(Base):
         self.assertDenied(self.click(101, "ref_146", "L1"), "cookie")
         self.assertDenied(self.click(101, "ref_151", "L1"), "Haiku check blocked")
         self.assertAllowed(self.click(101, "ref_152", "L1", "Opens Sign in with Google"))
-        # "Elimina il mio profilo" is a delete word (issue 45): the Haiku check decides it from the nearby text, so it is
-        # still refused, but by the model and not by the word list ("deletes"), and it costs one call
-        self.assertDenied(self.click(101, "ref_153", "L1"), "Haiku check blocked")
+        # "Elimina il mio profilo" is a delete word (issue 45), so it is no longer refused by the word list
+        # ("deletes"). It shares its dialog with `textbox "Nome"`, and a delete control beside a form field removes an
+        # answer, so the structure refuses it before the Haiku check: still no model call for this one
+        self.assertDenied(self.click(101, "ref_153", "L1"), "sits beside the form field 'Nome'")
         self.assertDenied(self.click(101, "ref_158", "L1"), "permission")
         self.assertAllowed(self.click(101, "ref_157", "L1", "Opens the privacy notice"))  # a link to a page
         self.assertAllowed(self.click(101, "ref_148", "L1", "Opens the application form"))  # apply before a fill
         self.assertAllowed(self.click(101, "ref_160", "L1", "Opens the application form"))  # 応募する: apply
-        self.assertEqual(len(self.judge_calls()), before + 2, "the word lists decided these without Haiku, bar the sign-up name and the delete word (issue 45)")
+        self.assertEqual(len(self.judge_calls()), before + 1, "the word lists and the structure decided these without Haiku, bar the sign-up name")
         # names that no list knows: the Haiku check (fake) decides, and its answer is cached
         self.assertAllowed(self.click(101, "ref_147", "L1", "Rejects all cookies"))      # Rifiuta tutti
         self.assertDenied(self.click(101, "ref_155", "L1"), "haiku check blocked")       # Trasmetti la domanda
