@@ -77,7 +77,10 @@ class TestButtons(unittest.TestCase):
         # not even the separator breaks it. A bare substring would be wrong the other way round, which is why the
         # glued form has to name google or g: Paylocity, display, Cloudflare and driver each hold an app name.
         for name in ["GoogleDrive", "Google_Drive", "googledrive", "google_drive.svg", "gdrive-google.svg",
-                     "Upload from gDrive", "GooglePhotos", "g_calendar"]:
+                     "Upload from gDrive", "GooglePhotos", "g_calendar",
+                     # an icon file carries a prefix as often as not, and that leaves no boundary before the
+                     # "google" either; the app is named before the word as readily as after it
+                     "ic_google_drive.svg", "btnGoogleDrive.svg", "icongoogledrive.png", "drive_google.svg"]:
             self.assertIsNone(X.google_signin(name), name)
         for name in ["Sign in to Paylocity with Google", "Sign in with Google to display your profile",
                      "Continue with Google at Cloudflare", "Sign up with Google as a driver"]:

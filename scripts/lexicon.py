@@ -370,16 +370,26 @@ GOOGLE_NAME = "Continue with Google"
 # The same ten names are written by hand in chrome-extension/bridge.js (GOOGLE_PRODUCTS): change both together.
 _PRODUCTS = ["drive", "docs", "maps", "pay", "play", "photos", "sheets", "calendar", "meet", "cloud"]
 GOOGLE_PRODUCTS = Terms(_PRODUCTS)
-# The same app glued to its "google" ("GoogleDrive", "google_drive.svg", "gdrive"): "_" is a word character and a
-# name folded to one word has no boundary inside it, so the list above does not see those. Not matched as a bare
-# substring, which would read an app name out of Paylocity, display, Cloudflare and driver; it has to follow a
-# "google" or a "g". norm() has already folded the case, so no camelCase split is needed here.
-_GLUED_PRODUCT = re.compile(r"(?<!\w)g(?:oogle)?[\s\-_.]*(?:" + "|".join(_PRODUCTS) + r")")
+# The same app written as one word ("GoogleDrive", "icongoogledrive.png", "gdrive"), which the list above cannot
+# see: "_" is a word character, and a name folded to one word has no boundary inside it at all. The text is split
+# into words first (_split, below); what no split can separate is the app glued to its own "google", or to a bare
+# "g". Not matched as a plain substring, which would read an app name out of Paylocity, display, Cloudflare and
+# driver, so the "google" or the "g" has to be there.
+_P = "|".join(_PRODUCTS)
+_GLUED_PRODUCT = re.compile(rf"google[\s\-.]*(?:{_P})|(?<!\w)g(?:{_P})")
+_CAMEL_RE = re.compile(r"([a-z0-9])([A-Z])")
+_SEPARATOR_RE = re.compile(r"[\s\-_.]+")
+
+
+def _split(text: Optional[str]) -> str:
+    """"btnGoogleDrive.svg" -> "btn Google Drive svg": one word per word, so the app list sees its boundaries. Runs
+    before norm(), which folds away the case the camelCase split needs. The same split is in bridge.js."""
+    return _SEPARATOR_RE.sub(" ", _CAMEL_RE.sub(r"\1 \2", str(text or "")))
 
 
 def google_signin(name: Optional[str]) -> Optional[str]:
     """The Google word of a name that is a Google sign-in option, or None (no Google word, or a Google app named)."""
-    text = norm(name)
+    text = norm(_split(name))
     return None if GOOGLE_PRODUCTS.find(text) or _GLUED_PRODUCT.search(text) else GOOGLE.find(name)
 
 # Messages that an application was sent (the checks raise an alarm when the last page shows one).

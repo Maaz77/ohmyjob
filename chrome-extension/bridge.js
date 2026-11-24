@@ -21,14 +21,16 @@
   const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\](?: |$)/;
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
-  // A Google app is no sign-in option ("Upload from Google Drive"). An app word of its own, or glued to the
-  // "google" / "g" that an icon file is named with ("GoogleDrive", "google_drive.svg", "gdrive"): "_" is a word
-  // character and a folded name has no boundary inside it, so the plain list alone sees none of those. Not a bare
-  // substring, which would read an app name out of Paylocity, display, Cloudflare and driver. The same ten names
-  // are written by hand in scripts/lexicon.py (GOOGLE_PRODUCTS): change both together.
+  // A Google app is no sign-in option ("Upload from Google Drive"). The text is split into words first, because an
+  // icon file names the app as one word ("GoogleDrive", "ic_google_drive.svg"): "_" is a word character, and a
+  // name folded to one word has no boundary inside it at all. What no split can separate is the app glued to its
+  // own "google" or to a bare "g" ("icongoogledrive.png", "gdrive"). Not a plain substring, which would read an
+  // app name out of Paylocity, display, Cloudflare and driver. The same ten names are written by hand in
+  // scripts/lexicon.py (GOOGLE_PRODUCTS, with the same split): change both together.
   const PRODUCTS = "drive|docs|maps|pay|play|photos|sheets|calendar|meet|cloud";
-  const GOOGLE_PRODUCTS = new RegExp(`\\b(?:${PRODUCTS})\\b|\\bg(?:oogle)?[\\s\\-_.]*(?:${PRODUCTS})`, "i");
-  const isGoogleSignin = (text) => /google/i.test(text) && !GOOGLE_PRODUCTS.test(text);
+  const GOOGLE_PRODUCTS = new RegExp(`\\b(?:${PRODUCTS})\\b|google[\\s\\-.]*(?:${PRODUCTS})|\\bg(?:${PRODUCTS})`, "i");
+  const splitWords = (text) => (text || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[\s\-_.]+/g, " ");
+  const isGoogleSignin = (text) => /google/i.test(text) && !GOOGLE_PRODUCTS.test(splitWords(text));
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
   const CONTROLS = 'button, [role="button"], input[type="submit"], input[type="button"], a, [role="link"]';
   const GOOGLE_TAG_RE = /\[AA g=\d+ named=\d+( v=[0-9][\w.+-]*)?\]/;
@@ -94,15 +96,12 @@
     }
     for (const svg of scope.querySelectorAll("svg")) {
       const html = svg.outerHTML.toLowerCase();
-      // An app name is looked for in the parts that NAME the icon, never in the whole markup: every SVG attribute
+      // An app name is looked for in the parts that NAME the icon, never in the whole markup: every attribute
       // value stands in that, and `preserveAspectRatio="xMidYMid meet"` alone would make the Google logo a Meet
-      // mark. The colour count runs through the same test: Photos and the Play triangle carry the four brand
-      // colours as the "G" logo does, so 4 of 4 is no sign-in evidence on a control its mark names as an app.
-      const title = svg.querySelector("title");
-      const use = svg.querySelector("use");
-      const named = `${nameParts(svg)} ${nameParts(scope)} ${title ? title.textContent : ""} `
-        + (use ? use.getAttribute("href") || use.getAttribute("xlink:href") || "" : "");
-      if (GOOGLE_PRODUCTS.test(named)) continue;
+      // mark (`animation-play-state` is the next one). The colour count runs through the same test: Photos and the
+      // Play triangle carry the four brand colours as the "G" logo does, so 4 of 4 is no sign-in evidence on a
+      // control whose mark names an app.
+      if (GOOGLE_PRODUCTS.test(splitWords(iconNames(svg, scope)))) continue;
       // the "G" logo: its name in an id or title, or at least 3 of its 4 colours
       if (/google/i.test(html) || GOOGLE_COLORS.filter((c) => c.test(html)).length >= 3) return true;
     }
@@ -110,8 +109,20 @@
   }
 
   // what names an element, as a page writes it: no text node, no attribute that styles or lays out
+  const NAME_ATTRS = ["id", "class", "aria-label", "data-testid", "data-name"];
   function nameParts(el) {
-    return ["id", "class", "aria-label", "data-testid"].map((a) => el.getAttribute(a) || "").join(" ");
+    return NAME_ATTRS.map((a) => el.getAttribute(a) || "").join(" ");
+  }
+
+  // the names an icon carries: the control around it, the svg, and the nodes inside it -- a drawing program writes
+  // the app's name on a group or a path ("<g id='google-drive'>"), not only on the root
+  function iconNames(svg, scope) {
+    const parts = [nameParts(scope)];
+    for (const el of [svg, ...svg.querySelectorAll("*")]) parts.push(nameParts(el));
+    for (const el of svg.querySelectorAll("title, desc")) parts.push(el.textContent);
+    const use = svg.querySelector("use");
+    if (use) parts.push(use.getAttribute("href") || use.getAttribute("xlink:href") || "");
+    return parts.join(" ");
   }
 
   // read_page names a control from its own text, an aria-label or an alt, never from a child element, so a button
@@ -382,8 +393,9 @@
     else restoreLabel(el);
   }
 
-  // ponytail: MARK_CAP controls per pass, and hasGoogleIcon walks the images of each one. A form with more
-  // controls than that keeps the rest nameless; measure a big form before trading the ceiling for a cheaper walk.
+  // ponytail: MARK_CAP controls per pass, and hasGoogleIcon walks the icons of each one and their nodes. A form
+  // with more controls than that keeps the rest nameless; measure a big form before trading the ceiling for a
+  // cheaper walk.
   function nameGoogleButtons() {
     let seen = 0;
     // Every label is written once, after both loops: a label holds more than one control, and the second one --

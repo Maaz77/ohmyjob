@@ -369,10 +369,13 @@ class TestPopupsAsTabs(unittest.TestCase):
                 time.sleep(1.0)
                 names = job.evaluate("Object.fromEntries([...document.querySelectorAll('button, a')].map("
                                      "el => [el.id, el.getAttribute('aria-label')]))")
-                # issue 46: a Google app is no sign-in option, whether its name is spaced, glued or split by "_",
-                # and a product mark in the four brand colours is none either. The one-colour sprite logo is.
+                # issue 46: a Google app is no sign-in option, whether its name is spaced, glued, split by "_",
+                # prefixed, reversed or on a node inside the icon, and a product mark in the four brand colours is
+                # none either. The one-colour sprite logo is one.
                 self.assertEqual(names, {"glink": ICON_GOOGLE, "plain": None, "sprited": ICON_GOOGLE,
                                          "drivealt": None, "drivefile": None, "gdrive": None, "glued": None,
+                                         "plainfile": None, "prefixed": None, "camel": None, "mashed": None,
+                                         "reversed": None, "innerg": None, "dataname": None,
                                          "photos": None, "bgdrive": None})
                 self.assertEqual(job.evaluate("document.getElementById('gdiv').getAttribute('aria-label')"), ICON_GOOGLE)
                 # three Google controls, all named by the helper itself; no app control is counted
