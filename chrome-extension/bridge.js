@@ -364,6 +364,7 @@
     const post = () => {
       try {
         parent.postMessage({ aaFrame: location.href }, "*");
+        parent.postMessage({ aaGoogle: googleBox() }, "*");  // null when this document has no Google control
       } catch (e) {
         // a parent that cannot be reached: the src attribute is all the page above gets
       }
@@ -375,6 +376,19 @@
     window.addEventListener("message", (event) => {
       if (event.data && event.data.aaFrameAsk) post();
     });
+  }
+
+  // The box, in this frame's own viewport, of the first Google control of this document: found the way the naming pass
+  // finds them (hasGoogleIcon over the controls and the icon holders). A frame too small to be linked is reached
+  // through it, see placeGoogleOverlays.
+  function googleBox() {
+    for (const el of [...document.querySelectorAll(CONTROLS), ...iconHolders()]) {
+      if (inStoreLink(el)) continue;
+      if (!hasGoogleIcon(el.closest("label") || el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height) return { x: r.x, y: r.y, w: r.width, h: r.height };
+    }
+    return null;
   }
 
   // The page's half: a message counts only when it comes from a frame of this page, which the window identity of the
@@ -990,6 +1004,74 @@
     shadowSeen = new WeakSet();
   }
 
+  // A Google sign-in button inside a frame too small to be linked (the OneAll widget: 352x120) has no ref, and
+  // read_page cannot enter the frame. Marking the frame with its address would send the worker to the widget as a
+  // top-level page, where a social-login widget has no parent window to post the sign-in result to, so the
+  // application site would never learn the candidate signed in. Instead the page lays a named, invisible overlay
+  // over the button inside the frame, as the shadow twins are laid over their real controls (same style, same
+  // reason): read_page lists it, and a coordinate click on it passes through to the real button.
+  //
+  // Name: the literal GOOGLE_NAME, no "[icon] " prefix and no "[AA " marker: the guard's Google rule keys on it, its
+  // final-control rule excepts it, and it refuses every click on a marker. A frame big enough to be linked gets no
+  // overlay: navigating to it already works.
+  //
+  // Count: the overlay counts in g=/named= (countGoogleControls finds it by its name). It is a real Google control of
+  // this page, and the button inside the frame is invisible to this document, so nothing is counted twice.
+  //
+  // ponytail: the overlay is placed from the last reported box in pass(), the cadence of the shadow twins, with no
+  // scroll or resize listener: a scroll with no DOM change leaves it where it was until the next trigger. A
+  // scroll/resize listener that calls placeGoogleOverlays (and asks the frames) closes the gap if that bites.
+  const googleBoxes = new Map();     // frame -> the box its document last reported, or null
+  const googleOverlays = new Map();  // frame -> its overlay
+
+  function listenForGoogleBoxes() {
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (!data || typeof data !== "object" || !("aaGoogle" in data)) return;
+      const box = data.aaGoogle;
+      const valid = box && ["x", "y", "w", "h"].every((k) => Number.isFinite(box[k]));
+      for (const frame of document.querySelectorAll("iframe, frame")) {
+        if (frame.contentWindow !== event.source) continue;
+        googleBoxes.set(frame, valid ? box : null);
+        placeGoogleOverlays();
+        return;
+      }
+    });
+  }
+
+  function placeGoogleOverlays() {
+    if (!active || !document.body) return;
+    for (const [frame, box] of googleBoxes) {
+      let over = googleOverlays.get(frame);
+      if (!box || !frame.isConnected || bigEnough(frame)) {
+        if (over) over.remove();
+        googleOverlays.delete(frame);
+        if (!frame.isConnected) googleBoxes.delete(frame);
+        continue;
+      }
+      if (!over || !over.isConnected) {
+        over = document.createElement("button");
+        over.type = "button";
+        over.setAttribute("data-aa-google-frame", "");
+        over.setAttribute("aria-label", GOOGLE_NAME);
+        over.style.cssText = SHADOW_STYLE;
+        document.body.appendChild(over);
+        googleOverlays.set(frame, over);
+      }
+      const at = frame.getBoundingClientRect();
+      over.style.left = `${at.x + frame.clientLeft + box.x + window.scrollX}px`;
+      over.style.top = `${at.y + frame.clientTop + box.y + window.scrollY}px`;
+      over.style.width = `${box.w}px`;
+      over.style.height = `${box.h}px`;
+    }
+  }
+
+  function dropGoogleOverlays() {
+    for (const over of googleOverlays.values()) over.remove();
+    googleOverlays.clear();
+    googleBoxes.clear();
+  }
+
   function pass() {
     if (!active) return;
     // nameClickables FIRST: the role it writes puts the element in CONTROLS ([role="button"]), so the Google arm
@@ -1002,6 +1084,7 @@
     nameFrames();
     if (isTop) {
       shadowProxies();  // before markFields, so the fresh twins are marked in this same pass
+      placeGoogleOverlays();  // nameFrames above has asked the frames again
       markFields();
     }  // a frame is out of read_page's sight; one that is opened as a tab is a top frame there
     updateGoogleTag();
@@ -1044,6 +1127,7 @@
     dropPlainRoles();
     for (const banner of document.querySelectorAll("a[data-aa-dialog]")) banner.remove();
     dropShadowProxies();
+    dropGoogleOverlays();
     if (document.documentElement) document.documentElement.removeAttribute(ATTR);
   }
 
@@ -1059,7 +1143,10 @@
           active = true;
           if (!wired) {
             wired = true;
-            if (isTop) listenForFrameUrls();
+            if (isTop) {
+              listenForFrameUrls();
+              listenForGoogleBoxes();
+            }
             else reportFrameUrl();
           }
           whenRoot((root) => {
