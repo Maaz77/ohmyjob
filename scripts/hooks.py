@@ -120,6 +120,7 @@ class Ctx:
         self.dirty = False
         self.wait = 0.0  # seconds to hold this call before it runs (the first page load of a worker)
         self._refs: dict[str, dict] = {}
+        self.failed_open: set = set()  # see judged
 
     def entry(self, tab: Any) -> Optional[dict]:
         try:
@@ -293,22 +294,30 @@ class Ctx:
 
     # ---- Haiku checks (judge.py): the result comes from the cache, or the guard asks for it
 
-    def judged(self, kind: str, payload: dict) -> dict:
+    def judged(self, kind: str, payload: dict, open_ok: bool = False) -> dict:
         key = J.key_for(kind, payload)
         entry = J.cached(self.run_dir, key) or {}
         if "result" in entry:
             return entry["result"]
+        error = entry.get("error") or "no answer"
+        if open_ok and (key in self.failed_open or int(entry.get("failures") or 0) >= J.MAX_FAILURES):
+            # A FAILED check (not a "block") on a name with none of the dangerous words: the click goes through. The
+            # verdict is never cached, so the next click asks again. `failed_open` holds the check that failed in
+            # this very call (the guard loop adds it); the cache holds the ones that failed in earlier calls.
+            L.log(self.run_dir, "judge-fail-open", kind=kind, name=str(payload.get("name"))[:60],
+                  host=payload.get("host"), error=error)
+            return {"verdict": "allow", "reason": "the Haiku check failed and the name carries no dangerous word"}
         if int(entry.get("failures") or 0) >= J.MAX_FAILURES:
-            raise Deny(judge_failed(kind, payload, entry.get("error") or "no answer"))
-        raise L.NeedJudge(kind, payload)
+            raise Deny(judge_failed(kind, payload, error))
+        raise L.NeedJudge(kind, payload, open_ok)
 
-    def judged_click(self, payload: dict) -> dict:
+    def judged_click(self, payload: dict, open_ok: bool = False) -> dict:
         """A name Haiku called context-free is checked once per run and kept for later runs; else per page
-        context."""
+        context. `open_ok`: a failed check allows the click (see judged)."""
         entry = J.cached(self.run_dir, J.key_for("click", short_click_payload(payload))) or {}
         if "result" in entry:
             return entry["result"]
-        return self.judged("click", payload)
+        return self.judged("click", payload, open_ok)
 
 
 def short_click_payload(payload: dict) -> dict:
@@ -339,6 +348,21 @@ def element(ctx: Ctx, tab: Any, ref: Optional[str]) -> dict:
 
 
 BOX_ROLES = {"checkbox", "switch", "menuitemcheckbox"}
+
+
+def enter_in_search_list(ctx: Ctx, tab: Any, keys: str) -> bool:
+    """Enter or Return alone, while the focus is on a combobox or a search box: a search list commits on it. A plain
+    text box stays refused, because Enter there submits a form. A worker's key action only (a foreign caller keeps
+    the old rule)."""
+    focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+    return keys.strip().lower() in ("enter", "return") and focused.get("role") in ("combobox", "searchbox")
+
+
+def multiline_box(item: dict) -> bool:
+    """A text box that takes a line break: a textarea, or a textbox that says aria-multiline="true"."""
+    attrs = item.get("attrs") or {}
+    return item.get("role") == "textarea" or attrs.get("type") == "textarea" \
+        or item.get("role") == "textbox" and attrs.get("aria-multiline") == "true"
 
 
 def marker_problem(item: dict) -> Optional[str]:
@@ -516,8 +540,16 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         if choice:
             return  # a toggle of the dialog: the worker turns the options off, and no tick sends anything
         if consent:
-            raise Deny("This is a cookie or consent dialog. Click its most private choice (Reject all, Decline, Only "
-                       "necessary). If it offers none, turn its options off and then save (Confirm choices, Save).")
+            # "Accept all" is the only way past a dialog that offers nothing else: no private choice, no toggle, no
+            # other button (L.consent_offers_nothing_else). Not a guessed name, not after a fill, and not a name with a
+            # final or delete word beside the consent phrase. Any doubt keeps the refusal.
+            if not (name.strip() and not icon and not filled and not X.DELETE.find(scan)
+                    and not X.FINAL.find(X.norm(scan).replace(X.CMP.find(X.norm(scan)) or "\0", " "))
+                    and L.consent_offers_nothing_else(snapshot, ref)):
+                raise Deny("This is a cookie or consent dialog. Click its most private choice (Reject all, Decline, Only "
+                           "necessary). If it offers none, turn its options off and then save (Confirm choices, Save).")
+            L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60], only_choice=True)
+            return
         if X.DELETE.find(name):
             raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
         # `sticky` plays no part here: it says that a form of an earlier run may stand filled on the page, which
@@ -630,7 +662,12 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         payload = {"name": name[:300], "role": role, "context": context[:600], "host": ctx.host(tab) or "unknown",
                    "filled": filled or ("unknown" if sticky else False), "widget": bool(widget), "icon": icon,
                    "container": L.ancestor_names(snapshot, ref, " | ")[-300:], "delete": bool(remove)}
-        result = ctx.judged_click(payload)
+        # A failed Haiku check allows the click only for a name with none of the dangerous words, read from the same
+        # `scan` (own name plus the text inside) as the rules above, and never for a name the extension guessed or a
+        # Google option. The lists are every one that keeps the old fail-closed refusal.
+        open_ok = not icon and not google and not any(
+            t.find(scan) for t in (X.FINAL, X.APPLY, X.DELETE, X.PERMISSION, X.CONSENT, X.SIGNUP))
+        result = ctx.judged_click(payload, open_ok)
         if result.get("verdict") != "allow":
             raise Deny(f"The Haiku check blocked '{name}' ({result.get('reason') or 'it can send the application'}). "
                        "Do not click it. " + park_order(ctx, tab, "If this is the step with the final button, stop here "
@@ -793,16 +830,22 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             # no resume on this job: the old message printed ["None"], which no worker could act on
             raise Deny("This job has no resume PDF, so nothing may be uploaded. Leave the upload empty, list it in "
                        "`open`, and go on.")
-        if len(paths) != 1 or str(Path(str(paths[0])).expanduser().resolve()) != expected:
+        # One path: the job's resume, or another file that already sits in the same folder (a cover letter the job's
+        # folder holds). The candidate is resolved first (symlinks, "..", "~"), then its parent must be the resume's
+        # parent, so no other directory is reachable and a link out of the folder does not count.
+        upload = Path(str(paths[0])).expanduser().resolve() if len(paths) == 1 else None
+        folder = Path(expected).resolve().parent
+        if upload is None or (str(upload) != expected and not (upload.is_file() and upload.parent == folder)):
             # The worker reaches here for a second required document as often as for a wrong path, and uploading the
             # resume into a cover-letter field would attach the wrong document to a real application.
-            raise Deny(f'Upload only this one file, as "paths": ["{expected}"]. It is the only file you may upload. '
-                       f'If this field wants a different document (a cover letter, a transcript, a portfolio), do '
+            raise Deny(f'Upload only this job\'s resume, as "paths": ["{expected}"], or one other file that sits in the same '
+                       f'folder ({folder}), one path per call. No other file may be uploaded. If this field wants a '
+                       f'different document (a cover letter, a transcript, a portfolio) that is not in that folder, do '
                        f'not put the resume in it: leave the field, list it in `open`, and go on.')
         element(ctx, tab, ti.get("ref"))
         ctx.mark_filled(tab)
         ctx.set_focus(tab, None)
-        clean = {"tabId": tab, "ref": ti.get("ref"), "paths": [expected]}  # no "files", no "file_path"
+        clean = {"tabId": tab, "ref": ti.get("ref"), "paths": [str(upload)]}  # no "files", no "file_path"
         return clean if clean != ti else None
 
     if short == "form_input":
@@ -843,9 +886,10 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             keys = str(ti.get("text") or "")
             if google or signin:
                 raise Deny("Do not press keys on Google pages.")
-            if not L.keys_allowed(keys):
+            if not L.keys_allowed(keys) and not enter_in_search_list(ctx, tab, keys):
                 raise Deny("Press only Tab, Shift+Tab, Escape, Backspace, Delete, the arrow, Home, End and Page keys, or "
-                           "Ctrl/Cmd with A, C, V, X, Z, Y. Enter, Return and Space can press a focused button: click the "
+                           "Ctrl/Cmd with A, C, V, X, Z, Y. Enter and Return only in a combobox or search box that you "
+                           "clicked by its ref. Enter, Return and Space can press a focused button: click the "
                            "control by its ref instead. A dropdown or search list never commits from a key: click the "
                            "field by its ref, call read_page alone, then click the option by its ref. If no option "
                            "appears that way, that field cannot be answered: leave it, fill the rest of the step, and "
@@ -857,10 +901,11 @@ def check_worker_action(ctx: Ctx, short: str, ti: dict, in_batch: bool = False) 
             if google or signin:
                 raise Deny("Do not type on Google pages.")
             text = str(ti.get("text") or "")
-            if L.CONTROL_CHAR_RE.search(text):
-                raise Deny("No line breaks, tabs or other control characters in a type action (they go out as key presses). "
-                           "Use form_input for text with line breaks.")
             focused = ctx.refs(tab).get(ctx.focus_ref(tab) or "") or {}
+            # a line break is allowed in a multi-line text box only; a tab and every other control character never
+            if L.CONTROL_CHAR_RE.search(text.replace("\n", "") if multiline_box(focused) else text):
+                raise Deny("No line breaks, tabs or other control characters in a type action (they go out as key presses), "
+                           "except a line break in a multi-line text box. Use form_input for text with line breaks.")
             # an autocomplete (Vuetify and friends) is a text input that read_page calls a listbox, so the role alone
             # would refuse the only way to fill it: typing and then clicking the option
             typable = ctx.focus(tab) in L.TYPE_ROLES or (focused.get("attrs") or {}).get("type") == "text"
@@ -1664,6 +1709,7 @@ def guard(inp: dict) -> None:
     wait = 0.0
     denied_recorded = False
     folder_for_error = None  # captured when NeedJudge is caught, for Haiku check failure save
+    failed_open: set = set()  # keys of the checks that failed in this call and may let the click through (Ctx.judged)
     for _round in range(MAX_JUDGE_ROUNDS):
         pending: Optional[L.NeedJudge] = None
         with L.locked(run_dir):
@@ -1676,6 +1722,7 @@ def guard(inp: dict) -> None:
                 reason = f"The run is not active (status: {state.get('status')})."
             else:
                 ctx = Ctx(run_dir, state, agent_id)
+                ctx.failed_open = failed_open
                 try:
                     if agent_type == L.WORKER:
                         updated = check_worker_action(ctx, short, ti)
@@ -1706,6 +1753,9 @@ def guard(inp: dict) -> None:
         result, error = J.ask(run_dir, pending.kind, pending.payload)
         L.log(run_dir, "judge", kind=pending.kind, payload=pending.payload, result=result, error=error or None,
               agent_id=agent_id)
+        if result is None and pending.open_ok:
+            failed_open.add(J.key_for(pending.kind, pending.payload))
+            continue  # the next round's check finds the failure and lets the click through (and logs it)
         if result is None:
             reason = judge_failed(pending.kind, pending.payload, error)
             # the master reports the failed check in its summary: the state must be saved, under the lock

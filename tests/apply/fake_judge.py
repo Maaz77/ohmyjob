@@ -16,7 +16,8 @@ BLOCK_NAMES = {"trasmetti la domanda", "invia candidatura", "envoyer", "absenden
                "create an account", "crea un account", "créer un compte", "konto erstellen", "registrarse",
                "criar conta", "account aanmaken", "zarejestruj się", "регистрация", "注册", "新規登録", "회원가입",
                "sign up", "register", "sign up with linkedin", "create account to apply"}
-FAIL_NAMES = {"fallisci"}
+# "fallisci" is an ordinary name (a failed check lets it through); "register fallisci" carries a sign-up word (it must not)
+FAIL_NAMES = {"fallisci", "register fallisci"}
 
 # A delete control is judged from the container it sits in ("Inside"), never from the lines beside it: the same
 # "Remove" sits inside an upload area (allow), inside a filled education row (block) and on a flat page with no

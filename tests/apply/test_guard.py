@@ -486,10 +486,11 @@ class TestJudgeErrorReported(T.Base):
         self.aa_json("start")
         (folder, tab, _brief), *_rest = self.assign(101, 102)
         self.assertAllowed(self.guard(C + "navigate", {"tabId": tab, "url": "https://careers.example.com/a"}, W, "A1"))
+        # a sign-up name is one of the dangerous words: a failed check keeps refusing it (an ordinary name is let through)
         self.post("read_page", {"tabId": tab, "filter": "interactive"},
-                  f'button "Fallisci" [ref_7]\n\nTab Context:\n- tab {tab}', W, "A1")
+                  f'button "Register fallisci" [ref_7]\n\nTab Context:\n- tab {tab}', W, "A1")
         self.assertDenied(self.click(tab, "ref_7", "A1", "Goes on"), "check")
-        self.assertIn("Fallisci", self.state()["jobs"][folder]["judge_error"])
+        self.assertIn("Register fallisci", self.state()["jobs"][folder]["judge_error"])
         self.assertIn("WARN Haiku check failed for", self.aa("finish"))
 
 class TestTrackerSaveFailure(T.Base):
@@ -1890,3 +1891,173 @@ class TestClickGuardHoles(T.Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGuardLoosenings(T.Base):
+    """The five narrow loosenings (issues 21, 24, 26, 27): each allowed only in its one shape, and every neighbour of
+    that shape still refused."""
+
+    def start(self):
+        self.aa_json("start")
+        (self.f1, self.t1, self.b1), (self.f2, self.t2, self.b2) = self.assign(101, 102)
+        self.assertAllowed(self.guard(C + "navigate", {"tabId": 101, "url": "https://careers.example.com/a"}, W, "A1"))
+
+    def read(self, text, tab=101):
+        self.post("read_page", {"tabId": tab, "filter": "interactive"}, text, W, "A1")
+
+    def key(self, text):
+        return self.guard(C + "computer", {"tabId": 101, "action": "key", "text": text}, W, "A1")
+
+    def typed(self, text):
+        return self.guard(C + "computer", {"tabId": 101, "action": "type", "text": text}, W, "A1")
+
+    def log_events(self, event):
+        lines = (self.run_dir() / "guard.log").read_text(encoding="utf-8").splitlines()
+        return [e for e in (json.loads(line) for line in lines if line.strip()) if e["event"] == event]
+
+    # ---- 1. Enter in a search list
+
+    PAGE = ('combobox "School or University" [ref_5]\nsearchbox "Find" [ref_6]\ntextbox "First name" [ref_7] type="text"\n'
+            'button "Next" [ref_8] type="button"\n')
+
+    def test_enter_is_allowed_only_in_a_combobox_or_searchbox(self):
+        self.start()
+        self.read(self.PAGE)
+        self.assertDenied(self.key("Enter"), "press only")  # nothing focused yet
+        self.clear_watchdog()
+        for ref in ("ref_5", "ref_6"):
+            self.assertAllowed(self.click(101, ref, "A1", "Focuses the field"))
+            for keys in ("Enter", "enter", "Return", " Enter "):
+                self.assertExplicitAllow(self.key(keys))
+            for keys in ("shift+Enter", "cmd+Enter", "NumpadEnter", "KP_Return", "space", "Enter Enter", "Enter Tab",
+                         "\r", "\n"):
+                self.assertDenied(self.key(keys), "press only")
+                self.clear_watchdog()
+        # a plain text box and a button keep the old refusal: Enter there submits a form or presses the button
+        for ref in ("ref_7", "ref_8"):
+            self.assertAllowed(self.click(101, ref, "A1", "Focuses the field"))
+            self.assertDenied(self.key("Enter"), "press only")
+            self.clear_watchdog()
+            self.read(self.PAGE)
+        # the rest of the allowlist is as before
+        self.assertExplicitAllow(self.key("Tab"))
+
+    def test_workday_search_list_labels_are_search_fields(self):
+        for name in ("School or University", "Skills", "Search", "Filter results"):
+            self.assertTrue(L.is_search_field({"role": "combobox", "name": name}), name)
+        for name in ("First name", "School", "University attended"):
+            self.assertFalse(L.is_search_field({"role": "textbox", "name": name}), name)
+
+    # ---- 2. A second upload file
+
+    def test_upload_takes_the_resume_or_one_file_of_its_folder(self):
+        self.start()
+        self.read(sample("constructed_form_page.txt"))
+        pdf = Path(self.state()["jobs"][self.f1]["pdf"])
+        folder = pdf.parent
+        (folder / "Cover letter.pdf").write_bytes(b"%PDF-1.4 cover")
+        (folder / "sub").mkdir(exist_ok=True)
+        (folder / "sub" / "deep.pdf").write_bytes(b"%PDF-1.4 deep")
+        outside = folder.parent.parent / "outside.pdf"
+        outside.write_bytes(b"%PDF-1.4 outside")
+        (folder / "link.pdf").symlink_to(outside)
+        other = Path(self.state()["jobs"][self.f2]["pdf"])  # the other job's resume: another folder
+
+        def upload(*paths):
+            self.clear_watchdog()
+            return self.guard(C + "file_upload", {"tabId": 101, "ref": "ref_45", "paths": list(paths)}, W, "A1")
+
+        cover = str((folder / "Cover letter.pdf").resolve())
+        self.assertExplicitAllow(upload(str(folder / "Cover letter.pdf")))
+        proc = upload(str(folder / "sub" / ".." / "Cover letter.pdf"))  # rewritten to the resolved path
+        self.assertExplicitAllow(proc)
+        self.assertEqual(json.loads(proc.stdout)["hookSpecificOutput"]["updatedInput"],
+                         {"tabId": 101, "ref": "ref_45", "paths": [cover]})
+        self.assertExplicitAllow(upload(str(pdf)))
+        for paths in ([str(folder / "missing.pdf")], [str(folder / "sub")], [str(folder / "sub" / "deep.pdf")],
+                      [str(folder / "link.pdf")], [str(other)], [str(folder / ".." / other.parent.name / other.name)],
+                      [str(folder / "..")], ["/etc/hosts"], [str(pdf), cover], [], [cover, cover]):
+            self.assertDenied(upload(*paths), "Upload only this job's resume")
+        self.assertDenied(upload(str(other)), "same folder")
+        outside.unlink()
+
+    # ---- 3. A line break in type
+
+    BOXES = ('textarea "Cover letter" [ref_9]\ntextbox "About you" [ref_10] aria-multiline="true"\n'
+             'textbox "Notes" [ref_11] aria-multiline="false"\ntextbox "First name" [ref_12] type="text"\n')
+
+    def test_a_line_break_is_typed_only_into_a_multi_line_box(self):
+        self.start()
+        self.read(self.BOXES)
+        for ref in ("ref_9", "ref_10"):
+            self.assertAllowed(self.click(101, ref, "A1", "Focuses the field"))
+            self.assertExplicitAllow(self.typed("line one\nline two"))
+            for text in ("a\tb", "a\rb", "a\r\nb", "a\x1bb", "a\x7fb", "a\n\tb"):
+                self.assertDenied(self.typed(text), "control characters")
+                self.clear_watchdog()
+            self.read(self.BOXES)
+        for ref in ("ref_11", "ref_12"):
+            self.assertAllowed(self.click(101, ref, "A1", "Focuses the field"))
+            self.assertDenied(self.typed("a\nb"), "control characters")
+            self.clear_watchdog()
+            self.read(self.BOXES)
+
+    # ---- 4. "Accept all" when the banner offers nothing else
+
+    def consent(self, extra="", head='dialog "Cookie settings" [ref_300]\n'):
+        self.read(head + ' button "Accept all" [ref_301] type="button"\n link "Privacy policy" [ref_302] href="/privacy"\n'
+                  + extra)
+
+    def test_accept_all_passes_only_when_the_dialog_offers_nothing_else(self):
+        self.start()
+        self.consent()
+        self.assertExplicitAllow(self.click(101, "ref_301", "A1", "Accepts the cookies"))
+        events = self.log_events("consent-dialog")
+        self.assertEqual([(e["name"], e.get("only_choice")) for e in events], [("Accept all", True)])
+        for extra in (' button "Reject all" [ref_303] type="button"\n', ' button "Only necessary" [ref_303]\n',
+                      ' button "Decline" [ref_303]\n', ' button "Settings" [ref_303]\n', ' button [ref_303]\n',
+                      ' link "Manage preferences" [ref_303] href="#"\n', ' link "Reject cookies" [ref_303] href="#"\n',
+                      ' checkbox "Analytics" [ref_303] type="checkbox"\n', ' button "Ads" [ref_303] type="checkbox"\n',
+                      ' switch "Marketing" [ref_303]\n', ' radio "Off" [ref_303] type="radio"\n'):
+            self.consent(extra)
+            self.assertDenied(self.click(101, "ref_301", "A1", "Accepts the cookies"), "most private choice")
+            self.clear_watchdog()
+        # no dialog around the control: nothing to scan, so the refusal stands
+        self.read('button "Accept all cookies" [ref_301] type="button"\n')
+        self.assertDenied(self.click(101, "ref_301", "A1", "Accepts the cookies"), "most private choice")
+        self.clear_watchdog()
+        # a final or delete word beside the consent phrase, or a permission word, keeps its refusal
+        for name in ("Accept all and submit", "Accept all and delete my data"):
+            self.read(f'dialog "Cookie settings" [ref_300]\n button "{name}" [ref_301] type="button"\n')
+            self.assertDenied(self.click(101, "ref_301", "A1", "Accepts the cookies"))
+            self.clear_watchdog()
+        self.read('dialog "Cookie settings" [ref_300]\n button "Allow all" [ref_301] type="button"\n')
+        self.assertDenied(self.click(101, "ref_301", "A1", "Allows the cookies"), "permission")
+
+    # ---- 5. A failed Haiku check on an ordinary name
+
+    def test_a_failed_check_lets_an_ordinary_name_through_and_logs_it(self):
+        self.start()
+        self.read('button "Fallisci" [ref_7] type="button"\n')
+        self.assertExplicitAllow(self.click(101, "ref_7", "A1", "Goes on"))
+        self.assertEqual([e["name"] for e in self.log_events("judge-fail-open")], ["Fallisci"])
+        # the failure is not cached as a verdict: the check is asked again, fails again, the click goes through again
+        self.read('button "Fallisci" [ref_7] type="button"\n')
+        self.assertExplicitAllow(self.click(101, "ref_7", "A1", "Goes on"))
+        # after MAX_FAILURES the hook stops asking and still lets it through, logging each time
+        asked = len(self.judge_calls())
+        self.read('button "Fallisci" [ref_7] type="button"\n')
+        self.assertExplicitAllow(self.click(101, "ref_7", "A1", "Goes on"))
+        self.assertEqual(len(self.judge_calls()), asked)
+        self.assertEqual(len(self.log_events("judge-fail-open")), 3)
+
+    def test_a_failed_check_still_refuses_a_name_with_a_dangerous_word(self):
+        self.start()
+        # a sign-up word is the dangerous word that reaches the check through the word rules
+        self.read('button "Register fallisci" [ref_7] type="button"\n')
+        self.assertDenied(self.click(101, "ref_7", "A1", "Goes on"), "could not check")
+        self.clear_watchdog()
+        # its own name is fine but the text inside carries a delete word: the same scan, the same refusal
+        self.read('button "Fallisci" [ref_8] type="button"\n generic "Remove education" [ref_9]\n')
+        self.assertDenied(self.click(101, "ref_8", "A1", "Goes on"))
+        self.assertFalse(self.log_events("judge-fail-open"))

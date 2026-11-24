@@ -291,6 +291,24 @@ CMP = Terms(
      "zarządzaj danymi", "ustawienia prywatności", "uzasadniony interes", "potwierdź wybory", "odrzuć wszystko"],
 )
 
+# A more private choice, or a way to one, beside an "Accept all" in a consent dialog (reject, decline, only the
+# necessary cookies, settings). The one allow of "Accept all" (hooks.py, consent branch) stands down for any of them.
+# They are plain words of many languages and none is exhaustive, so the allow also needs the dialog to hold no other
+# button at all (aa_lib.consent_offers_nothing_else).
+PRIVATE = Terms(
+    ["reject*", "decline*", "deny", "refuse*", "only necessary", "necessary only", "only essential", "essential only",
+     "strictly necessary", "customi*", "settings", "preferences", "manage*", "options", "opt out", "opt-out",
+     "rifiuta*", "solo necessari", "personalizza", "impostazioni", "gestisci*", "refuser", "tout refuser",
+     "uniquement nécessaires", "personnaliser", "paramétrer", "gérer*", "ablehnen", "alle ablehnen", "nur notwendige",
+     "nur erforderliche", "einstellungen", "anpassen", "verwalten", "rechazar*", "solo necesarias", "configurar",
+     "personalizar", "gestionar*", "rejeitar", "recusar", "apenas necessários", "gerir", "weigeren", "alles weigeren",
+     "alleen noodzakelijke", "instellingen", "odrzuć*", "ustawienia", "avvisa", "neka", "afvis", "avslå"],
+    ["отклонить", "отказаться", "тільки необхідні", "відхилити", "налаштування", "настройки", "απόρριψη", "ρυθμίσεις",
+     "reddet", "ayarlar"],
+    ["拒绝", "拒絕", "拒否", "設定", "设置", "거부", "설정", "ปฏิเสธ", "ตั้งค่า", "từ chối", "tolak", "pengaturan",
+     "رفض", "إعدادات", "דחה", "הגדרות", "رد", "تنظیمات"],
+)
+
 # Sign-up and account creation. Allowed only when the control is a Google option.
 SIGNUP = Terms(
     ["sign up", "signup", "create account", "create an account", "create your account", "register", "new account"],
@@ -365,7 +383,7 @@ DELETE = Terms(*_WITHDRAW, *_REMOVE)
 # Search and filter boxes (a job search on a careers site). A fill there is not an application form: a search for the
 # job title must not block the "Apply" button that opens the form.
 SEARCH = Terms(
-    ["search*", "filter*", "keyword*", "find jobs", "find a job"],
+    ["search*", "filter*", "keyword*", "find jobs", "find a job", "school or university", "skills"],
     ["cerca", "ricerca", "recherche*", "rechercher", "suche*", "suchen", "buscar", "búsqueda", "busca", "pesquisa*", "procurar",
      "zoek*", "sök", "søg", "søk", "szukaj", "wyszukaj", "hledat", "vyhledat", "keres*", "căutare", "caută"],
     ["поиск", "найти", "пошук", "αναζήτηση", "ara", "بحث", "חיפוש", "جستجو", "खोज", "検索", "搜索", "搜尋", "검색",

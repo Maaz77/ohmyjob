@@ -1187,11 +1187,14 @@ class TestLanguages(Base):
         self.assertAllowed(self.click(101, "ref_147", "L1", "Rejects all cookies"))
         self.assertDenied(self.click(101, "ref_155", "L1"), "haiku check blocked")
         self.assertEqual(len(self.judge_calls()), n, "the second click used the cache")
-        # a failed check blocks the click; after two failures the hook stops asking
-        self.assertDenied(self.click(101, "ref_156", "L1"), "could not check")
-        self.assertDenied(self.click(101, "ref_156", "L1"), "could not check")
+        # a failed check on an ordinary name ("Fallisci") lets the click through (logged as judge-fail-open); after two
+        # failures the hook stops asking. A pressable click is refused twice in a row, so the page is read between them.
+        self.assertAllowed(self.click(101, "ref_156", "L1", "Goes on"))
+        self.page(101, "constructed_form_page_it.txt", agent_id="L1")
+        self.assertAllowed(self.click(101, "ref_156", "L1", "Goes on"))
+        self.page(101, "constructed_form_page_it.txt", agent_id="L1")
         n = len(self.judge_calls())
-        self.assertDenied(self.click(101, "ref_156", "L1"), "could not check")
+        self.assertAllowed(self.click(101, "ref_156", "L1", "Goes on"))
         self.assertEqual(len(self.judge_calls()), n)
         # after the first fill, Apply words are final too
         self.assertAllowed(self.guard(C + "form_input", {"tabId": 101, "ref": "ref_141", "value": "Alex"}, W, "L1"))
@@ -1241,8 +1244,9 @@ class TestJudgeCacheAcrossRuns(Base):
         self.assertEqual(self.asked(), 1, "the second run used the workspace cache")
 
     def test_a_failure_does_not_survive_a_new_run(self):
-        self.assertDenied(self.one_run(self.DOWN), "could not check")
-        self.assertDenied(self.one_run(self.DOWN), "could not check")
+        # "Trasmetti la domanda" carries no word of any list, so a failed check lets it through (judge-fail-open)
+        self.assertAllowed(self.one_run(self.DOWN))
+        self.assertAllowed(self.one_run(self.DOWN))
         cache = self.root / ".ohmyjob" / "judge_cache.json"
         self.assertFalse(cache.exists() and json.loads(cache.read_text())["entries"])
         self.assertDenied(self.one_run(), "haiku check blocked")  # the judge works now: its verdict, not the old outage
