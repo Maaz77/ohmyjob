@@ -449,6 +449,40 @@
     for (const [label, name] of labels) setIconName(label, name);
   }
 
+  // A div or span whose only sign of being a control is a click handler sits in no role read_page lists, so the
+  // worker never sees it at all: several traces show a missing Apply or Next that way. It gets role="button", which
+  // puts it in the interactive view, and read_page then names it from its own text.
+  //
+  // Candidates by attribute only. [onclick] and [tabindex] cost a selector match, while the cursor:pointer arm of
+  // isClickable needs getComputedStyle, which the comment at iconHolders records as having frozen big forms when it
+  // ran over the whole document on every mutation. An icon-only one has no text to be named from, so it goes through
+  // iconName like any icon button, and stays nameless when no source gives a word.
+  //
+  // ponytail: a React div whose handler is on addEventListener and whose pointer cursor comes from a class has
+  // NEITHER attribute, so it is not covered. Upgrade path: time a pass over `div, span` with getComputedStyle
+  // against a big-form fixture first -- that walk is the measured freeze above, so widening needs a number, not a
+  // guess.
+  const PLAIN_CLICKABLE = "div[onclick], span[onclick], div[tabindex], span[tabindex]";
+
+  function nameClickables() {
+    let seen = 0;
+    for (const el of document.querySelectorAll(PLAIN_CLICKABLE)) {
+      if (++seen > MARK_CAP) break;
+      // a real control, or a role the site set: both are in read_page's view already
+      if (el.matches(CONTROLS) || (el.hasAttribute("role") && !el.hasAttribute(ROLE_OURS))) continue;
+      el.setAttribute("role", "button");
+      el.setAttribute(ROLE_OURS, "1");
+      if (!hasSiteName(el)) setIconName(el, iconName(el));
+    }
+  }
+
+  function dropPlainRoles() {
+    for (const el of document.querySelectorAll(`[${ROLE_OURS}]`)) {
+      el.removeAttribute("role");
+      el.removeAttribute(ROLE_OURS);
+    }
+  }
+
   // The title tag of a job tab: how many Google controls the page has, and how many of them have a name. The guard
   // uses it to tell a page with a Google sign-in from one without (GOOGLE_MISSED in the ledger).
   function countGoogleControls() {
@@ -509,6 +543,7 @@
   // Never on a pressable control (button, link ...): the label replaces its live name, and a pass that comes late would
   // leave a stale name that the guard trusts ("Next" on a button that now says "Submit application").
   const OURS = "data-aa-label";       // the exact label this script wrote
+  const ROLE_OURS = "data-aa-role";   // a role this script wrote on a plain clickable (leaveRun removes it)
   const ORIG = "data-aa-orig-label";  // the site's own label, put back when no mark is left
   const MARK_CAP = 3000;
   const ROLE_KIND = {
@@ -957,6 +992,12 @@
 
   function pass() {
     if (!active) return;
+    // nameClickables FIRST: the role it writes puts the element in CONTROLS ([role="button"]), so the Google arm
+    // below sees it in its first loop and names it in the SAME pass. The other way round, the Google arm named a
+    // clickable div and this pass then took the name off again (iconName returns "" for a div holding an
+    // <img alt="Google">), and only a SECOND pass put it back -- correct by accident, and wrong on a page that
+    // mutates once and never again.
+    nameClickables();
     nameGoogleButtons();  // before markFields: no field mark ever stands in front of an "[icon] " name
     nameFrames();
     if (isTop) {
@@ -1000,6 +1041,7 @@
     firstAt = 0;
     due = false;
     for (const el of document.querySelectorAll(`[${OURS}]`)) restoreLabel(el);
+    dropPlainRoles();
     for (const banner of document.querySelectorAll("a[data-aa-dialog]")) banner.remove();
     dropShadowProxies();
     if (document.documentElement) document.documentElement.removeAttribute(ATTR);
