@@ -21,9 +21,13 @@
   const TAG_RE = /^\[AA (on( [0-9][\w.+-]*)?|from \d+|grouped \d+|adopted \d+)\](?: |$)/;
   const isTop = window === window.top;
   const GOOGLE_NAME = "Continue with Google";
-  // A Google app is no sign-in option ("Upload from Google Drive"). The same ten names are written by hand in
-  // scripts/lexicon.py (GOOGLE_PRODUCTS): change both together.
-  const GOOGLE_PRODUCTS = /\b(drive|docs|maps|pay|play|photos|sheets|calendar|meet|cloud)\b/i;
+  // A Google app is no sign-in option ("Upload from Google Drive"). An app word of its own, or glued to the
+  // "google" / "g" that an icon file is named with ("GoogleDrive", "google_drive.svg", "gdrive"): "_" is a word
+  // character and a folded name has no boundary inside it, so the plain list alone sees none of those. Not a bare
+  // substring, which would read an app name out of Paylocity, display, Cloudflare and driver. The same ten names
+  // are written by hand in scripts/lexicon.py (GOOGLE_PRODUCTS): change both together.
+  const PRODUCTS = "drive|docs|maps|pay|play|photos|sheets|calendar|meet|cloud";
+  const GOOGLE_PRODUCTS = new RegExp(`\\b(?:${PRODUCTS})\\b|\\bg(?:oogle)?[\\s\\-_.]*(?:${PRODUCTS})`, "i");
   const isGoogleSignin = (text) => /google/i.test(text) && !GOOGLE_PRODUCTS.test(text);
   const GOOGLE_COLORS = [/#4285f4/, /#ea4335/, /#fbbc0[45]/, /#34a853/];
   const CONTROLS = 'button, [role="button"], input[type="submit"], input[type="button"], a, [role="link"]';
@@ -90,10 +94,24 @@
     }
     for (const svg of scope.querySelectorAll("svg")) {
       const html = svg.outerHTML.toLowerCase();
+      // An app name is looked for in the parts that NAME the icon, never in the whole markup: every SVG attribute
+      // value stands in that, and `preserveAspectRatio="xMidYMid meet"` alone would make the Google logo a Meet
+      // mark. The colour count runs through the same test: Photos and the Play triangle carry the four brand
+      // colours as the "G" logo does, so 4 of 4 is no sign-in evidence on a control its mark names as an app.
+      const title = svg.querySelector("title");
+      const use = svg.querySelector("use");
+      const named = `${nameParts(svg)} ${nameParts(scope)} ${title ? title.textContent : ""} `
+        + (use ? use.getAttribute("href") || use.getAttribute("xlink:href") || "" : "");
+      if (GOOGLE_PRODUCTS.test(named)) continue;
       // the "G" logo: its name in an id or title, or at least 3 of its 4 colours
-      if (isGoogleSignin(html) || GOOGLE_COLORS.filter((c) => c.test(html)).length >= 3) return true;
+      if (/google/i.test(html) || GOOGLE_COLORS.filter((c) => c.test(html)).length >= 3) return true;
     }
     return false;
+  }
+
+  // what names an element, as a page writes it: no text node, no attribute that styles or lays out
+  function nameParts(el) {
+    return ["id", "class", "aria-label", "data-testid"].map((a) => el.getAttribute(a) || "").join(" ");
   }
 
   // read_page names a control from its own text, an aria-label or an alt, never from a child element, so a button
@@ -410,8 +428,9 @@
       } catch (e) {
         background = "";
       }
-      // the host googleusercontent.com serves user pictures, not the Google logo
-      if (/google/i.test(background) && !/googleusercontent\.com/i.test(background)) add(el, hasName(el));
+      // the host googleusercontent.com serves user pictures, not the Google logo; and the address of an app's icon
+      // ("/img/google-drive.svg") is as little a sign-in option here as an app name in the text above
+      if (isGoogleSignin(background) && !/googleusercontent\.com/i.test(background)) add(el, hasName(el));
     }
     // Google's own sign-in widget: its button lives in a cross-origin frame, so it has no name here
     for (const frame of document.querySelectorAll('iframe[src^="https://accounts.google.com/gsi/"]')) add(frame, false);

@@ -359,11 +359,16 @@ class TestPopupsAsTabs(unittest.TestCase):
                 job = [page for page in ctx.pages if page is not home][0]
                 job.goto("http://127.0.0.1:8001/google-link.html")
                 time.sleep(1.0)
-                names = job.evaluate("Object.fromEntries(['glink', 'gdiv', 'plain'].map("
-                                     "id => [id, document.getElementById(id).getAttribute('aria-label')]))")
-                self.assertEqual(names, {"glink": ICON_GOOGLE, "gdiv": ICON_GOOGLE, "plain": None})
-                # two Google controls, both named by the helper itself
-                self.assertRegex(job.title(), r"\[AA g=2 named=2 v=[0-9][\w.+-]*\]$")
+                names = job.evaluate("Object.fromEntries([...document.querySelectorAll('button, a')].map("
+                                     "el => [el.id, el.getAttribute('aria-label')]))")
+                # issue 46: a Google app is no sign-in option, whether its name is spaced, glued or split by "_",
+                # and a product mark in the four brand colours is none either. The one-colour sprite logo is.
+                self.assertEqual(names, {"glink": ICON_GOOGLE, "plain": None, "sprited": ICON_GOOGLE,
+                                         "drivealt": None, "drivefile": None, "gdrive": None, "glued": None,
+                                         "photos": None, "bgdrive": None})
+                self.assertEqual(job.evaluate("document.getElementById('gdiv').getAttribute('aria-label')"), ICON_GOOGLE)
+                # three Google controls, all named by the helper itself; no app control is counted
+                self.assertRegex(job.title(), r"\[AA g=3 named=3 v=[0-9][\w.+-]*\]$")
 
                 job.goto("http://127.0.0.1:8001/no-google.html")
                 time.sleep(1.0)

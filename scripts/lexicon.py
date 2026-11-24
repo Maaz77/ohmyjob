@@ -360,14 +360,27 @@ SEARCH = Terms(
 # A Google option on a site ("Sign in with Google", "Continuer avec Google" ...).
 GOOGLE = Terms(["~google", "гугл", "גוגל", "جوجل", "گوگل", "谷歌", "グーグル", "구글"])
 
+# The one name the helper extension writes on an icon-only Google logo, written by hand in
+# chrome-extension/bridge.js (GOOGLE_NAME) as well: change both together. Rules that excuse a guessed name because
+# a Google sign-in is behind it test this literal, never GOOGLE -- that list matches "google" anywhere, so a class
+# such as "google-apply-submit" would take the same excuse.
+GOOGLE_NAME = "Continue with Google"
+
 # A Google app is not a sign-in option ("Upload from Google Drive"). App names are proper nouns and travel untranslated.
 # The same ten names are written by hand in chrome-extension/bridge.js (GOOGLE_PRODUCTS): change both together.
-GOOGLE_PRODUCTS = Terms(["drive", "docs", "maps", "pay", "play", "photos", "sheets", "calendar", "meet", "cloud"])
+_PRODUCTS = ["drive", "docs", "maps", "pay", "play", "photos", "sheets", "calendar", "meet", "cloud"]
+GOOGLE_PRODUCTS = Terms(_PRODUCTS)
+# The same app glued to its "google" ("GoogleDrive", "google_drive.svg", "gdrive"): "_" is a word character and a
+# name folded to one word has no boundary inside it, so the list above does not see those. Not matched as a bare
+# substring, which would read an app name out of Paylocity, display, Cloudflare and driver; it has to follow a
+# "google" or a "g". norm() has already folded the case, so no camelCase split is needed here.
+_GLUED_PRODUCT = re.compile(r"(?<!\w)g(?:oogle)?[\s\-_.]*(?:" + "|".join(_PRODUCTS) + r")")
 
 
 def google_signin(name: Optional[str]) -> Optional[str]:
     """The Google word of a name that is a Google sign-in option, or None (no Google word, or a Google app named)."""
-    return None if GOOGLE_PRODUCTS.find(name) else GOOGLE.find(name)
+    text = norm(name)
+    return None if GOOGLE_PRODUCTS.find(text) or _GLUED_PRODUCT.search(text) else GOOGLE.find(name)
 
 # Messages that an application was sent (the checks raise an alarm when the last page shows one).
 SUBMITTED = Terms(

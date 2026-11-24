@@ -2,3 +2,15 @@
 <a id="glink" href="/oauth"><svg><path fill="#4285F4"/><path fill="#34A853"/><path fill="#FBBC04"/><path fill="#EA4335"/></svg></a>
 <div id="gdiv" tabindex="0"><img alt="Google" src="g.png"></div>
 <button id="plain" type="submit">Next</button>
+<!-- Issue 46: a Google app is no sign-in option, however its icon is written. The word boundary of the app list
+     falls inside "GoogleDrive", "googledrive.png" and "gdrive", and "_" is a word character. -->
+<button id="drivealt" type="button"><img alt="GoogleDrive" src="d.png"></button>
+<button id="drivefile" type="button"><img alt="Upload" src="google_drive.svg"></button>
+<button id="gdrive" type="button"><img alt="Upload" src="gdrive-google.svg"></button>
+<button id="glued" type="button"><img alt="Upload" src="googledrive.png"></button>
+<!-- a product mark in the same four brand colours as the "G" logo: the colour count is no sign-in evidence here -->
+<button id="photos" type="button"><svg id="google-photos"><path fill="#4285F4"/><path fill="#34A853"/><path fill="#FBBC04"/><path fill="#EA4335"/></svg></button>
+<!-- a Drive button whose icon is a background image: the title's g= count reads those too -->
+<button id="bgdrive" type="button" style="background-image:url(/img/google-drive.svg);width:20px;height:20px"></button>
+<!-- a sprite logo in one colour: "preserveAspectRatio" ends in the SVG token "meet", which is no Google app -->
+<button id="sprited" type="button"><svg id="google-g" preserveAspectRatio="xMidYMid meet"><use href="sprites.svg#google-logo"/></svg></button>

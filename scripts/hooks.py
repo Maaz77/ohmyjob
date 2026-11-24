@@ -540,8 +540,10 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         raise Deny(f"'{name}' is a final control ('{word}'). Do not click it. "
                    + park_order(ctx, tab, "Stop here with status 'parked'."))
     # a <button> without a type attribute is a submit button as well. The one hard refusal for a guessed name: the page
-    # itself says the button submits the form. A Google sign-in name is the exception: the Haiku check below decides.
-    if role == "button" and (not name.strip() or icon and not X.google_signin(name)) \
+    # itself says the button submits the form. The extension's own Google name is the exception (the literal, not a
+    # Google word anywhere in the name): an icon-only Google logo is a sign-in option, not a form submit, and the
+    # Haiku check below decides about it.
+    if role == "button" and (not name.strip() or icon and X.norm(name) != X.norm(X.GOOGLE_NAME)) \
             and (attrs.get("type") == "submit" or filled and attrs.get("type") not in ("button", "reset")):
         raise Deny("This is a submit button without a name (or named only from its icon), and nothing inside it is "
                    "named either. If you have not "
