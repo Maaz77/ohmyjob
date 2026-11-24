@@ -334,9 +334,12 @@ CODE_ASK = Terms(
 
 # Withdraw and delete, two lists. A withdraw word is a hard refusal that never reaches the Haiku check: withdrawing an
 # application cannot be undone and is never part of applying. A delete word ("Remove", "Delete") is judged by the Haiku
-# check from the text around it: "Remove" beside an uploaded file is an upload control, "Delete my data" is not.
-# A word whose sense is not clearly "remove this row" belongs in WITHDRAW: a word misfiled there parks a worker
-# (recoverable), a word misfiled as a delete word hands an ambiguous destructive name to a model that may allow it.
+# check from the container it sits in: "Remove" inside an upload area is an upload control, "Delete my data" is not.
+# WITHDRAW holds every word this project has not confirmed to mean "remove this row" and nothing worse, which is not
+# the same as every word whose sense is unclear: the Turkish "sil" and the Albanian "fshi" are the plain Delete words
+# of those languages (Turkish withdraw is "geri çek", listed here too), and they stay here all the same. A word
+# misfiled here parks a worker, which is recoverable; a word misfiled as a delete word hands an ambiguous destructive
+# name to a model that may allow it. The price is that every delete control on a Turkish or Albanian page is refused.
 _WITHDRAW = (
     ["withdraw", "cancella", "cancellare", "ritira", "ritirare", "retirer", "zurückziehen", "retirar", "intrekken",
      "trek in", "dra tillbaka", "træk tilbage", "trekk tilbake", "võta tagasi", "atsaukt", "atšaukti", "wycofaj",
