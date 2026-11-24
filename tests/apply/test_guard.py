@@ -1446,6 +1446,23 @@ class TestClickGuardHoles(T.Base):
         self.assertAllowed(self.try_click(upload))  # asked, not allowed on its name: `excused` carries it there
         self.assertEqual(len(self.judge_calls()), before + 1)
 
+    def test_a_delete_link_with_an_address_is_asked_and_never_allowed_on_its_name(self):
+        """Pins the `bool(remove)` term of `excused`: `navigable_href` excludes a link with a real address from the
+        role test, so without the flag a delete word on it fell out of the check allowed with no model call. The
+        fake judge blocks a flat page's "Remove" (no container), so the verdict must come from the judge."""
+        self.boot(filled=True)
+        page = 'link "Resume.pdf" [ref_8]\nlink "Remove" [ref_1] href="/resume/1/delete"\n'
+        before = len(self.judge_calls())
+        self.assertDenied(self.try_click(page, "ref_1"), "Haiku check blocked")
+        self.assertEqual(len(self.judge_calls()), before + 1)
+
+    def test_a_signup_name_in_a_picker_says_so_in_the_prompt(self):
+        """Same as the delete case: `widget` was computed only for final, apply and delete words."""
+        self.boot(filled=True)
+        page = 'listbox "Alerts" [ref_9]\n button "Register interest" [ref_1] type="button"\n'
+        self.try_click(page)
+        self.assertEqual(self.judge_calls()[-1]["widget"], "yes")
+
     def test_a_delete_word_in_a_picker_says_so_in_the_prompt(self):
         """Issue 45, defect 6: the picker line was computed only for a final or apply word, so for a delete word it
         always read "no" without the hook ever looking. It is evidence the model reads, so it has to be true."""
