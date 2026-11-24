@@ -471,8 +471,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     role = item.get("role") or ""
     snapshot = L.snapshot_text(ctx.run_dir, tab)
     attrs = item.get("attrs") or {}
-    # a name the extension read off the control's icon (bridge.js, "[icon] "): a guess, so no allow comes from it and
-    # no word refuses on it. Each word rule below stands down for it through `excused`, and the Haiku check decides.
+    # a name the extension read off the control's icon (bridge.js, "[icon] "): a guess, so no allow comes from it,
+    # and the final, Apply and consent rules below stand down for it through `excused` and let the Haiku check
+    # decide. The delete rule is the one that keeps refusing on a guess (see it below).
     icon = bool(item.get("icon"))
     # read_page names a control from its own text, an aria-label or an alt, never from a child element, so a
     # button whose text sits in a span (Vuetify and friends) arrives here without a name, or with only part of it
@@ -526,7 +527,9 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
         # not a name that holds a final word beside the consent phrase ("Submit and save my choices")
         rest = X.norm(scan)
         rest = rest.replace(X.CMP.find(rest) or "\0", " ")
-        if name.strip() and not filled and not X.FINAL.find(rest) \
+        # `not icon`: the allow rests on the wording of the name, so a name the extension guessed off a class earns
+        # it as little here as anywhere else -- it goes to the Haiku check through `excused` below.
+        if name.strip() and not icon and not filled and not X.FINAL.find(rest) \
                 and (X.CMP.find(name) or X.CMP.find(around) or X.COOKIE.find(name)):
             L.log(ctx.run_dir, "consent-dialog", tab=int(tab), name=name[:60])
             return
@@ -570,7 +573,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # is an answer), so the permission, delete, sign-up and Google rules below skip it.
     if consent and not tick and (X.PERMISSION.find(name) or L.OAUTH_URL_RE.search(ctx.url(tab) or "")):
         raise Deny(f"'{name}' gives a sign-in permission. Not allowed. If you cannot go on, stop with status 'blocked'.")
-    if not tick and not icon and X.DELETE.find(name):
+    # The one word rule that does NOT stand down for a guessed name. CLICK_PROMPT still contradicts itself on this
+    # word (judge.py blocks "delete or withdraw data" and allows "Remove" nine lines on), so the model is no gate for
+    # it yet; issue 45 owns that prompt and the delete/icon interaction. A mislabelled icon button costs a parked
+    # worker until then, which is recoverable, while a deleted record is not.
+    if not tick and X.DELETE.find(name):
         raise Deny(f"'{name}' deletes or withdraws data. Not allowed.")
     google = None if tick else X.google_signin(name)
     # "Register interest" and "Sign up for alerts" create no account, and no word tells them from "Register" alone,
@@ -588,8 +595,11 @@ def check_click_name(ctx: Ctx, tab: Any, ref: str, item: dict) -> None:
     # `not signup`: before a fill an Apply word lets a click pass with no check, and a name that asks for an account
     # in order to apply ("Create account to apply", "Sign up and apply") carries both words. The hard sign-up refusal
     # used to catch those; now that the Haiku check decides a sign-up name, this pass has to stand aside for it.
-    if not name.strip() or consent or (not icon and ((apply_word and not filled and not sticky and not board and not signup)
-                                                    or name in X.SAFE)):
+    # `consent` sits inside the `not icon` group with the others: a consent word is wording like any other, and a
+    # guess off a class ("accept-and-submit") must not buy the allow that the site's own "Accept and submit" is
+    # refused by. With it, the widened `excused` below sends such a name to the Haiku check.
+    if not name.strip() or (not icon and (consent or (apply_word and not filled and not sticky and not board and not signup)
+                                          or name in X.SAFE)):
         return
     # `excused` first: a control that a word rule stood down for is never allowed on its name alone, whatever its
     # role. One flag per rule: `widget` a final or apply word inside a picker, `apply_step` an apply word beside a
